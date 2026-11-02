@@ -5,16 +5,17 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "apps/*",
+    "services/*"
   ],
   "scripts": {
     "dev": "node tools/dev.mjs",
-    "dev:desktop": "npm run dev -w @craftmate/desktop",
+    "dev:desktop": "npm run dev -w @craftmate/desktop-shell",
     "dev:orchestrator": "npm run dev -w @craftmate/orchestrator",
-    "dev:console": "npm run dev -w @craftmate/console",
-    "build": "npm run build -w @craftmate/console",
-    "build:console": "npm run build -w @craftmate/console",
-    "build:desktop": "npm run build -w @craftmate/desktop",
+    "dev:console": "npm run dev -w @craftmate/admin-console",
+    "build": "npm run build -w @craftmate/admin-console",
+    "build:console": "npm run build -w @craftmate/admin-console",
+    "build:desktop": "npm run build -w @craftmate/desktop-shell",
     "test": "node --test --experimental-strip-types \"packages/**/*.test.ts\" \"apps/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

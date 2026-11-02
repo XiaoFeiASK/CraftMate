@@ -176,7 +176,7 @@ proposed → spoken → accepted → in_progress → fulfilled
 
 ## 6. 部署拓扑
 
-单机，六个进程，一个 OBS。Console 是 Tauri 原生窗口；开发预览用 Vite 承载同一套 React 界面。
+单机，六个进程，一个 OBS。管理端由 Tauri 原生窗口承载；开发预览用 Vite 运行同一套 React 界面。
 
 ```text
 Mac (Apple Silicon)

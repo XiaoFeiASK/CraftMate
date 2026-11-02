@@ -1,4 +1,4 @@
-import { runMockClient } from "../apps/orchestrator/src/simulation/mock-client.ts";
+import { runMockClient } from "../services/orchestrator/src/simulation/mock-client.ts";
 
 await runMockClient({
   url: process.argv[2] ?? "ws://127.0.0.1:4321/control",

@@ -1,0 +1,18 @@
+{
+  "name": "@craftmate/agent",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./domain": "./domain/index.ts",
+    "./application": "./application/index.ts",
+    "./persona": "./domain/persona/index.ts",
+    "./arbitration": "./domain/arbitration/index.ts",
+    "./commitment": "./domain/commitment/index.ts"
+  },
+  "dependencies": {
+    "@craftmate/contracts": "*",
+    "zod": "^3.24.1"
+  }
+}
