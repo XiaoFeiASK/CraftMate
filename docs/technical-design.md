@@ -2,7 +2,7 @@
 
 > 状态：v1.1 · 2026-11-02
 > 本文是项目的技术记忆基线。换对话、换人接手、隔几周回来，读这一篇即可恢复上下文。
-> 决策记录见 [adr/](adr/README.md)，术语见 [../GLOSSARY.md](../GLOSSARY.md)。
+> 架构全景见 [architecture.md](architecture.md)，决策记录见 [decisions.md](decisions.md)，术语见 [../GLOSSARY.md](../GLOSSARY.md)。
 
 ## 0. 一页纸速查
 
@@ -17,10 +17,11 @@
 | 游戏执行 | Fabric 客户端 Mod + 本地 WebSocket，不用 Mineflayer |
 | 内核 | Node 22 + TypeScript |
 | 管理端 | Tauri 2 + React，桌面程序形态，不是浏览器后台 |
-| 语音 | 流式 TTS + BlackHole + OBS 侧链压缩 |
+| 语音 | 流式 TTS + BlackHole + OBS 侧链压缩，参考大肥鱼音色 |
 | 直播 | 抖音专用开播号，竖屏 1080×1920 |
-| 人格 | 单一「大肥鱼」人格，可版本化调整 |
-| 模型 | OpenAI 兼容协议，多 Provider，API Key 存 Keychain |
+| 人格 | 单一「大肥鱼」人格，软萌，可版本化调整 |
+| 首播 | 单一主线目标，允许约 20% 被弹幕打断 |
+| 模型 | 先用 DeepSeek，OpenAI 兼容协议，可切多 Provider，Key 存 Keychain |
 | 存储 | SQLite（WAL + FTS5） |
 | 许可证 | MIT OR Apache-2.0 |
 | 宿主 | macOS Apple Silicon 优先，Windows 第二实现 |
@@ -61,7 +62,7 @@
 
 ## 2. 已确认约束
 
-这些是用户拍板的事实，不是建议。改动需要新的 ADR。
+这些是用户拍板的事实，不是建议。改动需要在 [decisions.md](decisions.md) 追加一条决策。
 
 | 编号 | 约束 | 来源 |
 | --- | --- | --- |
@@ -141,7 +142,7 @@
 
 代价：一个账号只有一个身体，人和 Agent 不能同时操作。这由控制权三态解决（见 4.5）。
 
-> 历史决策：最早考虑过 Mineflayer 做 MVP，用户确认已有成熟 Fabric 玩法后改为直接上 Fabric。见 ADR-0001。
+> 历史决策：最早考虑过 Mineflayer 做 MVP，用户确认已有成熟 Fabric 玩法后改为直接上 Fabric。见 [D-01](decisions.md#d-01)。
 
 ### 4.2 模块划分
 
@@ -499,7 +500,7 @@ TTS 首字      0.8s
 | MiniMax | 备用，情感表现好 |
 | Edge TTS | 开发 / 降级，免费 |
 
-音色目标参考社区公开的大肥鱼语音：软萌、略高音调、语速偏快。先用云厂商现成音色近似，链路稳定后再评估专属克隆；克隆他人音色必须有授权。见 ADR-0013。
+音色目标参考社区公开的大肥鱼语音：软萌、略高音调、语速偏快。先用云厂商现成音色近似，链路稳定后再评估专属克隆；克隆他人音色必须有授权。见 [D-13](decisions.md#d-13)。
 
 ### 8.3 音频路由
 
@@ -819,13 +820,13 @@ Go 的真实优势（也记录在此，避免以后重复讨论）：
 
 ### 15.2 为什么不用 Mineflayer
 
-Mineflayer 接入快，但没有相机、动画、HUD，复杂建造和战斗受限，且执行循环要在 TS 侧逐步驱动。用户已确认成熟 Fabric 玩法存在，直接上 Fabric 换取表现力和执行质量。见 ADR-0001。
+Mineflayer 接入快，但没有相机、动画、HUD，复杂建造和战斗受限，且执行循环要在 TS 侧逐步驱动。用户已确认成熟 Fabric 玩法存在，直接上 Fabric 换取表现力和执行质量。见 [D-01](decisions.md#d-01)。
 
 ### 15.3 寻路
 
 Baritone v1.17.0 支持 1.21.11 + Fabric，能力成熟，但许可证是 LGPL-3.0。若产品闭源或商业化，嵌入并作为核心依赖会触发衍生作品判断和可替换链接义务。
 
-决策：正式版用自研 A*（区块缓存 + 有界搜索 + 每 tick 预算）。开发期可单独安装 Baritone 做对照实验，验证目标可达性和耗时，不进入发行包。若未来确认接受 LGPL 并完成合规流程，再重新评估，但不作为默认路径。见 ADR-0015。
+决策：正式版用自研 A*（区块缓存 + 有界搜索 + 每 tick 预算）。开发期可单独安装 Baritone 做对照实验，验证目标可达性和耗时，不进入发行包。若未来确认接受 LGPL 并完成合规流程，再重新评估，但不作为默认路径。见 [D-15](decisions.md#d-15)。
 
 ### 15.4 技术栈汇总
 
@@ -876,8 +877,9 @@ craftmate/
 │  ├─ safety/
 │  └─ observability/
 ├─ docs/
-│  ├─ adr/
-│  └─ technical-design.md
+│  ├─ architecture.md
+│  ├─ technical-design.md
+│  └─ decisions.md
 ├─ GLOSSARY.md
 └─ licenses/
 ```
@@ -896,13 +898,13 @@ craftmate/
 
 ## 19. 已确认的运营决策
 
-| 编号 | 事项 | 结论 | 对应 ADR |
+| 编号 | 事项 | 结论 | 对应决策 |
 | --- | --- | --- | --- |
-| D-01 | 模型 | 先用 DeepSeek，Stage B 用 chat，Stage C 用 reasoner | ADR-0012 |
-| D-02 | 音色 | 参考社区大肥鱼，先用云厂商现成音色近似 | ADR-0013 |
-| D-03 | 首播形态 | 单一主线目标，允许约 20% 被弹幕打断 | ADR-0014 |
-| D-04 | 寻路 | 自研 A*，Baritone 仅开发期对照 | ADR-0015 |
-| D-05 | 抖音 | 官方与抓取双实现，按资质切换 | ADR-0007 |
+| D-01 | 模型 | 先用 DeepSeek，Stage B 用 chat，Stage C 用 reasoner | [D-12](decisions.md#d-12) |
+| D-02 | 音色 | 参考社区大肥鱼，先用云厂商现成音色近似 | [D-13](decisions.md#d-13) |
+| D-03 | 首播形态 | 单一主线目标，允许约 20% 被弹幕打断 | [D-14](decisions.md#d-14) |
+| D-04 | 寻路 | 自研 A*，Baritone 仅开发期对照 | [D-15](decisions.md#d-15) |
+| D-05 | 抖音 | 官方与抓取双实现，按资质切换 | [D-07](decisions.md#d-07) |
 
 ## 20. 待确认
 
