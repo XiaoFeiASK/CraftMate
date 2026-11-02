@@ -13,7 +13,7 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="app">
-      <TitleBar />
+      <TitleBar view={drawer} onSelect={setDrawer} />
       <div className="app__workspace">
         <Sidebar
           drawer={drawer}

@@ -1,43 +1,69 @@
-import { closeWindow, maximizeWindow, minimizeWindow } from "../../lib/window-controls.ts";
+import type { DrawerMode } from "../operations/OperationsDrawer.tsx";
+import mascotLogo from "../../assets/dafeiyu.png";
 
 const dragRegion = { "data-tauri-drag-region": true } as const;
 
-export function TitleBar(): React.JSX.Element {
+interface TitleBarProps {
+  readonly view: DrawerMode | null;
+  readonly onSelect: (view: DrawerMode | null) => void;
+}
+
+const TABS: readonly { readonly label: string; readonly view: DrawerMode | null }[] = [
+  { label: "总览", view: null },
+  { label: "评论区", view: "decisions" },
+  { label: "人格", view: "persona" },
+  { label: "接入", view: "connections" },
+] as const;
+
+export function TitleBar({ view, onSelect }: TitleBarProps): React.JSX.Element {
+  const webPreview = !("__TAURI_INTERNALS__" in window);
+
   return (
     <header className="titlebar" {...dragRegion}>
-      <div className="titlebar__brand" {...dragRegion}>
-        <span className="titlebar__logo" aria-hidden="true">
+      {webPreview ? (
+        <span className="traffic-lights" aria-hidden="true">
           <span />
           <span />
           <span />
         </span>
-        <strong>CraftMate</strong>
-        <span className="titlebar__version">直播控制台 0.1</span>
+      ) : null}
+
+      <div className="titlebar__brand" {...dragRegion}>
+        <img className="titlebar__logo" src={mascotLogo} alt="" aria-hidden="true" />
+        <span className="titlebar__name">
+          <strong>CraftMate</strong>
+          <span className="titlebar__version">直播控制台</span>
+        </span>
       </div>
+
+      <nav className="titlebar__nav" aria-label="控制台分区">
+        {TABS.map((tab) => (
+          <button
+            key={tab.label}
+            type="button"
+            className="titlebar__tab"
+            data-current={view === tab.view}
+            aria-current={view === tab.view ? "page" : undefined}
+            onClick={() => onSelect(tab.view)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
 
       <div className="titlebar__drag" {...dragRegion} />
 
-      <div className="titlebar__controls">
-        <button className="window-button" type="button" aria-label="帮助">
+      <div className="titlebar__meta">
+        <button
+          className="titlebar__button"
+          type="button"
+          aria-label="接入与设置"
+          onClick={() => onSelect("connections")}
+        >
           <svg viewBox="0 0 20 20" aria-hidden="true">
-            <circle cx="10" cy="10" r="7.25" />
-            <path d="M7.9 7.8a2.2 2.2 0 1 1 3.1 2c-.7.35-1 .8-1 1.6" />
-            <path d="M10 14.4h.01" />
-          </svg>
-        </button>
-        <button className="window-button" type="button" aria-label="最小化" onClick={() => void minimizeWindow()}>
-          <svg viewBox="0 0 20 20" aria-hidden="true">
-            <path d="M5 10h10" />
-          </svg>
-        </button>
-        <button className="window-button" type="button" aria-label="最大化" onClick={() => void maximizeWindow()}>
-          <svg viewBox="0 0 20 20" aria-hidden="true">
-            <rect x="5.5" y="5.5" width="9" height="9" rx=".4" />
-          </svg>
-        </button>
-        <button className="window-button window-button--close" type="button" aria-label="关闭" onClick={() => void closeWindow()}>
-          <svg viewBox="0 0 20 20" aria-hidden="true">
-            <path d="m6 6 8 8M14 6l-8 8" />
+            <circle cx="10" cy="10" r="2.5" />
+            <path d="M10 3.2v1.4M10 15.4v1.4M16.8 10h-1.4M4.6 10H3.2M14.8 5.2l-1 1M6.2 13.8l-1 1M14.8 14.8l-1-1M6.2 6.2l-1-1" />
+            <circle cx="10" cy="10" r="6.1" />
           </svg>
         </button>
       </div>

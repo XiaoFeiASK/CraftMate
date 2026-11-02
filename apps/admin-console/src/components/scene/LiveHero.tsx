@@ -1,6 +1,7 @@
 import type { ShowMode, ShowStats } from "@craftmate/contracts";
 import type { WireState } from "../../lib/connection.ts";
-import { VoxelLandscape } from "./VoxelLandscape.tsx";
+import cherryGrove from "../../assets/cherry-grove.jpg";
+import dafeiyu from "../../assets/dafeiyu.png";
 
 interface LiveHeroProps {
   readonly state: WireState;
@@ -17,7 +18,7 @@ export function LiveHero({ state, mode, personaName, stats, target, onOpenConsol
 
   return (
     <main className="hero">
-      <VoxelLandscape />
+      <img className="hero__photo" src={cherryGrove} alt="" />
       <div className="hero__veil" aria-hidden="true" />
 
       <header className="hero__top">
@@ -34,35 +35,46 @@ export function LiveHero({ state, mode, personaName, stats, target, onOpenConsol
       </header>
 
       <section className="session-card" aria-labelledby="session-title">
-        <div className="session-card__identity">
-          <span className="session-card__eyebrow">本场 Agent</span>
-          <h1 id="session-title">{personaName}</h1>
-          <p>{modeLabel(mode)}</p>
+        <div className="session-card__copy">
+          <div className="session-card__identity">
+            <span className="session-card__eyebrow">本场 Agent</span>
+            <h1 id="session-title">{personaName}</h1>
+            <p>{modeLabel(mode)}</p>
+          </div>
+
+          <div className="session-card__objective">
+            <span>今日主线</span>
+            <strong>{target}</strong>
+          </div>
+
+          <div
+            className="session-card__progress"
+            role="progressbar"
+            aria-label="今日主线进度"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(progress * 100)}
+          >
+            <span style={{ width: `${progress * 100}%` }} />
+          </div>
+
+          <dl className="session-card__stats">
+            <div>
+              <dt>已收到</dt>
+              <dd>{stats.received}</dd>
+            </div>
+            <div>
+              <dt>待兑现</dt>
+              <dd>{stats.openCommitments}</dd>
+            </div>
+            <div>
+              <dt>决策</dt>
+              <dd>{stats.executed + stats.refused + stats.observed}</dd>
+            </div>
+          </dl>
         </div>
 
-        <div className="session-card__objective">
-          <span>今日主线</span>
-          <strong>{target}</strong>
-        </div>
-
-        <div className="session-card__progress">
-          <span style={{ width: `${progress * 100}%` }} />
-        </div>
-
-        <dl className="session-card__stats">
-          <div>
-            <dt>已收到</dt>
-            <dd>{stats.received}</dd>
-          </div>
-          <div>
-            <dt>待兑现</dt>
-            <dd>{stats.openCommitments}</dd>
-          </div>
-          <div>
-            <dt>决策</dt>
-            <dd>{stats.executed + stats.refused + stats.observed}</dd>
-          </div>
-        </dl>
+        <img className="session-card__mascot" src={dafeiyu} alt="大肥鱼角色立绘" />
       </section>
 
       <button className="launch" type="button" onClick={onOpenConsole}>

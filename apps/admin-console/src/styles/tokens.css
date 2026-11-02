@@ -1,25 +1,29 @@
 :root {
-  /* Stone-blue launcher: daylight scene, cool glass, one ore-blue action. */
-  --title: #5f78d4;
-  --title-deep: #4e66c1;
-  --canvas: #e7eef8;
-  --sidebar: #f2f5fa;
-  --paper: #ffffff;
-  --ink: #28314a;
-  --ink-soft: #626f87;
-  --ink-faint: #919cb0;
-  --rule: #dce3ed;
-  --rule-strong: #c3cede;
-  --action: #5c70d5;
-  --action-hover: #4b5fc4;
-  --mint: #4e9b87;
-  --amber: #c7873c;
-  --coral: #ca655c;
-  --scrim: rgba(21, 30, 49, 0.34);
-  --shadow-soft: 0 14px 38px rgba(28, 47, 82, 0.16);
-  --shadow-lift: 0 24px 64px rgba(21, 37, 69, 0.27);
+  /* Linen desktop, pine actions, cherry-blossom scene. */
+  --canvas: #eeeae3;
+  --linen: #f8f5ef;
+  --linen-deep: #f1ece4;
+  --paper: #fffdf9;
+  --ink: #27241f;
+  --ink-soft: #6b655b;
+  --ink-faint: #9b9488;
+  --rule: rgba(52, 45, 35, 0.1);
+  --rule-strong: rgba(52, 45, 35, 0.18);
+  --action: #315c47;
+  --action-hover: #254a39;
+  --action-ink: #f7fbf7;
+  --blossom: #c96f84;
+  --blossom-soft: #f6e3e6;
+  --mint: #4f8d6d;
+  --amber: #b3773b;
+  --coral: #bc5d53;
+  --scrim: rgba(28, 25, 21, 0.32);
+  --shadow-soft: 0 12px 30px rgba(52, 42, 30, 0.1);
+  --shadow-lift: 0 26px 70px rgba(38, 29, 22, 0.24);
+  --shadow-nav: 0 2px 8px rgba(52, 42, 30, 0.06);
 
-  --font-ui: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+  --font-ui: "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+  --font-display: "SF Pro Display", "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
 
   --step-0: 12px;
@@ -29,12 +33,14 @@
   --step-4: 26px;
   --step-5: 42px;
 
-  --radius-soft: 6px;
-  --radius-card: 10px;
+  --radius-control: 10px;
+  --radius-soft: 14px;
+  --radius-card: 22px;
+  --radius-window: 24px;
   --radius-pill: 999px;
 
-  --titlebar-height: 44px;
-  --sidebar-width: 294px;
+  --titlebar-height: 52px;
+  --sidebar-width: 292px;
 
   color-scheme: light;
 }
@@ -52,22 +58,30 @@ body {
   font-size: var(--step-1);
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button, input { font: inherit; }
 button { color: inherit; }
+
+button,
+a,
+input {
+  -webkit-tap-highlight-color: transparent;
+}
 
 :focus-visible {
   outline: 2px solid var(--action);
   outline-offset: 3px;
 }
 
-::selection { background: rgba(92, 112, 213, 0.22); }
+::selection { background: rgba(201, 111, 132, 0.24); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }

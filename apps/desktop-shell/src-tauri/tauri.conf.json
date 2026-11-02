@@ -18,11 +18,14 @@
         "height": 800,
         "minWidth": 860,
         "minHeight": 620,
-        "decorations": false,
+        "decorations": true,
         "transparent": false,
         "resizable": true,
         "center": true,
-        "titleBarStyle": "Overlay"
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "shadow": true,
+        "backgroundColor": "#f3f4f6"
       }
     ],
     "security": {
@@ -32,6 +35,6 @@
   "bundle": {
     "active": true,
     "targets": ["app", "dmg"],
-    "icon": []
+    "icon": ["icons/icon.icns", "icons/icon.png"]
   }
 }
