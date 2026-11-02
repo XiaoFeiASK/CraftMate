@@ -1,29 +1,33 @@
 # 实现状态
 
-> 这份文档只回答两件事：**现在能跑什么**，**还差什么**。
-> 它是事实清单，不是计划。下一步做什么看 [delivery-plan.md](delivery-plan.md)。
+> 本文只回答两件事：**现在能跑什么**，**还差什么**。是事实清单，不是计划。
+> 下一步做什么看 [交付计划](delivery-plan.md)，架构设计看 [架构纵览](architecture.md)。
 
-判断标准：标「已实现」的条目必须能在本机用仓库里的命令复现；标「部分」的必须写清
-哪一段是假的；标「未实现」的不能有代码占位。
+判定标准：
 
-最后核对：2026-11-02（`main`）
+- **已实现**：能在这台机器上用仓库里的命令复现。
+- **部分**：写清哪一段是假的。
+- **未实现**：没有代码占位。
+
+最后核对：2026-11-02（工作区，含未提交改动）。
 
 ## 1. 能跑起来的东西
 
 ```bash
 npm install
-./start.command    # desktop window + orchestrator
+./start.command    # 桌面窗口 + orchestrator
 npm run typecheck
 npm test
 npm run build
 npm run db:check
 ```
 
-桌面窗口需要 Rust / Cargo，已在本机实际启动验证：窗口能渲染，控制面显示内核在线。
+2026-11-02 实测：`npm run typecheck` 通过，`npm test` 23 项全绿，`db:check` 报告
+24 个对象 / 17 个索引。桌面窗口需 Rust / Cargo，已在本机实际启动验证。
 
-## 2. 分层与当前状态
+## 2. 当前状态
 
-### 2.1 管理端（`apps/admin-console`）
+### 2.1 管理端 `apps/admin-console`
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
@@ -33,38 +37,42 @@ npm run db:check
 | 连接状态与自动重连 | 已实现 | 指数退避，有单测。 |
 | 操作员四类指令 | 已实现 | 接管、交还、急停、耳语；急停后需显式交还。 |
 | 人格展示 | 部分 | 只显示身份和权重，不能编辑。 |
-| 记忆 / 回放 / 设置页 | 未实现 | 只在文档里定义。 |
+| 记忆 / 回放 / 设置页 | 未实现 | 只在设计里定义。 |
 
-### 2.2 桌面宿主（`apps/desktop-shell`）
+### 2.2 桌面宿主 `apps/desktop-shell`
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| Tauri 2 外壳与窗口配置 | 已实现 | 无边框、1280×800、承载 admin-console 构建产物。 |
+| Tauri 2 外壳与窗口配置 | 已实现 | 无边框、1280×800，承载 admin-console 构建产物。 |
 | 窗口控制 API | 已实现 | 前端调用 Tauri Window API，非 Tauri 环境降级为无操作。 |
-| 本机实际启动 | 已实现 | Tauri 窗口在 macOS 实际启动，并能连上 Orchestrator。 |
+| 本机实际启动 | 已实现 | macOS 窗口可启动并连上 Orchestrator。 |
 
-### 2.3 控制面（`services/orchestrator`）
+### 2.3 控制面 `services/orchestrator`
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
 | WebSocket 控制服务 | 已实现 | `/control`，`hello` 握手，消息 zod 校验。 |
 | 健康检查 | 已实现 | `GET /health`，返回运行统计。 |
-| 监听地址可配置 | 已实现 | 默认 `127.0.0.1`；容器需要 `CRAFTMATE_HOST=0.0.0.0`。 |
+| 监听地址与端口 | 已实现 | 默认 `127.0.0.1:4321`，`CRAFTMATE_HOST` / `CRAFTMATE_PORT` 可覆盖。 |
+| 启动时接入 SQLite | 已实现 | `createPersistentShow()` 建库、跑迁移、恢复最近决策。 |
 | 模拟弹幕 | 已实现 | `tools/mock.ts`，脚本化样本，不是真实平台。 |
-| 真实抖音接入 | 未实现 | 没有 ingress 服务，没有签名、重连、风控。 |
-| 持久化 | 未实现 | 全部状态在内存，重启即丢。 |
+| `/ingress` 通道 | 已实现 | 接受 `hello` / `event` / `health`，并把 `source` 广播给控制台。 |
+| 真实抖音接入 | 部分 | `services/ingress` 已有 dyhub 适配、归一化、限流与重连；未接真实房间，无自动化测试。 |
+| `/bridge` 通道 | 未实现 | 只有 schema，设计见 [技术设计](technical-design.md)。 |
 
-### 2.4 契约（`packages/contracts`）
+### 2.4 契约 `packages/contracts`
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
 | 观众事件 schema | 已实现 | 评论、礼物、点赞、进场、在线人数。 |
-| 决策 schema | 已实现 | 意图、决策类型、分数、阶段、理由。 |
-| 优先级 schema | 已实现 | 8 级优先级；**尚未进入 `Decision`**，见下方已知缺口。 |
-| 控制面消息 | 已实现 | 客户端/服务端消息判别联合，有往返测试。 |
-| Bridge 指令与错误码 | 部分 | 只有 schema 和技能名白名单，没有协议实现。 |
+| 决策 schema | 已实现 | 含 `priority` 与可空 `skill`。 |
+| 优先级 schema | 已实现 | 8 级枚举，已进入 `Decision`。 |
+| 控制面消息 | 已实现 | 客户端/服务端判别联合，有往返测试。 |
+| Bridge 指令与错误码 | 部分 | `cmd` / `event` / 错误码 / 动作状态有 schema；`hello` / `ack` / `progress` / `result` / `cancel` 未定义，无实现。 |
+| 逐技能参数 schema | 未实现 | `args` 仍是 `record(unknown)`。 |
+| 来源健康状态 | 已实现 | `SourceHealth` 进入 `ShowSnapshot`，并有 `source` 消息，契约测试已覆盖。 |
 
-### 2.5 Agent 内核（`packages/agent`）
+### 2.5 Agent 内核 `packages/agent`
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
@@ -73,64 +81,65 @@ npm run db:check
 | 仲裁决策 | 已实现 | 六种决策 + 优先级排序，无模型调用。 |
 | 人格结构 | 已实现 | 结构化人格、权重、边界；当前只有「大肥鱼」一个实例。 |
 | 承诺账本 | 已实现 | 内存状态机，禁止跳过「说出口」。 |
-| 场次编排与运行模式 | 已实现 | agent / operator / stopped 三态。 |
+| 场次编排与运行模式 | 已实现 | `agent` / `operator` / `stopped` 三态。 |
+| 持久化写端口 | 已实现 | `ShowRecorder` 端口；先写 source，再仲裁，再写 decision。 |
 | Stage C 规划与模型 | 未实现 | 没有任何 Provider，也没有生成式回应。 |
 | 记忆召回 | 未实现 | 只有 200 条决策的内存环形缓冲。 |
 
-### 2.6 语音（目标：`services/voice`）
-
-未实现。没有 TTS、没有分句、没有音频路由、没有字幕。相关设计见
-[technical-design.md](technical-design.md) 第 9 节。
-
-### 2.7 游戏执行（目标：`mods/` + Bridge）
-
-未实现。当前只有 `packages/contracts/src/bridge.ts` 的 schema。没有 Bridge 服务、
-没有 Fabric Mod、没有技能执行器。
-
-### 2.8 存储（`db/`）
+### 2.6 存储 `packages/storage` + `db/`
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| v1 schema | 已实现 | `db/migrations/0001_initial.sql`，15 张表（含 FTS 主表）+ 4 个读模型视图。 |
+| v1 schema | 已实现 | `0001_initial.sql`，15 张表（含 FTS 主表）+ 4 个视图。 |
 | 约束与视图校验 | 已实现 | `npm run db:check`，内存库与真实 WAL 文件库两种模式。 |
-| 迁移执行器 | 未实现 | 没有建库、没有版本写入、没有校验和比对。 |
-| 仓储实现 | 未实现 | 没有 SQLite 连接池、没有 Store 实现。 |
-| 保留策略执行 | 未实现 | 只有 `raw_expires_at_ms` 字段，没有清理任务。 |
+| 连接与迁移执行器 | 已实现 | WAL、外键、`busy_timeout`；checksum 漂移直接失败。 |
+| `SessionStore` / `SourceStore` / `DecisionStore` / `ActionStore` | 已实现 | 启动恢复、事件去重、决策落库、动作幂等。 |
+| 存储层自动化测试 | 未实现 | 当前 `npm test` 未覆盖 `packages/storage`。 |
+| 承诺落库 | 部分 | `commitment` 表已建，`Show` 尚未写承诺状态迁移。 |
+| 记忆与待审仓储 | 未实现 | 只有表结构。 |
+| 保留策略执行 | 部分 | `SourceStore.expireRawText()` 已实现，没有定时任务调用它。 |
+
+### 2.7 接入端 `services/ingress`
+
+| 能力 | 状态 | 说明 |
+| --- | --- | --- |
+| dyhub WebSocket 适配 | 已实现 | 订阅 `/ws`，处理连接状态与重连。 |
+| 事件归一化 | 已实现 | `DanmakuEvent → AudienceEvent`，`roomStatus` 转健康状态。 |
+| 去重、限流、背压 | 已实现 | 10 分钟进程内窗口、每秒上限、有界队列，丢弃计数。 |
+| 上报 `/ingress` | 已实现 | 带 60 秒缓冲，Orchestrator 重启后补发。 |
+| 联调桩 | 部分 | `tools/fake/dyhub.mjs` 可手工联调；尚未接入 `npm test`。 |
+
+### 2.8 语音与游戏执行
+
+| 目标 | 状态 | 说明 |
+| --- | --- | --- |
+| 语音 `services/voice` | 未实现 | 没有 TTS、分句、音频路由、字幕。设计见 [技术设计](technical-design.md) §6。 |
+| Bridge 服务 | 未实现 | 只有 `packages/contracts/src/bridge.ts` 的 schema。 |
+| Fabric Mod | 未实现 | 没有 `mods/`、没有 Gradle 工程、没有 Fabric 依赖。 |
+| OBS / 抖音 SDK | 未实现 | 没有推流集成，没有平台 SDK。 |
 
 ## 3. 已知缺口
 
 按「会不会让下一步做错」排序，不按工作量。
 
-1. **`Decision` 契约缺 `priority`**。DDL 里 `decision_log.priority` 是必填，
-   运行时 `Decision` 没有这个字段。M1.1 落库前必须先补契约，不能用默认值糊过去。
-2. **`MemoryAudienceStore` 没有上限**。冷却和投票记录只增不减，长直播会缓慢泄漏。
-3. **`Show.decisions` 与 `Show.seen` 都是内存**。`seen` 只存 event id，
-   重启后无法去重，这正是 M1.1 要解决的。
-4. **Bridge schema 没有对应实现**。它现在是「设计意图的编码」，不是可用协议。
-5. **管理端没有服务端错误提示**。WebSocket `error` 事件会切到 `error` 状态，
-   但服务端下发的 `error` 消息没有界面呈现，只在连接层被忽略。
-6. **`db:check` 不是迁移测试**。它验证 schema 本身，不验证「老库升级到新库」。
+1. **承诺还没落库**。`Show` 的承诺只存在内存，重启后 `commitment_open` 为空。
+2. **存储层没有测试**。迁移、去重、幂等键都依赖 SQL 约束，当前靠 `db:check` 间接验证。
+3. **Ingress 没有自动化测试**。断线、房间关闭、洪峰只靠手工联调，未进 `npm test`。
+4. **Bridge 只有一半契约**。缺 `hello` / `ack` / `progress` / `result` / `cancel`，无法表达「已接受 / 执行中 / 已完成 / 超时」。
+5. **`Decision.skill` 恒为 `null`**。`EXECUTE` 目前只是标签，没有技能与参数，Bridge 无从下发。
+6. **`MemoryAudienceStore` 没有上限**。冷却和投票记录只增不减，长直播会缓慢泄漏。
+7. **`Show.seen` 只在内存**。重启后依赖数据库唯一索引去重，但内存层仍会重新消费。
+8. **管理端没有服务端错误提示**。`error` 消息在连接层被忽略，界面无呈现。
+9. **`db:check` 不是迁移测试**。它验证 schema，不验证「老库升级到新库」。
 
 ## 4. 明确不存在的东西
 
 避免接手的人误以为有代码可读：
 
-- 没有 `services/supervisord`、`services/ingress`、`services/voice`。
+- 没有 `services/supervisord`、`services/voice`。
 - 没有 `mods/`，没有 Gradle 工程，没有 Fabric 依赖。
 - 没有模型 Provider，没有 embedding，没有向量库。
 - 没有 OBS 集成，没有抖音开放平台 SDK。
 - 没有 CI 配置，没有发布流水线。
 
-这些东西出现时，本文档对应行必须同步改成「已实现」或「部分」，否则就是文档落后于代码。
-
-## 5. 本地环境
-
-| 依赖 | 是否必需 | 说明 |
-| --- | --- | --- |
-| Node.js ≥ 22.5 | 必需 | `node:sqlite` 需要；当前引擎下限写进 `package.json`。 |
-| Rust / Cargo | 仅桌面宿主 | 没有时 `npm run dev` 仍然可用。 |
-| Minecraft + Fabric | 仅游戏执行 | 当前阶段不需要。 |
-| OBS / BlackHole | 仅推流 | 当前阶段不需要。 |
-
-SQLite 是嵌入式库，**不需要也不应该**单独跑数据库进程。`npm run db:check:file`
-会在 `.tmp-db/` 里建一个真实的 WAL 文件库，校验完连同 `-wal` / `-shm` 一起删除。
+这些东西出现时，本文对应行必须同步改成「已实现」或「部分」，否则就是文档落后于代码。

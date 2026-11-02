@@ -1,14 +1,17 @@
-# 本地开发环境
+# 本地开发
 
-> 目标：从空目录到能发一条模拟弹幕并看到决策，不需要问人。
-> 已经能跑什么见 [status.md](status.md)。
+> 目标：从空目录到发出模拟弹幕并看到决策，不需要问人。
+> 已经能跑什么见 [实现状态](status.md)，架构与端口约定见 [技术设计](technical-design.md) §2。
 
 ## 1. 必需
 
-| 依赖 | 版本 | 用途 |
-| --- | --- | --- |
-| Node.js | ≥ 22.5 | 运行时与 `node:sqlite` |
-| npm | 随 Node | workspace 安装 |
+| 依赖 | 版本 | 是否必需 | 用途 |
+| --- | --- | --- | --- |
+| Node.js | ≥ 22.5 | 必需 | 运行时与 `node:sqlite` |
+| npm | 随 Node | 必需 | workspace 安装 |
+| Rust / Cargo | 稳定版 | 仅桌面窗口 | Tauri 2 构建 |
+| Minecraft + Fabric | 1.21.11 | 仅游戏执行 | 当前阶段不需要 |
+| OBS / BlackHole | — | 仅推流 | 当前阶段不需要 |
 
 ```bash
 node -v    # 需要 v22.5 或更高
@@ -55,6 +58,15 @@ npm run dev:orchestrator
 npm run dev:console
 ```
 
+接入真实抖音评论（需要先在本机跑起 dyhub）：
+
+```bash
+DOUYIN_ROOM_ID=<直播间号> npx tsx services/ingress/src/main.ts
+```
+
+`DYHUB_URL` 默认 `ws://127.0.0.1:8757`，`CRAFTMATE_INGRESS` 默认
+`ws://127.0.0.1:4321/ingress`。仓库还没有 `dev:ingress` 脚本。
+
 ## 3. 验证
 
 ```bash
@@ -81,9 +93,14 @@ npm run dev:desktop
 
 ## 5. 数据与密钥
 
+- 数据库默认在 `~/.craftmate/craftmate.db`；`CRAFTMATE_DB` 可指定文件，`CRAFTMATE_DB_DIR` 可指定目录。
 - 数据库文件、`-wal`、`-shm` 都在 `.gitignore` 里，不要提交。
+- 启动时自动跑 `db/migrations/`；迁移 checksum 与已应用记录不一致会直接启动失败。
 - `.env` 不入库；密钥最终放 macOS Keychain，不写配置文件。
 - 日志里不写弹幕原文、prompt 或模型输出。
+
+SQLite 是嵌入式库，**不需要也不应该**单独跑数据库进程。`npm run db:check:file`
+会在 `.tmp-db/` 里建一个真实 WAL 文件库，校验完连同 `-wal` / `-shm` 一起删除。
 
 ## 6. 常见问题
 
@@ -91,5 +108,6 @@ npm run dev:desktop
 | --- | --- | --- |
 | `ERR_UNKNOWN_FILE_EXTENSION` | Node 版本低于 22.5 | 升级 Node |
 | `EADDRINUSE :4321` | 已有实例在跑 | 停掉旧进程，或设 `CRAFTMATE_PORT` |
+| 启动即报 `migration ... changed after being applied` | 改过已应用的迁移文件 | 恢复文件内容，新增迁移而不是改旧的 |
 | `db:check` 报 not empty | 指向了已有数据库 | 换一个新路径，或传目录让它建临时库 |
 | 桌面窗口打不开 | 缺 Rust / Cargo | 安装 Rust，或先用 `./start.command --web` |

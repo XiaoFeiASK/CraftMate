@@ -1,6 +1,7 @@
 # 数据库
 
-SQLite 是单机运行时的持久层。当前只放迁移和校验，不放运行时连接代码。
+SQLite 是单机运行时的持久层。迁移文件在这里，连接、迁移执行器与 Store 实现
+在 [`packages/storage`](../packages/storage/src/index.ts)。
 
 ## 约定
 
@@ -15,12 +16,11 @@ SQLite 是单机运行时的持久层。当前只放迁移和校验，不放运�
   `(session_id, kind, external_event_id)`；本地产生的 `operator` / `world` /
   `system` 事件该字段为 `NULL`，不受唯一索引约束。
 - `decision_log.priority` 由仲裁结果显式写入，不允许仓储层猜默认值。
-  当前 `packages/contracts` 的 `Decision` 还没有该字段，M1.1 之前必须先补契约，
-  不能在 SQLite 里用 `DEFAULT` 掩盖。
+  `packages/contracts` 的 `Decision` 已带 `priority`，SQL 里不设 `DEFAULT`。
 
 ## 首个迁移
 
-`0001_initial.sql` 覆盖：
+`0001_initial.sql` 覆盖 12 组实体、15 张表（含 FTS 主表）与 4 个视图：
 
 - `persona` / `persona_version`
 - `show_session`
@@ -34,7 +34,8 @@ SQLite 是单机运行时的持久层。当前只放迁移和校验，不放运�
 - `incident`
 - `schema_migration`
 
-当前只校验 schema，不自动创建数据库。运行时接入在 M1.1 PR 完成。
+运行时由 `openDatabase()` 在启动时自动建库并跑迁移；`db:check` 只做独立校验，
+不写任何真实数据库。
 
 ## 校验
 

@@ -2,6 +2,7 @@
 
 > 一句话：**前端 Tauri + React + TypeScript，后端 Node 22 + TypeScript，游戏侧 Java 21 + Fabric。**
 > 这不是「哪个语言最强」的比较，而是「这个项目的负载长什么样」的比较。
+> 具体参数与实现见 [技术设计](technical-design.md)；最终决策与重新评估条件见 [决策记录](decisions.md)。
 
 ## 0. 先看负载
 
@@ -228,4 +229,4 @@ Go 的 context 确实更适合这个系统。但 Node 用 `AbortController` 也�
 - **Go**：等真的出现高并发多实例需求再上，现在上是提前优化。
 - **Java**：Mod 的硬约束，没有替代。
 
-相关决策：[D-02 内核用 TypeScript](decisions.md#d-02)、[D-05 管理端用 Tauri](decisions.md#d-05)。
+相关决策：[D-02 内核用 TypeScript](decisions.md#d-02)、[D-05 管理端用 Tauri](decisions.md#d-05)、[D-15 寻路自研](decisions.md#d-15)。
