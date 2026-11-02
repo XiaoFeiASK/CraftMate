@@ -5,6 +5,7 @@
 | 文档 | 用途 |
 | --- | --- |
 | [architecture.md](architecture.md) | **先读这个**。系统长什么样、边界在哪、关键不变量是什么。 |
+| [delivery-plan.md](delivery-plan.md) | **怎么交付**。里程碑、PR 切片、完成定义和停止条件。 |
 | [technical-design.md](technical-design.md) | **技术记忆基线**。协议、表结构、参数、路线图。 |
 | [tech-stack.md](tech-stack.md) | **技术选型**。前端/后端选什么，为什么不用 Python、Go。 |
 | [decisions.md](decisions.md) | 为什么这么选。一个文件收录全部决策。 |
@@ -13,10 +14,11 @@
 ## 阅读顺序
 
 1. 先读 [architecture.md](architecture.md)，建立整体印象。
-2. 再看 [technical-design.md](technical-design.md) 的「一页纸速查」，按章节跳读细节。
-3. 想知道「为什么选这个技术」，读 [tech-stack.md](tech-stack.md)。
-4. 想知道「某个具体决定为什么这么定」，查 [decisions.md](decisions.md)。
-5. 讨论时用 [GLOSSARY.md](../GLOSSARY.md) 里的词。
+2. 用 [delivery-plan.md](delivery-plan.md) 确认下一批 PR 的边界和验收。
+3. 再看 [technical-design.md](technical-design.md) 的「一页纸速查」，按章节跳读细节。
+4. 想知道「为什么选这个技术」，读 [tech-stack.md](tech-stack.md)。
+5. 想知道「某个具体决定为什么这么定」，查 [decisions.md](decisions.md)。
+6. 讨论时用 [GLOSSARY.md](../GLOSSARY.md) 里的词。
 
 ## 维护规则
 

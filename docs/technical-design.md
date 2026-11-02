@@ -718,56 +718,29 @@ Tauri 2 + React + TypeScript。但交互必须是原生桌面程序：
 
 ### 12.1 核心表
 
-```sql
-source(
-  id TEXT PRIMARY KEY,
-  scope_id TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  actor_id TEXT,
-  raw_text TEXT,
-  payload TEXT,
-  received_at INTEGER NOT NULL,
-  content_hash TEXT NOT NULL
-);
+> v1 DDL 以 `db/migrations/0001_initial.sql` 为准，并可用 `npm run db:check` 验证。
+> 这一节只说明实体关系和归属，不再复制建表语句，避免两处 schema 各自漂移。
+> 字段、约束、索引和视图全部以迁移文件为唯一真源。
 
-memory(
-  id TEXT PRIMARY KEY,
-  scope_id TEXT NOT NULL,
-  subject_key TEXT NOT NULL,
-  family TEXT NOT NULL,
-  content TEXT NOT NULL,
-  revision INTEGER NOT NULL,
-  state TEXT NOT NULL,
-  version INTEGER NOT NULL,
-  confidence REAL NOT NULL,
-  disclosure TEXT NOT NULL,
-  evidence_source_ids TEXT NOT NULL,
-  created_at INTEGER NOT NULL
-);
+| 实体 | 表 | 归属 | 说明 |
+| --- | --- | --- | --- |
+| 人格 | `persona` / `persona_version` | M2 | 人格按 revision 追加，同一时刻只有一个 `active`。 |
+| 场次 | `show_session` | M1.1 | 一次直播；所有证据、决策、承诺都挂在 `session_id` 上。 |
+| 证据 | `source` | M1.1 | 归一化后的观众/世界/操作员输入，append-only；`external_event_id` 做平台去重。 |
+| 决策 | `decision_log` | M1.1 | 一条证据可有多次 revision（重判），`decision_current` 取最新。 |
+| 动作 | `action_attempt` | M1.5 | 一次执行尝试，带 `idempotency_key` 和终态时间。 |
+| 世界 | `world_event` | M1.5 | Mod 侧事件流，`(session_id, seq)` 唯一。 |
+| 承诺 | `commitment` / `commitment_event` | M1.1 | 当前状态 + 状态迁移时间线，两者都要落库。 |
+| 记忆 | `memory` / `memory_evidence` / `memory_fts` | M2 | 版本链 + 证据关联 + 检索索引，三者分开。 |
+| 待审 | `review_candidate` | M2 | 需要操作员批准的经验、技能或人格修订。 |
+| 事故 | `incident` | M1.1 | 结构化失败记录，供管理端和回放使用。 |
+| 迁移 | `schema_migration` | M1.1 | 版本、名称、校验和，由迁移器写入。 |
 
-commitment(
-  id TEXT PRIMARY KEY,
-  scope_id TEXT NOT NULL,
-  persona_rev INTEGER NOT NULL,
-  audience_ref TEXT NOT NULL,
-  utterance TEXT NOT NULL,
-  status TEXT NOT NULL,
-  deadline_tick INTEGER,
-  plan_id TEXT,
-  created_at INTEGER NOT NULL,
-  closed_at INTEGER
-);
+三个读模型视图，避免每个调用方自己写「取最新」的 SQL：
 
-review_candidate(
-  id TEXT PRIMARY KEY,
-  kind TEXT NOT NULL,
-  payload TEXT NOT NULL,
-  status TEXT NOT NULL,
-  reviewer TEXT,
-  decided_at INTEGER,
-  expected_version INTEGER NOT NULL
-);
-```
+- `decision_current`：每个 `source_id` 的最新决策 revision。
+- `commitment_open`：尚未进入终态的承诺。
+- `memory_active`：每个 `lineage_id` 的最新 revision 且状态为 `active`。
 
 ## 13. 可观测性
 

@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
+  "engines": {
+    "node": ">=22.5"
+  },
   "workspaces": [
     "packages/*",
     "apps/*",
@@ -16,6 +19,7 @@
     "build": "npm run build -w @craftmate/admin-console",
     "build:console": "npm run build -w @craftmate/admin-console",
     "build:desktop": "npm run build -w @craftmate/desktop-shell",
+    "db:check": "node tools/check-schema.mjs",
     "test": "node --test --experimental-strip-types \"packages/**/*.test.ts\" \"apps/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
