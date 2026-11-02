@@ -69,7 +69,7 @@ export function LiveHero({ state, mode, personaName, stats, target, onOpenConsol
             </div>
             <div>
               <dt>决策</dt>
-              <dd>{stats.executed + stats.refused + stats.observed}</dd>
+              <dd>{stats.decided}</dd>
             </div>
           </dl>
         </div>

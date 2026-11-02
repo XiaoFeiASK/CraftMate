@@ -218,6 +218,44 @@ export class DecisionStore {
       };
     });
   }
+
+  /**
+   * Totals for a session. The in-memory counters reset on restart, so the
+   * console must be seeded from the database or it shows "received N, decided 0".
+   */
+  counts(sessionId: string): {
+    received: number;
+    decided: number;
+    executed: number;
+    refused: number;
+    observed: number;
+  } {
+    const row = this.db
+      .prepare(
+        `SELECT
+           count(*) AS received,
+           count(*) AS decided,
+           sum(CASE WHEN decision = 'EXECUTE' THEN 1 ELSE 0 END) AS executed,
+           sum(CASE WHEN decision = 'REFUSE' THEN 1 ELSE 0 END) AS refused,
+           sum(CASE WHEN decision = 'OBSERVE' THEN 1 ELSE 0 END) AS observed
+         FROM decision_log WHERE session_id = ?`,
+      )
+      .get(sessionId) as {
+      received: number | null;
+      decided: number | null;
+      executed: number | null;
+      refused: number | null;
+      observed: number | null;
+    };
+
+    return {
+      received: row.received ?? 0,
+      decided: row.decided ?? 0,
+      executed: row.executed ?? 0,
+      refused: row.refused ?? 0,
+      observed: row.observed ?? 0,
+    };
+  }
 }
 
 export class ActionStore {

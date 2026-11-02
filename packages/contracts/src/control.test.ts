@@ -9,7 +9,7 @@ import {
 
 const snapshot: ShowSnapshot = {
   mode: "agent",
-  stats: { received: 3, executed: 1, refused: 0, observed: 1, openCommitments: 0 },
+  stats: { received: 3, decided: 2, executed: 1, refused: 0, observed: 1, openCommitments: 0 },
   decisions: [],
   operatorNotice: null,
   sourceHealth: null,

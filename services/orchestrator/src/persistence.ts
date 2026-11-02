@@ -32,12 +32,15 @@ export function createPersistentShow(options: {
   const persona = options.persona ?? dafeiyu;
   const db = openDatabase({ file: options.dbPath ?? defaultDatabasePath() });
   const context = new SessionStore(db).bootstrap(persona, options.goalText ?? DEFAULT_GOAL);
-  const history = new DecisionStore(db).recent(context.sessionId, 50);
+  const decisions = new DecisionStore(db);
+  const history = decisions.recent(context.sessionId, 50);
+  const totals = decisions.counts(context.sessionId);
 
   const show = new Show({
     persona,
     recorder: new SqliteRecorder(db, context),
     history: history.reverse(),
+    totals: { ...totals, openCommitments: 0 },
   });
 
   return { show, context, close: () => db.close() };

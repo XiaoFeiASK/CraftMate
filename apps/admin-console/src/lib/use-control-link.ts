@@ -12,7 +12,7 @@ const ENDPOINT = import.meta.env.VITE_CRAFTMATE_WS ?? "ws://127.0.0.1:4321/contr
 
 const emptySnapshot: ShowSnapshot = {
   mode: "agent",
-  stats: { received: 0, executed: 0, refused: 0, observed: 0, openCommitments: 0 },
+  stats: { received: 0, decided: 0, executed: 0, refused: 0, observed: 0, openCommitments: 0 },
   decisions: [],
   operatorNotice: null,
   sourceHealth: null,

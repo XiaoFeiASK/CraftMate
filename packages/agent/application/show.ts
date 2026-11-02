@@ -8,6 +8,7 @@ import {
   type PersonaSummary,
   type ShowMode,
   type ShowSnapshot,
+  type ShowStats,
   type SourceHealth,
 } from "@craftmate/contracts";
 import {
@@ -59,6 +60,8 @@ interface ShowOptions {
   readonly recorder?: ShowRecorder;
   /** Restored on boot so a restart does not blank the console. */
   readonly history?: readonly Decision[];
+  /** Totals restored with the history; they cannot be re-derived from 50 rows. */
+  readonly totals?: ShowStats;
 }
 
 /**
@@ -74,10 +77,11 @@ export class Show {
   private readonly decisions: Decision[] = [];
   private readonly seen = new Set<string>();
   private readonly recorder: ShowRecorder | null;
-  private received = 0;
-  private executed = 0;
-  private refused = 0;
-  private observed = 0;
+  private received: number;
+  private decided: number;
+  private executed: number;
+  private refused: number;
+  private observed: number;
   private mode: ShowMode = "agent";
   private operatorNotice: OperatorNotice | null = null;
   private sourceHealth: SourceHealth | null = null;
@@ -94,6 +98,11 @@ export class Show {
     });
     this.recorder = options.recorder ?? null;
     if (options.history) this.decisions.push(...options.history);
+    this.received = options.totals?.received ?? 0;
+    this.decided = options.totals?.decided ?? 0;
+    this.executed = options.totals?.executed ?? 0;
+    this.refused = options.totals?.refused ?? 0;
+    this.observed = options.totals?.observed ?? 0;
   }
 
   /** Returns null for malformed or duplicate events. */
@@ -170,6 +179,7 @@ export class Show {
       mode: this.mode,
       stats: {
         received: this.received,
+        decided: this.decided,
         executed: this.executed,
         refused: this.refused,
         observed: this.observed,
@@ -196,6 +206,7 @@ export class Show {
   }
 
   private count(decision: Decision): void {
+    this.decided += 1;
     switch (decision.decision) {
       case "EXECUTE":
         this.executed += 1;

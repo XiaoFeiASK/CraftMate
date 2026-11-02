@@ -16,6 +16,8 @@ export type OperatorCommand = z.infer<typeof operatorCommandSchema>;
 
 export const showStatsSchema = z.object({
   received: z.number().int().nonnegative(),
+  /** Every decision produced, including IGNORE / ACK_ONLY / QUEUE. */
+  decided: z.number().int().nonnegative(),
   executed: z.number().int().nonnegative(),
   refused: z.number().int().nonnegative(),
   observed: z.number().int().nonnegative(),
