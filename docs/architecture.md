@@ -1,7 +1,8 @@
 # 架构纵览
 
-> 这里只讲「系统长什么样、边界在哪、关键不变量是什么」。
+> 这里讲「系统最终长什么样、边界在哪、关键不变量是什么」。
 > 具体参数、协议字段、表结构见 [technical-design.md](technical-design.md)。
+> 哪些已经存在、哪些还只是设计，见 [status.md](status.md)。
 > 为什么这样选见 [decisions.md](decisions.md)。
 
 ## 1. 系统上下文
@@ -178,6 +179,9 @@ proposed → spoken → accepted → in_progress → fulfilled
 
 单机，六个进程，一个 OBS。管理端由 Tauri 原生窗口承载；开发预览用 Vite 运行同一套 React 界面。
 
+这是**目标态**，不是当前进度。当前只有 Orchestrator 和桌面端，跑法见
+[status.md](status.md)。
+
 ```text
 Mac (Apple Silicon)
 ├─ OBS                   采集游戏 + 混音 + 推流
@@ -189,6 +193,9 @@ Mac (Apple Silicon)
 │  └─ (Mod 由游戏进程承载)
 └─ BlackHole 2ch         虚拟音频设备
 ```
+
+开发和验收阶段可以用 Docker 跑 Orchestrator 与 schema 校验，但游戏、OBS、
+音频路由和桌面窗口必须在宿主机上，容器只负责无界面的部分。
 
 外部依赖只有三个：抖音平台、模型 API、TTS API。全部有超时、重试、熔断。
 

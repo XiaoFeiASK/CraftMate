@@ -1,11 +1,28 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const migrations = join(root, "db", "migrations");
-const db = new DatabaseSync(":memory:");
+
+/**
+ * Defaults to an in-memory database. Pass a `.db` path to validate a real
+ * file database, which is the only mode where WAL and locking are real.
+ * Pass a directory to get a throwaway file database inside it, removed on exit.
+ */
+const argument = process.argv[2];
+let target = ":memory:";
+let disposable = false;
+if (argument) {
+  if (existsSync(argument) && statSync(argument).isDirectory()) {
+    target = join(argument, `schema-check-${process.pid}-${Date.now()}.db`);
+    disposable = true;
+  } else {
+    target = argument;
+  }
+}
+const db = new DatabaseSync(target);
 
 function fail(message) {
   console.error(`schema check failed: ${message}`);
@@ -22,8 +39,34 @@ function expectThrow(sql, params, label) {
 }
 
 db.exec("PRAGMA foreign_keys = ON");
+db.exec("PRAGMA busy_timeout = 5000");
+
+if (target !== ":memory:") {
+  // WAL is the runtime mode; a rollback-journal file database would hide
+  // locking and reader/writer behaviour that the orchestrator depends on.
+  db.exec("PRAGMA journal_mode = WAL");
+  const mode = db.prepare("PRAGMA journal_mode").get().journal_mode;
+  if (mode !== "wal") fail(`expected WAL journal mode on ${target}, got ${mode}`);
+  if (db.prepare("PRAGMA foreign_keys").get().foreign_keys !== 1) {
+    fail("foreign_keys did not stay enabled on the file database");
+  }
+}
+
+const existing = db
+  .prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'table'")
+  .get().n;
+if (existing > 0) {
+  // Applying 0001 again would fail halfway with a raw SQLite error. Until the
+  // real migration runner lands in M1.1, a check must start from an empty target.
+  fail(`${target} is not empty; point the check at a fresh path`);
+}
+
 for (const file of readdirSync(migrations).filter((name) => name.endsWith(".sql")).sort()) {
-  db.exec(readFileSync(join(migrations, file), "utf8"));
+  try {
+    db.exec(readFileSync(join(migrations, file), "utf8"));
+  } catch (error) {
+    fail(`${file}: ${error.message}`);
+  }
 }
 
 const tables = new Set(
@@ -228,5 +271,15 @@ for (const [index, name] of migrationFiles.entries()) {
   if (Number(name.slice(0, 4)) !== index + 1) fail(`migration sequence gap at: ${name}`);
 }
 
-console.log(`schema ok: ${objectCount} objects, ${indexCount} indexes, constraints, views, and FTS verified`);
+const mode = db.prepare("PRAGMA journal_mode").get().journal_mode;
+console.log(
+  `schema ok: ${objectCount} objects, ${indexCount} indexes, journal=${mode}, ` +
+    "constraints, views, and FTS verified",
+);
 db.close();
+
+if (disposable) {
+  for (const suffix of ["", "-wal", "-shm"]) {
+    rmSync(`${target}${suffix}`, { force: true });
+  }
+}
