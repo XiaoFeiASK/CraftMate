@@ -2,7 +2,7 @@
 
 > 状态：v1.1 · 2026-11-02
 > 本文是项目的技术记忆基线。换对话、换人接手、隔几周回来，读这一篇即可恢复上下文。
-> 架构全景见 [architecture.md](architecture.md)，决策记录见 [decisions.md](decisions.md)，术语见 [../GLOSSARY.md](../GLOSSARY.md)。
+> 架构全景见 [architecture.md](architecture.md)，语言与框架选择见 [tech-stack.md](tech-stack.md)，决策记录见 [decisions.md](decisions.md)，术语见 [../GLOSSARY.md](../GLOSSARY.md)。
 
 ## 0. 一页纸速查
 
@@ -878,6 +878,7 @@ craftmate/
 │  └─ observability/
 ├─ docs/
 │  ├─ architecture.md
+│  ├─ tech-stack.md
 │  ├─ technical-design.md
 │  └─ decisions.md
 ├─ GLOSSARY.md

@@ -6,6 +6,7 @@
 | --- | --- |
 | [architecture.md](architecture.md) | **先读这个**。系统长什么样、边界在哪、关键不变量是什么。 |
 | [technical-design.md](technical-design.md) | **技术记忆基线**。协议、表结构、参数、路线图。 |
+| [tech-stack.md](tech-stack.md) | **技术选型**。前端/后端选什么，为什么不用 Python、Go。 |
 | [decisions.md](decisions.md) | 为什么这么选。一个文件收录全部决策。 |
 | [../GLOSSARY.md](../GLOSSARY.md) | 术语表。讨论前先对齐用词。 |
 
@@ -13,8 +14,9 @@
 
 1. 先读 [architecture.md](architecture.md)，建立整体印象。
 2. 再看 [technical-design.md](technical-design.md) 的「一页纸速查」，按章节跳读细节。
-3. 想知道「为什么这么选」，查 [decisions.md](decisions.md)。
-4. 讨论时用 [GLOSSARY.md](../GLOSSARY.md) 里的词。
+3. 想知道「为什么选这个技术」，读 [tech-stack.md](tech-stack.md)。
+4. 想知道「某个具体决定为什么这么定」，查 [decisions.md](decisions.md)。
+5. 讨论时用 [GLOSSARY.md](../GLOSSARY.md) 里的词。
 
 ## 维护规则
 

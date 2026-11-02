@@ -364,7 +364,7 @@ interface CommentSource {
 
 ## 技术栈
 
-先看 [架构纵览](docs/architecture.md)，细节见 [技术方案](docs/technical-design.md)，为什么这么选见 [决策记录](docs/decisions.md)，术语见 [GLOSSARY.md](GLOSSARY.md)。
+先看 [架构纵览](docs/architecture.md)，技术选型与语言对比见 [技术选型](docs/tech-stack.md)，细节见 [技术方案](docs/technical-design.md)，为什么这么选见 [决策记录](docs/decisions.md)，术语见 [GLOSSARY.md](GLOSSARY.md)。
 
 | 层 | 技术 |
 | --- | --- |
@@ -397,6 +397,7 @@ craftmate/
 │  └─ generated-java/   records + 校验
 └─ docs/
    ├─ architecture.md
+   ├─ tech-stack.md
    ├─ technical-design.md
    └─ decisions.md
 ```
