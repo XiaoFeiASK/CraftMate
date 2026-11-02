@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "dev.craftmate.console",
   "build": {
-    "beforeDevCommand": "npm run dev:console --workspace-root",
+    "beforeDevCommand": "node ../../tools/run-workspace.mjs dev:console",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "npm run build:console --workspace-root",
+    "beforeBuildCommand": "node ../../tools/run-workspace.mjs build:console",
     "frontendDist": "../../console/dist"
   },
   "app": {

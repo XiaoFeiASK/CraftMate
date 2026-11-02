@@ -1,6 +1,7 @@
+import type { OperatorKind, ShowMode, ShowSnapshot } from "@craftmate/protocol";
 import { DecisionStream } from "../DecisionStream.tsx";
 import { OperatorBar } from "../OperatorBar.tsx";
-import type { OperatorKind, ShowMode, Snapshot, WireState } from "../../lib/wire.ts";
+import type { WireState } from "../../lib/connection.ts";
 
 export type DrawerMode = "decisions" | "persona" | "connections";
 
@@ -9,7 +10,7 @@ interface OperationsDrawerProps {
   readonly state: WireState;
   readonly showMode: ShowMode;
   readonly personaName: string;
-  readonly snapshot: Snapshot;
+  readonly snapshot: ShowSnapshot;
   readonly onClose: () => void;
   readonly onComment: (nickname: string, text: string) => void;
   readonly onOperator: (kind: OperatorKind, text?: string) => void;
@@ -70,9 +71,15 @@ export function OperationsDrawer({
   );
 }
 
-function DecisionsView({ snapshot }: { readonly snapshot: Snapshot }): React.JSX.Element {
+function DecisionsView({ snapshot }: { readonly snapshot: ShowSnapshot }): React.JSX.Element {
   return (
     <div className="drawer__decisions">
+      {snapshot.operatorNotice ? (
+        <p className="panel-note" role="status">
+          {snapshot.operatorNotice.detail}
+          {snapshot.operatorNotice.text ? `：${snapshot.operatorNotice.text}` : ""}
+        </p>
+      ) : null}
       <dl className="decision-summary">
         <div><dt>收到</dt><dd>{snapshot.stats.received}</dd></div>
         <div><dt>执行</dt><dd>{snapshot.stats.executed}</dd></div>

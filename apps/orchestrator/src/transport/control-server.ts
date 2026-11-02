@@ -1,8 +1,7 @@
 import { createServer } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { Show } from "@craftmate/application";
-import { clientMessageSchema } from "./messages.ts";
-import type { ServerMessage } from "./protocol.ts";
+import { clientMessageSchema, type ServerMessage } from "@craftmate/protocol";
 
 interface ControlServerOptions {
   readonly show: Show;
@@ -49,7 +48,7 @@ export function createControlServer({ show, port }: ControlServerOptions): Contr
 
     send(socket, {
       type: "ready",
-      payload: { persona: show.personaCard(), snapshot: show.snapshot() },
+      payload: { persona: show.personaSummary(), snapshot: show.snapshot() },
     });
 
     socket.on("message", (raw) => {

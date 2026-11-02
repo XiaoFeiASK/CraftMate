@@ -19,6 +19,7 @@ export function App(): React.JSX.Element {
           drawer={drawer}
           state={state}
           mode={mode}
+          personaName={personaName}
           onSelect={setDrawer}
         />
         <LiveHero

@@ -259,9 +259,9 @@ compat/    版本相关：Mixin 与映射适配全部集中在这里
 
 ```json
 { "v": 1, "type": "hello", "token": "...", "capabilities": ["camera", "hud", "build"] }
-{ "v": 1, "type": "cmd", "id": "c-42", "op": "behavior.mine",
+{ "v": 1, "type": "cmd", "id": "c-42", "op": "mine_block",
   "args": { "block": "minecraft:iron_ore", "count": 8 },
-  "deadlineTick": 12400, "priority": "normal", "idempotencyKey": "plan-17-s3" }
+  "deadlineTick": 12400, "priority": "command", "idempotencyKey": "plan-17-s3" }
 { "v": 1, "type": "ack", "id": "c-42", "accepted": true, "taskId": "t-7" }
 { "v": 1, "type": "progress", "taskId": "t-7", "phase": "traveling", "done": 0, "total": 8 }
 { "v": 1, "type": "result", "taskId": "t-7", "status": "completed", "ticks": 812 }
@@ -855,35 +855,28 @@ AGPL 这条是硬约束。如果未来要复用 AstrBot 的模块，只能走独
 
 ## 17. 目录结构
 
+当前仓库是 M0 的界面、控制面与领域内核切片。下面是**实际存在**的结构：
+
 ```text
 craftmate/
 ├─ apps/
-│  ├─ console/           管理端
-│  ├─ supervisord/       守护进程
-│  ├─ orchestrator/      执行内核
-│  ├─ ingress/           接入端
-│  └─ voice/             语音模块
-├─ mods/
-│  ├─ craftmate-client/  Fabric 客户端 Mod
-│  └─ craftmate-common/  共享 DTO
-├─ protocol/
-│  ├─ schema/            JSON Schema
-│  ├─ generated-ts/      zod + 类型
-│  └─ generated-java/    records + 校验
+│  ├─ console/           管理端 React 界面
+│  ├─ desktop/           Tauri 2 桌面外壳
+│  └─ orchestrator/      控制服务与模拟弹幕
 ├─ packages/
-│  ├─ memory/
-│  ├─ runtime/
-│  ├─ persona/
-│  ├─ safety/
-│  └─ observability/
-├─ docs/
-│  ├─ architecture.md
-│  ├─ tech-stack.md
-│  ├─ technical-design.md
-│  └─ decisions.md
-├─ GLOSSARY.md
+│  ├─ protocol/          观众、决策、控制面与 Bridge 契约
+│  ├─ domain/            人格、仲裁、承诺
+│  └─ application/       场次编排、端口与读模型
+├─ tools/                开发与模拟弹幕脚本
+├─ docs/                 架构、技术选型、详细方案、决策
+├─ GLOSSARY.md           术语表
 └─ licenses/
 ```
+
+「五进程 + Mod」是目标态，不是当前目录：`supervisord/`、`ingress/`、
+`voice/`、`packages/memory/`、`packages/runtime/`、`packages/safety/`、
+`packages/observability/`、`mods/` 和 Java 共享 DTO 尚未实现。需要开始某一项时
+再建目录；不预埋空包。
 
 ## 18. 路线图
 
@@ -901,11 +894,11 @@ craftmate/
 
 | 编号 | 事项 | 结论 | 对应决策 |
 | --- | --- | --- | --- |
-| D-01 | 模型 | 先用 DeepSeek，Stage B 用 chat，Stage C 用 reasoner | [D-12](decisions.md#d-12) |
-| D-02 | 音色 | 参考社区大肥鱼，先用云厂商现成音色近似 | [D-13](decisions.md#d-13) |
-| D-03 | 首播形态 | 单一主线目标，允许约 20% 被弹幕打断 | [D-14](decisions.md#d-14) |
-| D-04 | 寻路 | 自研 A*，Baritone 仅开发期对照 | [D-15](decisions.md#d-15) |
-| D-05 | 抖音 | 官方与抓取双实现，按资质切换 | [D-07](decisions.md#d-07) |
+| OPS-01 | 模型 | 先用 DeepSeek，Stage B 用 chat，Stage C 用 reasoner | [D-12](decisions.md#d-12) |
+| OPS-02 | 音色 | 参考社区大肥鱼，先用云厂商现成音色近似 | [D-13](decisions.md#d-13) |
+| OPS-03 | 首播形态 | 单一主线目标，允许约 20% 被弹幕打断 | [D-14](decisions.md#d-14) |
+| OPS-04 | 寻路 | 自研 A*，Baritone 仅开发期对照 | [D-15](decisions.md#d-15) |
+| OPS-05 | 抖音 | 官方与抓取双实现，按资质切换 | [D-07](decisions.md#d-07) |
 
 ## 20. 待确认
 

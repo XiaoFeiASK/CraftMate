@@ -1,11 +1,12 @@
-import type { ShowMode, Stats, WireState } from "../../lib/wire.ts";
+import type { ShowMode, ShowStats } from "@craftmate/protocol";
+import type { WireState } from "../../lib/connection.ts";
 import { VoxelLandscape } from "./VoxelLandscape.tsx";
 
 interface LiveHeroProps {
   readonly state: WireState;
   readonly mode: ShowMode;
   readonly personaName: string;
-  readonly stats: Stats;
+  readonly stats: ShowStats;
   readonly target: string;
   readonly onOpenConsole: () => void;
 }

@@ -15,15 +15,12 @@
     "build": "npm run build -w @craftmate/console",
     "build:console": "npm run build -w @craftmate/console",
     "build:desktop": "npm run build -w @craftmate/desktop",
-    "test": "node --test --experimental-strip-types \"packages/**/*.test.ts\"",
+    "test": "node --test --experimental-strip-types \"packages/**/*.test.ts\" \"apps/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
-  },
-  "dependencies": {
-    "@tauri-apps/api": "^2.12.4"
   }
 }

@@ -1,3 +1,4 @@
+import type { AudienceHistory } from "@craftmate/domain";
 import type { Intent } from "@craftmate/protocol";
 
 /**
@@ -5,8 +6,6 @@ import type { Intent } from "@craftmate/protocol";
  * A SQLite implementation will replace the in-memory one without touching
  * the arbitration rules.
  */
-export interface AudienceStore {
-  lastCommandAt(userId: string): number | null;
-  recentIntentCount(intent: Intent, windowMs: number): number;
+export interface AudienceStore extends AudienceHistory {
   recordCommand(userId: string, intent: Intent, at: number): void;
 }

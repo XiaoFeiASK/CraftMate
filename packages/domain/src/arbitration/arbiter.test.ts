@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { AudienceEvent, Intent } from "@craftmate/protocol";
+import type { Clock } from "../clock.ts";
 import { dafeiyu } from "../persona/dafeiyu.ts";
-import { Arbiter, type AudienceHistory, type Clock } from "./arbiter.ts";
+import { Arbiter, type AudienceHistory } from "./arbiter.ts";
 import { classifyIntent } from "./intent.ts";
 
 const NOW = 1_000_000;

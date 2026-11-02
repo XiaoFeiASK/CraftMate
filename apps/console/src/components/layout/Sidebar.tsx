@@ -1,10 +1,12 @@
 import type { DrawerMode } from "../operations/OperationsDrawer.tsx";
-import type { ShowMode, WireState } from "../../lib/wire.ts";
+import type { ShowMode } from "@craftmate/protocol";
+import type { WireState } from "../../lib/connection.ts";
 
 interface SidebarProps {
   readonly drawer: DrawerMode | null;
   readonly state: WireState;
   readonly mode: ShowMode;
+  readonly personaName: string;
   readonly onSelect: (drawer: DrawerMode | null) => void;
 }
 
@@ -66,7 +68,7 @@ const SYSTEM_ITEMS: readonly NavigationItem[] = [
   },
 ] as const;
 
-export function Sidebar({ drawer, state, mode, onSelect }: SidebarProps): React.JSX.Element {
+export function Sidebar({ drawer, state, mode, personaName, onSelect }: SidebarProps): React.JSX.Element {
   const statusLabel = state === "open" ? "内核在线" : state === "connecting" ? "正在连接" : "内核离线";
 
   return (
@@ -76,7 +78,7 @@ export function Sidebar({ drawer, state, mode, onSelect }: SidebarProps): React.
         <div className="account__card">
           <WhaleAvatar />
           <div className="account__copy">
-            <strong>大肥鱼</strong>
+            <strong>{personaName}</strong>
             <span>专用直播账号</span>
           </div>
           <span className="account__badge">玩家</span>
