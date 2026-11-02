@@ -3,22 +3,30 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
+MODE=desktop
 OPEN_BROWSER=1
 for arg in "$@"; do
   case "$arg" in
+    --web)
+      MODE=web
+      ;;
+    --desktop)
+      MODE=desktop
+      ;;
     --no-open)
       OPEN_BROWSER=0
       ;;
     -h|--help)
       cat <<'EOF'
-用法: ./start.command [--no-open]
+用法: ./start.command [--web] [--no-open]
 
-启动 CraftMate 本地开发环境：
+启动 CraftMate 本地桌面应用（默认），同时启动 Orchestrator：
   - Orchestrator: ws://127.0.0.1:4321/control
-  - 管理端:       http://localhost:5173
+  - 桌面窗口:     Tauri 原生窗口
 
 选项:
-  --no-open   不自动打开浏览器
+  --web       启动浏览器预览版，不打开桌面窗口
+  --no-open   浏览器版启动后不自动打开浏览器
 EOF
       exit 0
       ;;
@@ -49,6 +57,12 @@ fi
 
 info "Node.js v${NODE_VERSION}"
 
+if [[ "$MODE" == "desktop" ]]; then
+  command -v cargo >/dev/null 2>&1 || fail "桌面版需要 Rust / Cargo。安装后可改用 ./start.command --web。"
+  command -v rustc >/dev/null 2>&1 || fail "桌面版需要 rustc。安装后可改用 ./start.command --web。"
+  info "Rust $(rustc --version | awk '{print $2}')"
+fi
+
 if [[ ! -d node_modules ]] || [[ package-lock.json -nt node_modules/.package-lock.json ]]; then
   info "安装依赖..."
   npm install --no-audit --no-fund
@@ -68,10 +82,14 @@ fi
 
 info "Orchestrator: ws://127.0.0.1:${ORCHESTRATOR_PORT}/control"
 info "健康检查:     http://127.0.0.1:${ORCHESTRATOR_PORT}/health"
-info "管理端:       http://localhost:5173"
+if [[ "$MODE" == "desktop" ]]; then
+  info "桌面窗口:     启动后会弹出 CraftMate 窗口"
+else
+  info "管理端:       http://localhost:5173"
+fi
 info "按 Ctrl+C 停止"
 
-if [[ "$OPEN_BROWSER" == "1" ]] && command -v open >/dev/null 2>&1; then
+if [[ "$MODE" == "web" && "$OPEN_BROWSER" == "1" ]] && command -v open >/dev/null 2>&1; then
   (
     for _ in {1..40}; do
       if curl -fsS -o /dev/null --max-time 1 http://localhost:5173/ 2>/dev/null; then
@@ -83,4 +101,4 @@ if [[ "$OPEN_BROWSER" == "1" ]] && command -v open >/dev/null 2>&1; then
   ) &
 fi
 
-exec npm run dev
+exec node tools/dev.mjs "$MODE"

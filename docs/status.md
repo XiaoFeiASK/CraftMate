@@ -12,14 +12,14 @@
 
 ```bash
 npm install
-npm run dev        # orchestrator + Vite 管理端
+./start.command    # desktop window + orchestrator
 npm run typecheck
 npm test
 npm run build
 npm run db:check
 ```
 
-桌面窗口需要 Rust / Cargo，当前开发机未安装，所以 Tauri 窗口尚未实际启动验证。
+桌面窗口需要 Rust / Cargo，已在本机实际启动验证：窗口能渲染，控制面显示内核在线。
 
 ## 2. 分层与当前状态
 
@@ -41,7 +41,7 @@ npm run db:check
 | --- | --- | --- |
 | Tauri 2 外壳与窗口配置 | 已实现 | 无边框、1280×800、承载 admin-console 构建产物。 |
 | 窗口控制 API | 已实现 | 前端调用 Tauri Window API，非 Tauri 环境降级为无操作。 |
-| 本机实际启动 | 未验证 | 缺 Rust / Cargo。 |
+| 本机实际启动 | 已实现 | Tauri 窗口在 macOS 实际启动，并能连上 Orchestrator。 |
 
 ### 2.3 控制面（`services/orchestrator`）
 

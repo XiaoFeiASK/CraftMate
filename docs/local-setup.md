@@ -28,10 +28,17 @@ npm install
 脚本会检查 Node.js 版本、在需要时安装依赖，然后同时启动：
 
 - Orchestrator：`ws://127.0.0.1:4321/control`，健康检查 `http://127.0.0.1:4321/health`
-- 管理端 Vite：`http://localhost:5173`
+- 桌面窗口：Tauri 原生应用，自动弹出 CraftMate 窗口
 
-在 Finder 里双击也会打开终端并运行它。不想自动打开浏览器时用
-`./start.command --no-open`；也可以跳过脚本直接运行 `npm run dev`。
+在 Finder 里双击也会打开终端并运行它。也可以跳过脚本直接运行 `npm run dev`。
+
+只在浏览器里预览界面（不打开桌面窗口）：
+
+```bash
+./start.command --web
+```
+
+`--web --no-open` 不会自动打开浏览器。浏览器版和桌面版连的是同一个 Orchestrator。
 
 终端 B：
 
@@ -60,9 +67,10 @@ npm run db:check
 `npm test` 覆盖 `packages`、`apps`、`services` 三个目录。新增测试文件放在对应包的
 `src/` 下，命名 `*.test.ts` 即可被收集。
 
-## 4. 桌面窗口（可选）
+## 4. 桌面窗口（默认）
 
-需要 Rust / Cargo：
+`./start.command` 默认就启动桌面窗口，需要 Rust / Cargo。只启动窗口、不启
+Orchestrator 时：
 
 ```bash
 npm run dev:desktop
@@ -84,4 +92,4 @@ npm run dev:desktop
 | `ERR_UNKNOWN_FILE_EXTENSION` | Node 版本低于 22.5 | 升级 Node |
 | `EADDRINUSE :4321` | 已有实例在跑 | 停掉旧进程，或设 `CRAFTMATE_PORT` |
 | `db:check` 报 not empty | 指向了已有数据库 | 换一个新路径，或传目录让它建临时库 |
-| 桌面窗口打不开 | 缺 Rust / Cargo | 先只用 `npm run dev` |
+| 桌面窗口打不开 | 缺 Rust / Cargo | 安装 Rust，或先用 `./start.command --web` |

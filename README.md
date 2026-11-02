@@ -396,7 +396,8 @@ interface CommentSource {
 
 ```bash
 npm install
-./start.command          # 检查环境并同时启动 orchestrator 与管理端
+./start.command          # 检查环境并启动桌面窗口与 orchestrator
+./start.command --web    # 改为浏览器预览
 npm run dev              # 或跳过检查，直接启动
 npm run typecheck        # TypeScript 全仓检查
 npm test                 # 领域层、契约、控制面单测
@@ -410,13 +411,8 @@ npm run db:check         # schema 约束与视图校验
 npx tsx tools/mock.ts
 ```
 
-桌面宿主：
-
-```bash
-npm run dev:desktop
-```
-
-**前置条件：** 需要 Rust / Cargo。当前开发机尚未安装，所以 Tauri 窗口尚未在本机实际启动验证；Vite 界面、控制链路、类型检查、单测和生产构建已经验证。没有 Rust 时仍然可以用 `npm run dev` 开发界面。
+**前置条件：** 桌面窗口需要 Rust / Cargo。`./start.command` 会先检查，缺失时提示
+改用 `./start.command --web`。
 
 ## 目录结构
 
