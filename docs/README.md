@@ -7,7 +7,7 @@
 | [architecture.md](architecture.md) | **先读这个**。系统长什么样、边界在哪、关键不变量是什么。 |
 | [status.md](status.md) | **现在能跑什么**。已实现、部分实现、未实现的事实清单。 |
 | [delivery-plan.md](delivery-plan.md) | **接下来做什么**。目标队列、PR 切片、完成定义和停止条件。 |
-| [local-setup.md](local-setup.md) | **怎么跑起来**。本机、Docker、验证命令和常见问题。 |
+| [local-setup.md](local-setup.md) | **怎么跑起来**。本机启动、验证命令和常见问题。 |
 | [technical-design.md](technical-design.md) | **技术记忆基线**。协议、表结构、参数、约束。 |
 | [tech-stack.md](tech-stack.md) | **技术选型**。前端/后端选什么，为什么不用 Python、Go。 |
 | [decisions.md](decisions.md) | 为什么这么选。一个文件收录全部决策。 |

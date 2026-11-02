@@ -129,9 +129,8 @@ npm run db:check
 | --- | --- | --- |
 | Node.js ≥ 22.5 | 必需 | `node:sqlite` 需要；当前引擎下限写进 `package.json`。 |
 | Rust / Cargo | 仅桌面宿主 | 没有时 `npm run dev` 仍然可用。 |
-| Docker | 可选 | 见 [docker-compose.yml](../docker-compose.yml)，用于容器化验证。 |
 | Minecraft + Fabric | 仅游戏执行 | 当前阶段不需要。 |
 | OBS / BlackHole | 仅推流 | 当前阶段不需要。 |
 
-SQLite 是嵌入式库，**不需要也不应该**用容器跑数据库。`docker-compose.yml` 里的
-`db-check` 只是把 schema 校验跑在容器的真实文件库上，验证 WAL 行为。
+SQLite 是嵌入式库，**不需要也不应该**单独跑数据库进程。`npm run db:check:file`
+会在 `.tmp-db/` 里建一个真实的 WAL 文件库，校验完连同 `-wal` / `-shm` 一起删除。

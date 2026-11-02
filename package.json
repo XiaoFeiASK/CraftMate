@@ -20,7 +20,7 @@
     "build:console": "npm run build -w @craftmate/admin-console",
     "build:desktop": "npm run build -w @craftmate/desktop-shell",
     "db:check": "node tools/check-schema.mjs",
-    "db:check:file": "node tools/check-schema.mjs /data",
+    "db:check:file": "node tools/check-schema.mjs .tmp-db",
     "test": "node --test --experimental-strip-types \"packages/**/*.test.ts\" \"apps/**/*.test.ts\" \"services/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

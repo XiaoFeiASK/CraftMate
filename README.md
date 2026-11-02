@@ -396,7 +396,8 @@ interface CommentSource {
 
 ```bash
 npm install
-npm run dev              # 同时启动 orchestrator 与管理端
+./start.command          # 检查环境并同时启动 orchestrator 与管理端
+npm run dev              # 或跳过检查，直接启动
 npm run typecheck        # TypeScript 全仓检查
 npm test                 # 领域层、契约、控制面单测
 npm run build            # 管理端生产构建
@@ -417,16 +418,6 @@ npm run dev:desktop
 
 **前置条件：** 需要 Rust / Cargo。当前开发机尚未安装，所以 Tauri 窗口尚未在本机实际启动验证；Vite 界面、控制链路、类型检查、单测和生产构建已经验证。没有 Rust 时仍然可以用 `npm run dev` 开发界面。
 
-### 用 Docker 跑
-
-```bash
-docker compose up orchestrator   # 容器内跑控制面，映射到本机 4321
-docker compose run --rm db-check # 在容器的真实文件库上校验 schema
-```
-
-桌面窗口不进容器，因为它需要窗口系统和 macOS 音频设备。SQLite 是嵌入式库，
-没有数据库容器；`db-check` 用的是容器里的临时文件库，用来验证 WAL 行为。
-
 ## 目录结构
 
 ```text
@@ -442,10 +433,9 @@ craftmate/
 │     ├─ domain/        人格、仲裁、承诺
 │     └─ application/   场次编排、运行模式、端口
 ├─ db/                  SQLite 迁移与 schema 校验
-├─ docker/              开发镜像
 ├─ tools/               开发与模拟弹幕工具
 ├─ docs/                架构、状态、计划与详细方案
-├─ docker-compose.yml   本机开发服务
+├─ start.command        一键启动本机开发环境
 └─ licenses/
 ```
 

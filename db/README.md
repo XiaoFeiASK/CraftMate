@@ -40,7 +40,7 @@ SQLite 是单机运行时的持久层。当前只放迁移和校验，不放运�
 
 ```bash
 npm run db:check        # 内存库，日常最快
-npm run db:check:file   # 容器内的真实 WAL 文件库
+npm run db:check:file   # 在 .tmp-db/ 里建真实 WAL 文件库，用完即删
 node tools/check-schema.mjs /path/to/dir   # 任意目录，用完即删
 ```
 
