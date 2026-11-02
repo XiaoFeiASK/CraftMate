@@ -111,3 +111,30 @@ SQLite 是嵌入式库，**不需要也不应该**单独跑数据库进程。`np
 | 启动即报 `migration ... changed after being applied` | 改过已应用的迁移文件 | 恢复文件内容，新增迁移而不是改旧的 |
 | `db:check` 报 not empty | 指向了已有数据库 | 换一个新路径，或传目录让它建临时库 |
 | 桌面窗口打不开 | 缺 Rust / Cargo | 安装 Rust，或先用 `./start.command --web` |
+
+## 7. 接入抖音评论（ingress）
+
+没有真实直播间时，先用本仓库的假源验证整条链路：
+
+```bash
+npm run fake:dyhub                      # 终端 1：假 dyhub，127.0.0.1:8757
+npm run dev:orchestrator                # 终端 2：4321
+DOUYIN_ROOM_ID=test npm run start:ingress   # 终端 3：订阅并转发
+```
+
+接真实房间时，先把 dyhub 跑起来（默认 `127.0.0.1:8757`），然后：
+
+```bash
+DOUYIN_ROOM_ID=<live.douyin.com 后面的数字> npm run start:ingress
+```
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `DOUYIN_ROOM_ID` | 必填 | 直播间 `web_rid`，不是房间内部 id |
+| `DYHUB_URL` | `ws://127.0.0.1:8757` | dyhub 地址 |
+| `CRAFTMATE_INGRESS` | `ws://127.0.0.1:4321/ingress` | orchestrator 入口 |
+| `INGRESS_HEALTH_PORT` | `4322` | ingress 自身探活端口 |
+
+排查顺序：先 `curl http://127.0.0.1:4322/health` 看 `source.state` 与 `upstream`，
+再看控制台左下角的「抖音评论在线」。`upstream: false` 说明 ingress 没连上 Orchestrator，
+不是抖音的问题。

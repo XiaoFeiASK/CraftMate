@@ -25,7 +25,11 @@ export interface AppendSourceResult {
  * source row needs a live session, so both are created once and reused.
  */
 export class SessionStore {
-  constructor(private readonly db: DatabaseSync) {}
+  private readonly db: DatabaseSync;
+
+  constructor(db: DatabaseSync) {
+    this.db = db;
+  }
 
   /**
    * Idempotent: reuses the active persona version and the newest live session,
@@ -84,7 +88,11 @@ export class SessionStore {
 }
 
 export class SourceStore {
-  constructor(private readonly db: DatabaseSync) {}
+  private readonly db: DatabaseSync;
+
+  constructor(db: DatabaseSync) {
+    this.db = db;
+  }
 
   /**
    * Append-only evidence. `inserted: false` means the platform event was
@@ -139,7 +147,11 @@ export class SourceStore {
 }
 
 export class DecisionStore {
-  constructor(private readonly db: DatabaseSync) {}
+  private readonly db: DatabaseSync;
+
+  constructor(db: DatabaseSync) {
+    this.db = db;
+  }
 
   append(context: SessionContext, sourceId: string, decision: Decision, traceId: string): void {
     this.db
@@ -209,7 +221,11 @@ export class DecisionStore {
 }
 
 export class ActionStore {
-  constructor(private readonly db: DatabaseSync) {}
+  private readonly db: DatabaseSync;
+
+  constructor(db: DatabaseSync) {
+    this.db = db;
+  }
 
   /**
    * Returns the attempt id, or the existing one when the idempotency key was

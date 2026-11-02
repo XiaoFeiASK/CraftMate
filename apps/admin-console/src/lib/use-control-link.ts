@@ -64,6 +64,9 @@ export function useControlLink(): ControlLink {
         case "operator":
           setMode((current) => modeAfter(message.payload.kind, current));
           break;
+        case "source":
+          setSnapshot((current) => ({ ...current, sourceHealth: message.payload }));
+          break;
         default:
           break;
       }

@@ -6,18 +6,14 @@ wss.on("connection", (ws) => {
   ws.send(JSON.stringify({ type: "__connecting", roomId: "test" }));
   setTimeout(() => ws.send(JSON.stringify({ type: "__connected", roomId: "test" })), 200);
   setTimeout(() => ws.send(JSON.stringify({ type: "roomStatus", id: "s1", data: { status: "live" } })), 300);
-  let n = 0;
-  const timer = setInterval(() => {
-    n += 1;
-    if (n === 3) {
-      ws.send(JSON.stringify({ type: "roomStatus", id: "closed-1", data: { status: "closed" } }));
-      return;
-    }
-    ws.send(JSON.stringify({
-      id: `evt-${n}`, roomId: "test", type: "chat", ts: Date.now(),
-      user: { id: `u${n}`, nickname: `观众${n}` },
-      data: { content: n === 1 ? "去挖点铁矿" : n === 2 ? "跳岩浆" : "666" },
-    }));
-  }, 700);
-  ws.on("close", () => clearInterval(timer));
+  const lines = ["去挖点铁矿", "跳岩浆", "盖个房子给我看看", "大肥鱼今天吃白饭了吗", "666"];
+  lines.forEach((content, index) => {
+    setTimeout(() => {
+      ws.send(JSON.stringify({
+        id: `evt-${index + 1}`, roomId: "test", type: "chat", ts: Date.now(),
+        user: { id: `u${index + 1}`, nickname: `观众${index + 1}` },
+        data: { content },
+      }));
+    }, 500 + index * 600);
+  });
 });

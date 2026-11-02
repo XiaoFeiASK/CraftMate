@@ -1,5 +1,5 @@
 import type { DrawerMode } from "../operations/OperationsDrawer.tsx";
-import type { ShowMode } from "@craftmate/contracts";
+import type { ShowMode, SourceHealth } from "@craftmate/contracts";
 import type { WireState } from "../../lib/connection.ts";
 
 interface SidebarProps {
@@ -7,6 +7,7 @@ interface SidebarProps {
   readonly state: WireState;
   readonly mode: ShowMode;
   readonly personaName: string;
+  readonly sourceHealth: SourceHealth | null;
   readonly onSelect: (drawer: DrawerMode | null) => void;
 }
 
@@ -68,7 +69,14 @@ const SYSTEM_ITEMS: readonly NavigationItem[] = [
   },
 ] as const;
 
-export function Sidebar({ drawer, state, mode, personaName, onSelect }: SidebarProps): React.JSX.Element {
+export function Sidebar({
+  drawer,
+  state,
+  mode,
+  personaName,
+  sourceHealth,
+  onSelect,
+}: SidebarProps): React.JSX.Element {
   const statusLabel = state === "open" ? "内核在线" : state === "connecting" ? "正在连接" : "内核离线";
 
   return (
@@ -123,6 +131,13 @@ export function Sidebar({ drawer, state, mode, personaName, onSelect }: SidebarP
       </nav>
 
       <div className="sidebar__footer">
+        <div className="daemon-status" data-state={sourceState(state, sourceHealth)}>
+          <span className="daemon-status__dot" aria-hidden="true" />
+          <div>
+            <strong>{sourceLabel(sourceHealth)}</strong>
+            <span>{sourceHealth?.detail ?? "尚未接入抖音"}</span>
+          </div>
+        </div>
         <div className="daemon-status" data-state={state}>
           <span className="daemon-status__dot" aria-hidden="true" />
           <div>
@@ -134,6 +149,27 @@ export function Sidebar({ drawer, state, mode, personaName, onSelect }: SidebarP
       </div>
     </aside>
   );
+}
+
+/** Ingress state, folded with the console link so one dot never shows two truths. */
+function sourceState(link: WireState, health: SourceHealth | null): WireState {
+  if (link !== "open") return link;
+  if (!health) return "connecting";
+  return health.state === "open" ? "open" : health.state === "connecting" ? "connecting" : "error";
+}
+
+function sourceLabel(health: SourceHealth | null): string {
+  if (!health) return "抖音未接入";
+  switch (health.state) {
+    case "open":
+      return "抖音评论在线";
+    case "connecting":
+      return "抖音连接中";
+    case "closed":
+      return "直播间已关闭";
+    default:
+      return "抖音断开";
+  }
 }
 
 interface NavigationButtonProps {

@@ -28,6 +28,7 @@ const source = new DyhubSource({
   onHealth: (next) => {
     health = next;
     console.log(`ingress: ${next.state} — ${next.detail}`);
+    sendHealth(next);
   },
   onDrop: (reason) => console.warn(`ingress: ignored frame (${reason})`),
 });
@@ -37,6 +38,11 @@ const pending: string[] = [];
 let upstream: WebSocket | null = null;
 let upstreamAttempt = 0;
 
+function sendHealth(next: SourceHealth): void {
+  const frame = JSON.stringify({ type: "health", payload: next });
+  if (upstream?.readyState === WebSocket.OPEN) upstream.send(frame);
+}
+
 function connectOrchestrator(): void {
   const socket = new WebSocket(orchestratorUrl);
   upstream = socket;
@@ -44,6 +50,7 @@ function connectOrchestrator(): void {
   socket.on("open", () => {
     upstreamAttempt = 0;
     socket.send(JSON.stringify({ type: "hello", role: "ingress", token }));
+    sendHealth(health);
     for (const frame of pending.splice(0)) socket.send(frame);
     console.log("ingress: orchestrator connected");
   });

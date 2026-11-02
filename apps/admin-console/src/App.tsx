@@ -20,6 +20,7 @@ export function App(): React.JSX.Element {
           state={state}
           mode={mode}
           personaName={personaName}
+          sourceHealth={snapshot.sourceHealth}
           onSelect={setDrawer}
         />
         <LiveHero

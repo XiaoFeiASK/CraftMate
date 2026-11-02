@@ -29,8 +29,11 @@ export class DyhubSource implements CommentSource {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private attempt = 0;
   private disposed = false;
+  private readonly options: DyhubOptions;
 
-  constructor(private readonly options: DyhubOptions) {}
+  constructor(options: DyhubOptions) {
+    this.options = options;
+  }
 
   connect(roomId: string): Promise<void> {
     this.roomId = roomId;

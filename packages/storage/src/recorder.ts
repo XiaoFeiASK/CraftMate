@@ -10,11 +10,11 @@ import { DecisionStore, type SessionContext, SourceStore } from "./stores.ts";
 export class SqliteRecorder implements ShowRecorder {
   private readonly sources: SourceStore;
   private readonly decisions: DecisionStore;
+  private readonly context: SessionContext;
+  private readonly sourceIds = new Map<string, string>();
 
-  constructor(
-    db: DatabaseSync,
-    private readonly context: SessionContext,
-  ) {
+  constructor(db: DatabaseSync, context: SessionContext) {
+    this.context = context;
     this.sources = new SourceStore(db);
     this.decisions = new DecisionStore(db);
   }
@@ -30,6 +30,4 @@ export class SqliteRecorder implements ShowRecorder {
     if (!sourceId) throw new Error(`decision ${decision.id} has no stored source`);
     this.decisions.append(this.context, sourceId, decision, decision.eventId);
   }
-
-  private readonly sourceIds = new Map<string, string>();
 }

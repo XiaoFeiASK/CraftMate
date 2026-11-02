@@ -26,8 +26,10 @@ export class EventGate {
   private windowCount = 0;
   private queue: AudienceEvent[] = [];
   private dropped = 0;
+  private readonly options: GateOptions;
 
-  constructor(private readonly options: GateOptions = {}) {
+  constructor(options: GateOptions = {}) {
+    this.options = options;
     this.capacity = options.capacity ?? 512;
     this.perSecond = options.perSecond ?? 50;
     this.dedupeWindowMs = options.dedupeWindowMs ?? 10 * 60_000;

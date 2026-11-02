@@ -10,6 +10,17 @@ const LABELS: Record<DecisionKind, string> = {
   REFUSE: "拒绝",
 };
 
+const PRIORITY_LABELS: Record<Decision["priority"], string> = {
+  reflex: "P0 反射",
+  safety: "P2 安全",
+  operator: "P1 操作员",
+  promise: "P3 承诺",
+  plan: "P4 计划",
+  vote: "P5 投票",
+  command: "P6 指令",
+  ambient: "P7 闲聊",
+};
+
 interface DecisionStreamProps {
   readonly decisions: readonly Decision[];
 }
@@ -39,6 +50,7 @@ export function DecisionStream({ decisions }: DecisionStreamProps): React.JSX.El
               <p className="decided__text">{decision.text || "（无文字）"}</p>
               <div className="decided__meta">
                 <span>{decision.intent}</span>
+                <span data-priority={decision.priority}>{PRIORITY_LABELS[decision.priority]}</span>
                 <span className="decided__score">分 {decision.score.toFixed(2)}</span>
               </div>
               <p className="decided__reason">{decision.reason}</p>

@@ -94,10 +94,21 @@ npm run db:check
 | 约束与视图校验 | 已实现 | `npm run db:check`，内存库与真实 WAL 文件库两种模式。 |
 | 连接与迁移执行器 | 已实现 | WAL、外键、`busy_timeout`；checksum 漂移直接失败。 |
 | `SessionStore` / `SourceStore` / `DecisionStore` / `ActionStore` | 已实现 | 启动恢复、事件去重、决策落库、动作幂等。 |
-| 存储层自动化测试 | 未实现 | 当前 `npm test` 未覆盖 `packages/storage`。 |
+| 存储层自动化测试 | 已实现 | 覆盖事件去重、重启恢复、场次幂等启动三项主路径。 |
 | 承诺落库 | 部分 | `commitment` 表已建，`Show` 尚未写承诺状态迁移。 |
 | 记忆与待审仓储 | 未实现 | 只有表结构。 |
 | 保留策略执行 | 部分 | `SourceStore.expireRawText()` 已实现，没有定时任务调用它。 |
+
+### 2.7 接入端 `services/ingress`
+
+| 能力 | 状态 | 说明 |
+| --- | --- | --- |
+| dyhub 订阅 | 已实现 | 订阅 `/ws?roomId=…&types=…`，事件到达即回调，不是轮询。 |
+| 事件归一化 | 已实现 | `chat` / `gift` / `member` / `like` / `room` → `AudienceEvent`；`roomStatus` 转健康状态。 |
+| 去重与背压 | 已实现 | 10 分钟内存去重、每秒上限、512 有界队列，礼物与人气优先保留。 |
+| 重连与健康 | 已实现 | 指数退避 1s→30s，健康推到 orchestrator，再广播给控制台。 |
+| `/health` | 已实现 | `GET :4322/health`，返回源状态、计数、丢弃数、上游连接。 |
+| 真实房间联调 | 未实现 | 只用 `tools/fake/dyhub.mjs` 验证过，尚未接 dyhub 实机。 |
 
 ### 2.7 接入端 `services/ingress`
 
