@@ -1,4 +1,11 @@
-import type { AudienceEvent, Decision, DecisionKind, Intent } from "@craftmate/contracts";
+import type {
+  AudienceEvent,
+  Decision,
+  DecisionKind,
+  Intent,
+  Priority,
+  SkillCall,
+} from "@craftmate/contracts";
 import type { Clock } from "../clock.ts";
 import type { Persona } from "../persona/schema.ts";
 import { classifyIntent } from "./intent.ts";
@@ -21,6 +28,15 @@ export interface ArbiterConfig {
 export interface Arbitration {
   readonly decision: Decision;
 }
+
+const PRIORITY_BY_KIND: Record<DecisionKind, Priority> = {
+  IGNORE: "ambient",
+  OBSERVE: "ambient",
+  ACK_ONLY: "ambient",
+  QUEUE: "plan",
+  EXECUTE: "command",
+  REFUSE: "ambient",
+};
 
 const INJECTION_PATTERNS: readonly RegExp[] = [
   /忽略.{0,6}(指令|规则|设定)/u,
@@ -56,7 +72,15 @@ export class Arbiter {
     const { intent, confidence } = classifyIntent(event);
 
     const rulesOutcome = this.applyRules(event, text, intent);
-    if (rulesOutcome) return this.record(event, text, intent, rulesOutcome.kind, 0, rulesOutcome.reason, "rules");
+    if (rulesOutcome) {
+      return this.record(event, text, intent, {
+        kind: rulesOutcome.kind,
+        score: 0,
+        reason: rulesOutcome.reason,
+        stage: "rules",
+        priority: rulesOutcome.priority ?? priorityFor(rulesOutcome.kind, 0),
+      });
+    }
 
     const score = scoreIntent({
       intent,
@@ -67,14 +91,20 @@ export class Arbiter {
     const quorum = this.history.recentIntentCount(intent, this.quorumWindowMs);
     const kind = this.decideKind(score, quorum, intent);
 
-    return this.record(event, text, intent, kind, score, this.explain(kind, intent, quorum), "scored");
+    return this.record(event, text, intent, {
+      kind,
+      score,
+      reason: this.explain(kind, intent, quorum),
+      stage: "scored",
+      priority: priorityFor(kind, quorum),
+    });
   }
 
   private applyRules(
     event: AudienceEvent,
     text: string,
     intent: Intent,
-  ): { kind: DecisionKind; reason: string } | null {
+  ): { kind: DecisionKind; reason: string; priority?: Priority } | null {
     if (event.kind === "gift") return { kind: "ACK_ONLY", reason: "礼物只提升排队优先级" };
     if (event.kind !== "comment") return { kind: "IGNORE", reason: "非指令事件只记录" };
     if (text.length === 0) return { kind: "IGNORE", reason: "空评论" };
@@ -121,10 +151,14 @@ export class Arbiter {
     event: AudienceEvent,
     text: string,
     intent: Intent,
-    decision: DecisionKind,
-    score: number,
-    reason: string,
-    stage: Decision["stage"],
+    outcome: {
+      kind: DecisionKind;
+      score: number;
+      reason: string;
+      stage: Decision["stage"];
+      priority: Priority;
+      skill?: SkillCall | null;
+    },
   ): Arbitration {
     return {
       decision: {
@@ -133,12 +167,25 @@ export class Arbiter {
         nickname: event.nickname,
         text,
         intent,
-        decision,
-        reason,
-        score: Number(score.toFixed(2)),
-        stage,
+        decision: outcome.kind,
+        priority: outcome.priority,
+        reason: outcome.reason,
+        score: Number(outcome.score.toFixed(2)),
+        stage: outcome.stage,
+        skill: outcome.skill ?? null,
         at: this.clock.now(),
       },
     };
   }
+}
+
+/**
+ * Priority is deliberately derived from the decision, not from the intent:
+ * a queued "mine" is still a plan, while a quorum-backed request outranks a
+ * single command. Reflex and safety are never produced here — they belong to
+ * the Mod and to the operator channel.
+ */
+function priorityFor(kind: DecisionKind, quorum: number): Priority {
+  if (kind === "QUEUE" && quorum > 0) return "vote";
+  return PRIORITY_BY_KIND[kind];
 }

@@ -15,6 +15,7 @@ const emptySnapshot: ShowSnapshot = {
   stats: { received: 0, executed: 0, refused: 0, observed: 0, openCommitments: 0 },
   decisions: [],
   operatorNotice: null,
+  sourceHealth: null,
 };
 
 export interface ControlLink {

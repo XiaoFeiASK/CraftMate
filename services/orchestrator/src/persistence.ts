@@ -1,0 +1,57 @@
+import { mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { Show, dafeiyu, type Persona } from "@craftmate/agent";
+import {
+  DecisionStore,
+  SessionStore,
+  SqliteRecorder,
+  openDatabase,
+  type SessionContext,
+} from "@craftmate/storage";
+import type { Decision } from "@craftmate/contracts";
+
+export interface PersistentShow {
+  readonly show: Show;
+  readonly context: SessionContext;
+  close(): void;
+}
+
+const DEFAULT_GOAL = "盖一间带床和箱子的海崖小屋";
+
+/**
+ * Builds the show on top of SQLite. Any failure here is fatal on purpose: a
+ * live show that silently runs without its evidence trail is worse than a
+ * show that refuses to start.
+ */
+export function createPersistentShow(options: {
+  readonly persona?: Persona;
+  readonly dbPath?: string;
+  readonly goalText?: string;
+} = {}): PersistentShow {
+  const persona = options.persona ?? dafeiyu;
+  const db = openDatabase({ file: options.dbPath ?? defaultDatabasePath() });
+  const context = new SessionStore(db).bootstrap(persona, options.goalText ?? DEFAULT_GOAL);
+  const history = new DecisionStore(db).recent(context.sessionId, 50);
+
+  const show = new Show({
+    persona,
+    recorder: new SqliteRecorder(db, context),
+    history: history.reverse(),
+  });
+
+  return { show, context, close: () => db.close() };
+}
+
+/** `~/.craftmate/craftmate.db`, overridable for tests and Docker. */
+export function defaultDatabasePath(): string {
+  if (process.env.CRAFTMATE_DB) return process.env.CRAFTMATE_DB;
+  if (process.env.CRAFTMATE_DB_DIR) {
+    const dir = process.env.CRAFTMATE_DB_DIR;
+    mkdirSync(dir, { recursive: true });
+    return join(dir, "craftmate.db");
+  }
+  const dir = join(homedir(), ".craftmate");
+  mkdirSync(dir, { recursive: true });
+  return join(dir, "craftmate.db");
+}

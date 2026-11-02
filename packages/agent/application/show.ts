@@ -8,6 +8,7 @@ import {
   type PersonaSummary,
   type ShowMode,
   type ShowSnapshot,
+  type SourceHealth,
 } from "@craftmate/contracts";
 import {
   Arbiter,
@@ -17,6 +18,7 @@ import {
 import type { AudienceStore } from "./ports/audience-store.ts";
 import type { Clock } from "./ports/clock.ts";
 import { systemClock } from "./ports/clock.ts";
+import type { ShowRecorder } from "./ports/recorder.ts";
 
 const MAX_DECISIONS = 200;
 
@@ -53,6 +55,10 @@ interface ShowOptions {
   readonly clock?: Clock;
   readonly audience?: AudienceStore;
   readonly ledger?: CommitmentLedger;
+  /** Absent means the show runs entirely in memory (tests, previews). */
+  readonly recorder?: ShowRecorder;
+  /** Restored on boot so a restart does not blank the console. */
+  readonly history?: readonly Decision[];
 }
 
 /**
@@ -67,12 +73,14 @@ export class Show {
   private readonly arbiter: Arbiter;
   private readonly decisions: Decision[] = [];
   private readonly seen = new Set<string>();
+  private readonly recorder: ShowRecorder | null;
   private received = 0;
   private executed = 0;
   private refused = 0;
   private observed = 0;
   private mode: ShowMode = "agent";
   private operatorNotice: OperatorNotice | null = null;
+  private sourceHealth: SourceHealth | null = null;
 
   constructor(options: ShowOptions) {
     this.persona = options.persona;
@@ -84,6 +92,8 @@ export class Show {
       history: this.audience,
       clock: this.clock,
     });
+    this.recorder = options.recorder ?? null;
+    if (options.history) this.decisions.push(...options.history);
   }
 
   /** Returns null for malformed or duplicate events. */
@@ -96,7 +106,12 @@ export class Show {
     this.received += 1;
     if (this.mode !== "agent") return null;
 
+    // Evidence is written before arbitration: a decision with no stored source
+    // cannot be traced, so it must not be produced at all.
+    if (this.recorder && !this.recorder.recordSource(event)) return null;
+
     const { decision } = this.arbiter.evaluate(event);
+    this.recorder?.recordDecision(decision);
     this.remember(decision);
     this.audience.recordCommand(event.userId, decision.intent, this.clock.now());
     this.count(decision);
@@ -138,6 +153,14 @@ export class Show {
     return this.mode;
   }
 
+  /**
+   * Access-link status, surfaced to the console. Health is explicitly not an
+   * audience event: it never creates a decision.
+   */
+  setSourceHealth(health: SourceHealth): void {
+    this.sourceHealth = health;
+  }
+
   recent(): readonly Decision[] {
     return [...this.decisions];
   }
@@ -154,6 +177,7 @@ export class Show {
       },
       decisions: this.recent(),
       operatorNotice: this.operatorNotice,
+      sourceHealth: this.sourceHealth,
     };
   }
 

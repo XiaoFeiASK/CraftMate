@@ -1,7 +1,12 @@
 import { createServer } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { Show } from "@craftmate/agent/application";
-import { clientMessageSchema, type ServerMessage } from "@craftmate/contracts";
+import {
+  audienceEventSchema,
+  clientMessageSchema,
+  sourceHealthSchema,
+  type ServerMessage,
+} from "@craftmate/contracts";
 
 interface ControlServerOptions {
   readonly show: Show;
@@ -13,6 +18,8 @@ interface ControlServerOptions {
 export interface ControlServer {
   /** Resolves once listening, with the bound port (differs from 0). */
   readonly listening: Promise<number>;
+  /** Health pushes broadcast to every connected console. */
+  publishSourceHealth(health: unknown): void;
   close(): Promise<void>;
 }
 
@@ -35,7 +42,20 @@ export function createControlServer({ show, port, host = "127.0.0.1" }: ControlS
     response.writeHead(404).end();
   });
 
-  const wss = new WebSocketServer({ server: http, path: "/control" });
+  // Both endpoints share one HTTP server, so upgrades are routed by path here.
+  // Two `WebSocketServer({ server, path })` instances would fight: the first
+  // one aborts a handshake whose path it does not own.
+  const wss = new WebSocketServer({ noServer: true });
+  const ingress = new WebSocketServer({ noServer: true });
+  http.on("upgrade", (request, socket, head) => {
+    const path = new URL(request.url ?? "/", "http://localhost").pathname;
+    const target = path === "/control" ? wss : path === "/ingress" ? ingress : null;
+    if (!target) {
+      socket.destroy();
+      return;
+    }
+    target.handleUpgrade(request, socket, head, (ws) => target.emit("connection", ws, request));
+  });
   const connections = new Set<Connection>();
 
   const send = (socket: WebSocket, message: ServerMessage): void => {
@@ -89,6 +109,49 @@ export function createControlServer({ show, port, host = "127.0.0.1" }: ControlS
     socket.on("close", () => connections.delete(connection));
   });
 
+  // Ingress is a data source, not a human operator: it may only submit events
+  // and health, never operator commands.
+  ingress.on("connection", (socket) => {
+    let greeted = false;
+    socket.on("message", (raw) => {
+      const parsed = parseJson(raw.toString());
+      if (parsed === null || typeof parsed !== "object") {
+        send(socket, { type: "error", payload: { code: "E_SCHEMA", detail: "invalid frame" } });
+        return;
+      }
+      const frame = parsed as { type?: unknown };
+
+      if (frame.type === "hello") {
+        greeted = true;
+        return;
+      }
+      if (!greeted) {
+        send(socket, { type: "error", payload: { code: "E_PERMISSION", detail: "hello required" } });
+        return;
+      }
+
+      if (frame.type === "health") {
+        const health = sourceHealthSchema.safeParse((parsed as { payload?: unknown }).payload);
+        if (!health.success) return;
+        show.setSourceHealth(health.data);
+        broadcast({ type: "source", payload: health.data });
+        return;
+      }
+
+      if (frame.type === "event") {
+        const event = audienceEventSchema.safeParse((parsed as { payload?: unknown }).payload);
+        if (!event.success) {
+          send(socket, { type: "error", payload: { code: "E_SCHEMA", detail: event.error.message } });
+          return;
+        }
+        const decision = show.ingest(event.data);
+        if (!decision) return;
+        broadcast({ type: "decision", payload: decision });
+        broadcast({ type: "snapshot", payload: show.snapshot() });
+      }
+    });
+  });
+
   const listening = new Promise<number>((resolve, reject) => {
     http.once("error", reject);
     http.listen(port, host, () => {
@@ -104,6 +167,12 @@ export function createControlServer({ show, port, host = "127.0.0.1" }: ControlS
 
   return {
     listening,
+    publishSourceHealth: (health) => {
+      const parsed = sourceHealthSchema.safeParse(health);
+      if (!parsed.success) return;
+      show.setSourceHealth(parsed.data);
+      broadcast({ type: "source", payload: parsed.data });
+    },
     close: async () => {
       for (const { socket } of connections) socket.close();
       await new Promise<void>((resolve) => wss.close(() => resolve()));

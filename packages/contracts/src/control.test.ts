@@ -12,6 +12,7 @@ const snapshot: ShowSnapshot = {
   stats: { received: 3, executed: 1, refused: 0, observed: 1, openCommitments: 0 },
   decisions: [],
   operatorNotice: null,
+  sourceHealth: null,
 };
 
 describe("control protocol", () => {

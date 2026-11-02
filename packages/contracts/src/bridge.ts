@@ -1,28 +1,7 @@
 import { z } from "zod";
-import { prioritySchema } from "./decision.ts";
+import { prioritySchema, skillNameSchema } from "./decision.ts";
 
-export const skillNameSchema = z.enum([
-  "goto",
-  "follow",
-  "flee",
-  "look_at",
-  "mine_block",
-  "chop_tree",
-  "collect_items",
-  "craft",
-  "equip",
-  "eat",
-  "deposit",
-  "place_block",
-  "build_schematic",
-  "attack",
-  "use_block",
-  "sleep",
-  "say",
-  "emote",
-  "wait",
-]);
-export type SkillName = z.infer<typeof skillNameSchema>;
+export { skillNameSchema, type SkillName } from "./decision.ts";
 
 export const skillCommandSchema = z.object({
   v: z.literal(1),
@@ -45,6 +24,17 @@ export const worldEventSchema = z.object({
   data: z.record(z.unknown()),
 });
 export type WorldEvent = z.infer<typeof worldEventSchema>;
+
+export const actionStatusSchema = z.enum([
+  "queued",
+  "running",
+  "completed",
+  "preempted",
+  "cancelled",
+  "failed",
+  "timeout",
+]);
+export type ActionStatus = z.infer<typeof actionStatusSchema>;
 
 export const bridgeErrorCodeSchema = z.enum([
   "E_SCHEMA",

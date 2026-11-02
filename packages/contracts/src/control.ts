@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { audienceEventSchema } from "./audience.ts";
+import { audienceEventSchema, sourceHealthSchema } from "./audience.ts";
 import { decisionSchema } from "./decision.ts";
 
 export const showModeSchema = z.enum(["agent", "operator", "stopped"]);
@@ -36,6 +36,7 @@ export const showSnapshotSchema = z.object({
   stats: showStatsSchema,
   decisions: z.array(decisionSchema).readonly(),
   operatorNotice: operatorNoticeSchema.nullable(),
+  sourceHealth: sourceHealthSchema.nullable().default(null),
 });
 export type ShowSnapshot = z.infer<typeof showSnapshotSchema>;
 
@@ -70,6 +71,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("stats"), payload: showStatsSchema }),
   z.object({ type: z.literal("snapshot"), payload: showSnapshotSchema }),
   z.object({ type: z.literal("operator"), payload: operatorCommandSchema }),
+  z.object({ type: z.literal("source"), payload: sourceHealthSchema }),
   z.object({
     type: z.literal("error"),
     payload: z.object({ code: z.string(), detail: z.string() }),

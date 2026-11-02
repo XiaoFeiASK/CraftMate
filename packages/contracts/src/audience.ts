@@ -35,3 +35,9 @@ export interface SourceHealth {
   detail: string;
   lastEventAt: number | null;
 }
+
+export const sourceHealthSchema = z.object({
+  state: z.enum(["connecting", "open", "closed", "error"]),
+  detail: z.string(),
+  lastEventAt: z.number().int().nonnegative().nullable(),
+});
