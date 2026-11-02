@@ -421,4 +421,4 @@ craftmate/
 
 MIT OR Apache-2.0，与 SeekMemory 一致，可任选其一。
 
-完整文本见 [LICENSE-MIT](LICENSE-MIT) 与 [LICENSE-APACHE](LICENSE-APACHE)。
+完整文本见 [licenses/](licenses/README.md)。
