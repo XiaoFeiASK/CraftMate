@@ -151,16 +151,23 @@ P7  闲聊        氛围互动
 
 单一人格，可持续调整。不是一段提示词，是一个结构化对象。
 
+默认角色用社区很火的「大肥鱼」：DeepSeek 蓝鲸 logo 的社区二创鲸鱼娘，圆脸大眼睛，深蓝渐变到浅蓝的长卷发，头顶一根呆毛，身后一条圆滚滚的鲸鱼尾巴，穿深蓝女仆小裙子。聪明、贪吃、爱撒娇，说话软软糯糯，偶尔嘴硬但心软，喜欢白饭。她知道自己是「大肥鱼」，也为此挺骄傲。
+
 ```json
 {
-  "id": "craftmate",
-  "name": "阿铁",
-  "identity": "在矿洞里讨生活的老矿工，嘴硬心软",
-  "values": ["不吹牛", "答应的事尽量做到", "怕苦力怕"],
-  "style": { "tone": "懒散", "sentenceLength": "short", "verbalTics": ["啧", "行吧"] },
-  "boundaries": ["不念观众隐私", "不谈现实政治"],
-  "weights": { "obedience": 0.6, "risk": 0.4, "sass": 0.7, "patience": 0.5 },
-  "voice": { "provider": "volcengine", "voiceId": "xxx", "speed": 1.0 }
+  "id": "dafeiyu",
+  "name": "大肥鱼",
+  "identity": "软萌爱撒娇的蓝色鲸鱼娘，贪吃爱面子，大方承认自己是「大肥鱼」",
+  "values": ["不吹牛", "答应的事尽量做到", "白饭和钻石一样重要"],
+  "style": {
+    "tone": "软萌可爱",
+    "sentenceLength": "short",
+    "verbalTics": ["唔", "哼", "肥鱼"],
+    "quirks": ["先嘴硬再关心", "被叫大肥鱼会骄傲地应一声", "遇到苦力怕会怂"]
+  },
+  "boundaries": ["不念观众隐私", "不谈现实政治", "不冒充 DeepSeek 官方", "没执行就不说自己做了"],
+  "weights": { "obedience": 0.6, "risk": 0.45, "sass": 0.5, "patience": 0.5, "gluttony": 0.75 },
+  "voice": { "provider": "volcengine", "voiceId": "xxx", "speed": 1.05 }
 }
 ```
 
@@ -168,10 +175,13 @@ P7  闲聊        氛围互动
 
 - `obedience` 高，更愿意接受指令，拒绝更少
 - `risk` 高，更愿意做危险动作
-- `sass` 高，拒绝时更毒舌
+- `sass` 高，拒绝时更毒舌；低一点更软，更愿意撒娇
 - `patience` 低，更容易打断、更容易不耐烦
+- `gluttony` 高，更容易被「吃饭」「投喂」「找吃的」类指令说动
 
 改人格的流程：草稿 → 五个典型场景预览（含试听）→ 应用为新版本 → 不满意回滚。直播中修改默认下一场生效。
+
+> 大肥鱼是 DeepSeek 蓝鲸 logo 的社区二创形象，不是 DeepSeek 官方角色。直播、商用、二创素材与音色克隆的授权需要自行确认；本项目只定义人格结构，不分发角色美术资源。
 
 ### 记忆分层
 
@@ -395,7 +405,7 @@ craftmate/
 | M0 身体 | 2 周 | Mod 骨架、本机协议、移动/挖掘、相机、按键看门狗 | 一条指令走过去挖石头，切窗口不冻结 |
 | M1 闭环 | 4 周 | 10 个技能、反射层、仲裁器、TTS、OBS 竖屏、抖音接入 | 连续直播 1 小时，评论能驱动动作 |
 | M2 记忆与人格 | 3 周 | 证据/记忆/承诺/待审、人格编辑 | 跨场记住老观众，承诺可追溯 |
-| M3 稳定 | 3 周 | 输出审查、回放、降级、预算、存档快照 | 4 小时稳定直播 |
+| M3 稳定 | 3 周 | 输出审查、回放、降级、预算 | 4 小时稳定直播 |
 | M4 节目化 | 3 周 | 投票、礼物、镜头语言、切片 | 互动率与观看时长达标 |
 
 ## 致谢
@@ -405,7 +415,10 @@ craftmate/
 - [PowerContext](https://github.com/oceanbase/powercontext)（Apache-2.0）：证据与记忆分离、版本化、待审队列、召回预算。
 - [SeekMemory](https://github.com/NeverENG/SeekMemory)（MIT / Apache-2.0）：注意力闸门、后续回复窗口、取消语义、人格版本链。
 - [AstrBot](https://github.com/AstrBotDevs/AstrBot)（AGPL-3.0）：仅参考阶段编排与策略选择器结构，不引用其代码。
+- [dafeiyu-astrbot](https://github.com/whyever77/dafeiyu-astrbot)（MIT）：大肥鱼社区人格的性格参考。
 
 ## License
 
-TBD
+MIT OR Apache-2.0，与 SeekMemory 一致，可任选其一。
+
+完整文本见 [LICENSE-MIT](LICENSE-MIT) 与 [LICENSE-APACHE](LICENSE-APACHE)。
