@@ -1,12 +1,8 @@
 import type { AudienceEvent, Decision, DecisionKind, Intent } from "@craftmate/protocol";
+import type { Clock } from "../clock.ts";
 import type { Persona } from "../persona/schema.ts";
 import { classifyIntent } from "./intent.ts";
 import { SCORE_THRESHOLDS, scoreIntent } from "./scoring.ts";
-
-export interface Clock {
-  now(): number;
-  newId(): string;
-}
 
 export interface AudienceHistory {
   lastCommandAt(userId: string): number | null;

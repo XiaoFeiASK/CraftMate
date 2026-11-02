@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import type { OperatorKind } from "../lib/wire.ts";
+import type { OperatorKind } from "@craftmate/protocol";
 
 interface OperatorBarProps {
   readonly onComment: (nickname: string, text: string) => void;

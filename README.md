@@ -330,9 +330,9 @@ compat/    版本相关：Mixin 与映射适配全部集中在这里
 
 ```json
 { "v": 1, "type": "hello", "token": "...", "capabilities": ["camera", "hud", "build"] }
-{ "v": 1, "type": "cmd", "id": "c-42", "op": "behavior.mine",
+{ "v": 1, "type": "cmd", "id": "c-42", "op": "mine_block",
   "args": { "block": "minecraft:iron_ore", "count": 8 },
-  "deadlineTick": 12400, "priority": "normal", "idempotencyKey": "plan-17-s3" }
+  "deadlineTick": 12400, "priority": "command", "idempotencyKey": "plan-17-s3" }
 { "v": 1, "type": "ack", "id": "c-42", "accepted": true, "taskId": "t-7" }
 { "v": 1, "type": "progress", "taskId": "t-7", "phase": "traveling", "done": 0, "total": 8 }
 { "v": 1, "type": "result", "taskId": "t-7", "status": "completed", "ticks": 812 }
@@ -383,12 +383,12 @@ interface CommentSource {
 
 ## 当前进度与开发
 
-**M0 骨架已经可运行**：
+**当前已落地的是 M0 的界面、控制面与领域切片，Mod 尚未开始**：
 
-- `packages/protocol`：观众事件、决策、Bridge 指令的运行时 schema。
+- `packages/protocol`：观众事件、决策、控制面消息与 Bridge 指令的运行时 schema。
 - `packages/domain`：人格、意图识别、确定性仲裁、承诺状态机。
 - `packages/application`：直播场次编排、运行模式、读模型；时钟与存储通过端口注入。
-- `apps/orchestrator`：本机 WebSocket 控制服务与模拟弹幕。
+- `apps/orchestrator`：本机 WebSocket 控制服务与模拟弹幕；尚未连接游戏。
 - `apps/console`：启动器式 React 桌面界面。
 - `apps/desktop`：Tauri 2 原生外壳配置。
 
@@ -428,11 +428,11 @@ craftmate/
 │  └─ application/      场次编排、运行模式、端口与读模型
 ├─ tools/               开发与模拟弹幕工具
 ├─ docs/                架构、技术选型、详细方案
-├─ mods/
-│  ├─ craftmate-client/ Fabric 客户端 Mod
-│  └─ craftmate-common/ 共享 DTO
 └─ licenses/
 ```
+
+`supervisord/`、`ingress/`、`voice/`、`mods/`（Fabric 客户端 Mod 与共享 DTO）属于目标态，当前还不存在；
+目录树不再为尚未实现的部分预埋空壳。
 
 ## 路线图
 

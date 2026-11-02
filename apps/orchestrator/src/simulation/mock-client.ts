@@ -1,5 +1,5 @@
 import { WebSocket } from "ws";
-import type { ClientMessage } from "../transport/messages.ts";
+import type { ClientMessage } from "@craftmate/protocol";
 import { SAMPLE_COMMENTS } from "./samples.ts";
 
 export interface MockOptions {

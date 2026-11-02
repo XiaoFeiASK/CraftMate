@@ -1,8 +1,6 @@
-/** Time and identity are injected so the domain stays deterministic in tests. */
-export interface Clock {
-  now(): number;
-  newId(): string;
-}
+import type { Clock } from "@craftmate/domain";
+
+export type { Clock } from "@craftmate/domain";
 
 export const systemClock: Clock = {
   now: () => Date.now(),

@@ -1,4 +1,14 @@
-import { audienceEventSchema, type AudienceEvent, type Decision } from "@craftmate/protocol";
+import {
+  audienceEventSchema,
+  type AudienceEvent,
+  type Decision,
+  type Intent,
+  type OperatorCommand,
+  type OperatorNotice,
+  type PersonaSummary,
+  type ShowMode,
+  type ShowSnapshot,
+} from "@craftmate/protocol";
 import {
   Arbiter,
   CommitmentLedger,
@@ -7,21 +17,6 @@ import {
 import type { AudienceStore } from "./ports/audience-store.ts";
 import type { Clock } from "./ports/clock.ts";
 import { systemClock } from "./ports/clock.ts";
-import type { OperatorCommand, ShowMode } from "./operator.ts";
-
-export interface ShowStats {
-  readonly received: number;
-  readonly executed: number;
-  readonly refused: number;
-  readonly observed: number;
-  readonly openCommitments: number;
-}
-
-export interface ShowSnapshot {
-  readonly mode: ShowMode;
-  readonly stats: ShowStats;
-  readonly decisions: readonly Decision[];
-}
 
 const MAX_DECISIONS = 200;
 
@@ -38,14 +33,14 @@ export class MemoryAudienceStore implements AudienceStore {
     return this.lastCommand.get(userId) ?? null;
   }
 
-  recentIntentCount(intent: string, windowMs: number): number {
+  recentIntentCount(intent: Intent, windowMs: number): number {
     const cutoff = this.clock.now() - windowMs;
     const recent = (this.intentTimes.get(intent) ?? []).filter((at) => at > cutoff);
     this.intentTimes.set(intent, recent);
     return recent.length;
   }
 
-  recordCommand(userId: string, intent: string, at: number): void {
+  recordCommand(userId: string, intent: Intent, at: number): void {
     this.lastCommand.set(userId, at);
     const times = this.intentTimes.get(intent) ?? [];
     times.push(at);
@@ -77,6 +72,7 @@ export class Show {
   private refused = 0;
   private observed = 0;
   private mode: ShowMode = "agent";
+  private operatorNotice: OperatorNotice | null = null;
 
   constructor(options: ShowOptions) {
     this.persona = options.persona;
@@ -107,18 +103,34 @@ export class Show {
     return decision;
   }
 
-  readonly personaCard = (): Persona => this.persona;
+  personaSummary(): PersonaSummary {
+    return {
+      id: this.persona.id,
+      name: this.persona.name,
+      identity: this.persona.identity,
+      weights: this.persona.weights,
+    };
+  }
 
   applyOperator(command: OperatorCommand): ShowMode {
     switch (command.kind) {
       case "takeover":
         this.mode = "operator";
+        this.operatorNotice = this.notice(command, "操作员已接管，Agent 退到旁白");
         break;
       case "release":
         this.mode = "agent";
+        this.operatorNotice = this.notice(command, "已交还 Agent");
         break;
       case "stop":
         this.mode = "stopped";
+        this.operatorNotice = this.notice(command, "已急停，等待操作员恢复");
+        break;
+      case "whisper":
+        this.operatorNotice = this.notice(
+          command,
+          "耳语已记录；模型接入后会进入 Agent 上下文，不会发到直播间",
+        );
         break;
       default:
         break;
@@ -141,6 +153,16 @@ export class Show {
         openCommitments: this.ledger.open().length,
       },
       decisions: this.recent(),
+      operatorNotice: this.operatorNotice,
+    };
+  }
+
+  private notice(command: OperatorCommand, detail: string): OperatorNotice {
+    return {
+      kind: command.kind,
+      text: command.text,
+      detail,
+      at: this.clock.now(),
     };
   }
 
@@ -165,5 +187,3 @@ export class Show {
     }
   }
 }
-
-export type { AudienceEvent };

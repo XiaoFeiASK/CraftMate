@@ -61,4 +61,13 @@ describe("show operator modes", () => {
     assert.equal(show.snapshot().stats.received, 1);
     assert.equal(show.snapshot().decisions.length, 0);
   });
+
+  test("whisper records a private notice without changing the show mode", () => {
+    const { show } = createShow();
+    const mode = show.applyOperator({ kind: "whisper", text: "先别跳" });
+
+    assert.equal(mode, "agent");
+    assert.equal(show.snapshot().operatorNotice?.kind, "whisper");
+    assert.match(show.snapshot().operatorNotice?.detail ?? "", /不会发到直播间/);
+  });
 });
