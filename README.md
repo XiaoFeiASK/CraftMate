@@ -364,15 +364,17 @@ interface CommentSource {
 
 ## 技术栈
 
+完整技术方案见 [docs/technical-design.md](docs/technical-design.md)，术语见 [GLOSSARY.md](GLOSSARY.md)，决策记录见 [docs/adr/](docs/adr/README.md)。
+
 | 层 | 技术 |
 | --- | --- |
 | 管理端 | Tauri 2 + React + TypeScript |
 | 守护进程 | Node 22 + TypeScript |
 | 执行内核 | Node 22 + TypeScript + zod |
 | 接入端 | Node 22 + TypeScript |
-| 语音 | Node + ffmpeg + 云 TTS |
+| 语音 | Node + ffmpeg + 云 TTS，音色参考社区大肥鱼 |
 | 游戏执行 | Fabric Mod，Java 21，MC 1.21.11 |
-| 模型 | OpenAI 兼容协议，多 Provider 可切换 |
+| 模型 | 先用 DeepSeek，OpenAI 兼容协议，可切多 Provider |
 | 存储 | SQLite（WAL + FTS5） |
 | 推流 | OBS + obs-websocket |
 
