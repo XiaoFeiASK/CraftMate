@@ -265,7 +265,7 @@ decision_log      每条评论的完整决策链
 | 记忆 | 观众画像、承诺、关系，可手动修正（后续） |
 | 设置 | 平台、模型、语音、OBS、预算、快捷键（后续） |
 
-场景主画面目前是自绘 SVG 方块景观，接入 Fabric Bridge 后替换为实时游戏画面。这样预览不依赖外部图片，也不会拿别人的游戏截图充当产品资源。
+场景主画面目前是占位视觉，接入 Fabric Bridge 后替换为实时游戏画面。占位素材必须可追溯授权，不拿别人的直播截图充当产品资源。
 
 操作员最重要的三个动作：
 
@@ -383,7 +383,8 @@ interface CommentSource {
 
 ## 当前进度与开发
 
-**当前已落地的是 M0 的界面、控制面与 Agent 内核切片，Mod 尚未开始**：
+当前已落地的是界面、控制面、Agent 决策切片和数据库 schema；**Mod、真实接入、模型和语音都还没有**。
+逐项状态见 [docs/status.md](docs/status.md)。
 
 - `apps/admin-console`：启动器式 React 管理端，只依赖共享契约。
 - `apps/desktop-shell`：Tauri 2 桌面宿主，承载管理端，不是第二个前端。
@@ -391,13 +392,15 @@ interface CommentSource {
 - `packages/contracts`：观众事件、决策、控制面消息与 Bridge 指令的运行时 schema。
 - `packages/agent/domain`：人格、意图识别、确定性仲裁、承诺状态机。
 - `packages/agent/application`：场次编排、运行模式、读模型；时钟与存储通过端口注入。
+- `db/`：SQLite v1 schema 与迁移约定，尚无运行时连接。
 
 ```bash
 npm install
 npm run dev              # 同时启动 orchestrator 与管理端
 npm run typecheck        # TypeScript 全仓检查
-npm test                 # 领域层单测
+npm test                 # 领域层、契约、控制面单测
 npm run build            # 管理端生产构建
+npm run db:check         # schema 约束与视图校验
 ```
 
 模拟弹幕：
@@ -414,6 +417,16 @@ npm run dev:desktop
 
 **前置条件：** 需要 Rust / Cargo。当前开发机尚未安装，所以 Tauri 窗口尚未在本机实际启动验证；Vite 界面、控制链路、类型检查、单测和生产构建已经验证。没有 Rust 时仍然可以用 `npm run dev` 开发界面。
 
+### 用 Docker 跑
+
+```bash
+docker compose up orchestrator   # 容器内跑控制面，映射到本机 4321
+docker compose run --rm db-check # 在容器的真实文件库上校验 schema
+```
+
+桌面窗口不进容器，因为它需要窗口系统和 macOS 音频设备。SQLite 是嵌入式库，
+没有数据库容器；`db-check` 用的是容器里的临时文件库，用来验证 WAL 行为。
+
 ## 目录结构
 
 ```text
@@ -428,8 +441,11 @@ craftmate/
 │  └─ agent/            Agent 业务内核
 │     ├─ domain/        人格、仲裁、承诺
 │     └─ application/   场次编排、运行模式、端口
+├─ db/                  SQLite 迁移与 schema 校验
+├─ docker/              开发镜像
 ├─ tools/               开发与模拟弹幕工具
-├─ docs/                架构、技术选型、详细方案
+├─ docs/                架构、状态、计划与详细方案
+├─ docker-compose.yml   本机开发服务
 └─ licenses/
 ```
 
@@ -438,13 +454,16 @@ craftmate/
 
 ## 路线图
 
-| 阶段 | 周期 | 交付 | 验收 |
-| --- | --- | --- | --- |
-| M0 身体 | 2 周 | Mod 骨架、本机协议、移动/挖掘、相机、按键看门狗 | 一条指令走过去挖石头，切窗口不冻结 |
-| M1 闭环 | 4 周 | 10 个技能、反射层、仲裁器、TTS、OBS 竖屏、抖音接入 | 连续直播 1 小时，评论能驱动动作 |
-| M2 记忆与人格 | 3 周 | 证据/记忆/承诺/待审、人格编辑 | 跨场记住老观众，承诺可追溯 |
-| M3 稳定 | 3 周 | 输出审查、回放、降级、预算 | 4 小时稳定直播 |
-| M4 节目化 | 3 周 | 投票、礼物、镜头语言、切片 | 互动率与观看时长达标 |
+不排日期，按目标推进。一次只做一个，做完、验证、合并，再开下一个。
+完整清单见 [交付计划](docs/delivery-plan.md)，现在能跑什么见 [实现状态](docs/status.md)。
+
+| 阶段 | 目标 | 验收 |
+| --- | --- | --- |
+| M0 身体 | Mod 骨架、本机协议、移动/挖掘、相机、按键看门狗 | 一条指令走过去挖石头，切窗口不冻结 |
+| M1 闭环 | 持久化、评论接入、10 个技能、反射层、TTS、OBS 竖屏 | 连续直播 1 小时，评论能驱动动作 |
+| M2 记忆与人格 | 证据/记忆/承诺/待审、人格编辑 | 跨场记住老观众，承诺可追溯 |
+| M3 稳定 | 输出审查、回放、降级、预算 | 4 小时稳定直播 |
+| M4 节目化 | 投票、礼物、镜头语言、切片 | 互动率与观看时长达标 |
 
 ## 致谢
 

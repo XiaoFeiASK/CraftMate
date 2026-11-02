@@ -6,9 +6,13 @@ import { clientMessageSchema, type ServerMessage } from "@craftmate/contracts";
 interface ControlServerOptions {
   readonly show: Show;
   readonly port: number;
+  /** Defaults to loopback. Containers must widen it to receive host traffic. */
+  readonly host?: string;
 }
 
 export interface ControlServer {
+  /** Resolves once listening, with the bound port (differs from 0). */
+  readonly listening: Promise<number>;
   close(): Promise<void>;
 }
 
@@ -21,7 +25,7 @@ interface Connection {
  * Transport adapter: wire messages in, application calls out. It owns no
  * business rules and no state beyond connection bookkeeping.
  */
-export function createControlServer({ show, port }: ControlServerOptions): ControlServer {
+export function createControlServer({ show, port, host = "127.0.0.1" }: ControlServerOptions): ControlServer {
   const http = createServer((request, response) => {
     if (request.url === "/health") {
       response.writeHead(200, { "content-type": "application/json" });
@@ -85,9 +89,21 @@ export function createControlServer({ show, port }: ControlServerOptions): Contr
     socket.on("close", () => connections.delete(connection));
   });
 
-  http.listen(port, "127.0.0.1");
+  const listening = new Promise<number>((resolve, reject) => {
+    http.once("error", reject);
+    http.listen(port, host, () => {
+      http.off("error", reject);
+      const address = http.address();
+      if (address === null || typeof address === "string") {
+        reject(new Error("control server is not bound to a TCP port"));
+        return;
+      }
+      resolve(address.port);
+    });
+  });
 
   return {
+    listening,
     close: async () => {
       for (const { socket } of connections) socket.close();
       await new Promise<void>((resolve) => wss.close(() => resolve()));

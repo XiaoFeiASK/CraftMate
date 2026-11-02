@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+**/dist
+**/target
+.git
+.tmp-db
+data
+*.db
+*.db-wal
+*.db-shm
+*.log
+.DS_Store

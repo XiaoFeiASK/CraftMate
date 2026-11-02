@@ -39,10 +39,16 @@ SQLite 是单机运行时的持久层。当前只放迁移和校验，不放运�
 ## 校验
 
 ```bash
-npm run db:check
+npm run db:check        # 内存库，日常最快
+npm run db:check:file   # 容器内的真实 WAL 文件库
+node tools/check-schema.mjs /path/to/dir   # 任意目录，用完即删
 ```
 
-校验器会在内存数据库执行全部迁移，并检查：
+内存库模式只验证 SQL 语义。WAL、`busy_timeout` 和真实的文件锁只有文件库才有，
+所以涉及连接参数或迁移器的 PR 必须额外跑一次文件库模式。传入目录时校验器会在
+里面建一个临时库，退出时连同 `-wal` / `-shm` 一起删掉。
+
+校验器会执行全部迁移，并检查：
 
 - 外键和唯一约束。
 - 承诺和动作终态必须有结束时间。
@@ -50,6 +56,9 @@ npm run db:check
 - 非法决策、记忆状态被拒绝。
 - 当前决策、开放承诺、当前记忆视图返回正确结果。
 - FTS5 trigram 索引可检索中文片段。
+- FTS 命中不会被误当成有效记忆（必须连 `memory_active`）。
+- 迁移文件命名连续，`db/migrations/` 里没有非迁移文件。
+- 文件库模式下 `journal_mode` 确实是 `wal`，且 `foreign_keys` 保持开启。
 
 `trigram` 对少于 3 个字符的查询不保证命中；需要两字检索时，单独评估 ngram
 tokenizer，不在 v1 里同时维护两套索引。

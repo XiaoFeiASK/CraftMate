@@ -11,3 +11,4 @@ data/
 *.db-shm
 .vite/
 apps/desktop/src-tauri/gen/
+.tmp-db/
