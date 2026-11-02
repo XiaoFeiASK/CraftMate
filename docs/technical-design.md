@@ -860,23 +860,29 @@ AGPL 这条是硬约束。如果未来要复用 AstrBot 的模块，只能走独
 ```text
 craftmate/
 ├─ apps/
-│  ├─ console/           管理端 React 界面
-│  ├─ desktop/           Tauri 2 桌面外壳
-│  └─ orchestrator/      控制服务与模拟弹幕
+│  ├─ admin-console/     管理端前端，React
+│  └─ desktop-shell/     Tauri 2 桌面宿主
+├─ services/
+│  └─ orchestrator/      本机 WebSocket 服务与模拟弹幕
 ├─ packages/
-│  ├─ protocol/          观众、决策、控制面与 Bridge 契约
-│  ├─ domain/            人格、仲裁、承诺
-│  └─ application/       场次编排、端口与读模型
+│  ├─ contracts/         观众、决策、控制面与 Bridge 契约
+│  └─ agent/             Agent 业务内核
+│     ├─ domain/         人格、仲裁、承诺
+│     └─ application/    场次编排、端口与读模型
 ├─ tools/                开发与模拟弹幕脚本
 ├─ docs/                 架构、技术选型、详细方案、决策
 ├─ GLOSSARY.md           术语表
 └─ licenses/
 ```
 
-「五进程 + Mod」是目标态，不是当前目录：`supervisord/`、`ingress/`、
-`voice/`、`packages/memory/`、`packages/runtime/`、`packages/safety/`、
-`packages/observability/`、`mods/` 和 Java 共享 DTO 尚未实现。需要开始某一项时
-再建目录；不预埋空包。
+分配规则：`apps/` 放可启动的界面与桌面宿主，`services/` 放可启动的后端进程，
+`packages/` 放被引用的共享代码。管理端是前端的一种，Agent 是后端业务内核，
+因此不把「管理端 / Agent / 前后端」做成四个平级目录。
+
+「五进程 + Mod」是目标态，不是当前目录：`services/supervisord/`、
+`services/ingress/`、`services/voice/`、`packages/memory/`、
+`packages/runtime/`、`packages/safety/`、`packages/observability/`、
+`mods/` 和 Java 共享 DTO 尚未实现。需要开始某一项时再建目录；不预埋空包。
 
 ## 18. 路线图
 

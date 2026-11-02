@@ -4,6 +4,12 @@
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "paths": {
+      "@craftmate/contracts": ["./packages/contracts/src/index.ts"],
+      "@craftmate/agent": ["./packages/agent/index.ts"],
+      "@craftmate/agent/application": ["./packages/agent/application/index.ts"],
+      "@craftmate/agent/domain": ["./packages/agent/domain/index.ts"]
+    },
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
@@ -15,6 +21,6 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["packages/**/*.ts", "apps/**/*.ts", "apps/**/*.tsx", "tools/**/*.ts"],
+  "include": ["packages/**/*.ts", "apps/**/*.ts", "apps/**/*.tsx", "services/**/*.ts", "tools/**/*.ts"],
   "exclude": ["node_modules", "**/dist"]
 }

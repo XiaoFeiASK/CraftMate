@@ -10,7 +10,7 @@ const run = (name, command, args) => {
 
 const children = [
   run("orchestrator", "npm", ["run", "dev:orchestrator"]),
-  run("console", "npm", ["run", "dev:console"]),
+  run("admin-console", "npm", ["run", "dev:console"]),
 ];
 
 const stop = () => {

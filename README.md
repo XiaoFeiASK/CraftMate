@@ -253,7 +253,7 @@ decision_log      每条评论的完整决策链
 └───────────────┴────────────────────────────────────┴─────────────┘
 ```
 
-当前 M0 的界面已按这个方向落地：中央场景是唯一视觉焦点，操作抽屉在同一窗口内滑出，窗口按钮走 Tauri Window API。开发期用 Vite 预览同一套界面，正式承载由 `apps/desktop` 的 Tauri 2 外壳负责。
+当前 M0 的界面已按这个方向落地：中央场景是唯一视觉焦点，操作抽屉在同一窗口内滑出，窗口按钮走 Tauri Window API。开发期用 Vite 预览同一套界面，正式承载由 `apps/desktop-shell` 的 Tauri 2 外壳负责。
 
 | 页面 | 内容 |
 | --- | --- |
@@ -383,21 +383,21 @@ interface CommentSource {
 
 ## 当前进度与开发
 
-**当前已落地的是 M0 的界面、控制面与领域切片，Mod 尚未开始**：
+**当前已落地的是 M0 的界面、控制面与 Agent 内核切片，Mod 尚未开始**：
 
-- `packages/protocol`：观众事件、决策、控制面消息与 Bridge 指令的运行时 schema。
-- `packages/domain`：人格、意图识别、确定性仲裁、承诺状态机。
-- `packages/application`：直播场次编排、运行模式、读模型；时钟与存储通过端口注入。
-- `apps/orchestrator`：本机 WebSocket 控制服务与模拟弹幕；尚未连接游戏。
-- `apps/console`：启动器式 React 桌面界面。
-- `apps/desktop`：Tauri 2 原生外壳配置。
+- `apps/admin-console`：启动器式 React 管理端，只依赖共享契约。
+- `apps/desktop-shell`：Tauri 2 桌面宿主，承载管理端，不是第二个前端。
+- `services/orchestrator`：本机 WebSocket 控制服务与模拟弹幕；尚未连接游戏。
+- `packages/contracts`：观众事件、决策、控制面消息与 Bridge 指令的运行时 schema。
+- `packages/agent/domain`：人格、意图识别、确定性仲裁、承诺状态机。
+- `packages/agent/application`：场次编排、运行模式、读模型；时钟与存储通过端口注入。
 
 ```bash
 npm install
-npm run dev              # 同时启动内核与控制台
+npm run dev              # 同时启动 orchestrator 与管理端
 npm run typecheck        # TypeScript 全仓检查
 npm test                 # 领域层单测
-npm run build            # 控制台生产构建
+npm run build            # 管理端生产构建
 ```
 
 模拟弹幕：
@@ -406,7 +406,7 @@ npm run build            # 控制台生产构建
 npx tsx tools/mock.ts
 ```
 
-原生桌面壳：
+桌面宿主：
 
 ```bash
 npm run dev:desktop
@@ -419,19 +419,21 @@ npm run dev:desktop
 ```text
 craftmate/
 ├─ apps/
-│  ├─ console/          启动器式 React 界面
-│  ├─ desktop/          Tauri 2 原生外壳
-│  └─ orchestrator/     本机控制服务与运行时编排
+│  ├─ admin-console/    管理端前端，React
+│  └─ desktop-shell/    Tauri 桌面宿主
+├─ services/
+│  └─ orchestrator/     本机 WebSocket 服务与运行时入口
 ├─ packages/
-│  ├─ protocol/         观众事件、决策、Bridge 协议
-│  ├─ domain/           人格、仲裁、承诺状态机
-│  └─ application/      场次编排、运行模式、端口与读模型
+│  ├─ contracts/        前后端共享协议
+│  └─ agent/            Agent 业务内核
+│     ├─ domain/        人格、仲裁、承诺
+│     └─ application/   场次编排、运行模式、端口
 ├─ tools/               开发与模拟弹幕工具
 ├─ docs/                架构、技术选型、详细方案
 └─ licenses/
 ```
 
-`supervisord/`、`ingress/`、`voice/`、`mods/`（Fabric 客户端 Mod 与共享 DTO）属于目标态，当前还不存在；
+`services/supervisord/`、`services/ingress/`、`services/voice/`、`mods/`（Fabric 客户端 Mod 与共享 DTO）属于目标态，当前还不存在；
 目录树不再为尚未实现的部分预埋空壳。
 
 ## 路线图

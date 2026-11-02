@@ -1,0 +1,16 @@
+{
+  "name": "@craftmate/desktop-shell",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.4"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.1"
+  }
+}
