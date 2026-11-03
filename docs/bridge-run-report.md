@@ -1,8 +1,8 @@
 # 方向 C 运行报告
 
 > 记录日期：2026-11-03
-> 分支：`fix/m2-bridge-execution`
-> 基线：`4e4a610`
+> 分支：已合并至 `main`（原分支 `fix/m2-bridge-execution`）
+> 基线：`4e4a610`；合并提交 `27de9e7`
 > 结论：**Bridge 协议、模拟身体、队列与看门狗已通过自动化与短时运行；Minecraft 真机、60 分钟和 4 小时未完成，不得把本节结果当作直播验收。**
 
 ## 1. 环境
@@ -15,18 +15,21 @@
 | Java | Temurin 21.0.13 LTS |
 | Minecraft | 未安装 / 未启动 |
 | MCPFabric | 未安装 / 未连接 |
-| 分支基线 | `4e4a610` |
+| 分支基线 | `4e4a610`（已验证于合并前） |
 
 ## 2. 自动化
 
 执行命令与结果：
 
 ```bash
-npm test            # 54 passed / 0 failed
+npm test            # 当时 54 passed / 0 failed
 npm run typecheck   # passed
 npm run build       # passed
 npm run db:check    # 25 objects / 17 indexes
 ```
+
+> 合并后的 `main` 已扩到 113 项测试、26 个对象 / 19 个索引；本页保留当时的
+> Bridge 专项结果，当前总数以 [实现状态](status.md) 为准。
 
 Bridge 专项覆盖：
 
@@ -112,7 +115,8 @@ BRIDGE_LONG_RUN_MS=60000 BRIDGE_SAMPLE_MS=5000 \
 - `tools/bridge/**` fake body、smoke、长时采样；
 - Bridge 自动化测试进入 `npm test`。
 
-验证结果：`npm test` 61 项通过，`npm run typecheck` 通过，`npm run build` 通过，`npm run db:check` 报告 25 个对象 / 17 个索引。
+验证结果：合并前 `npm test` 61 项通过，`npm run typecheck` 通过，`npm run build` 通过，
+`npm run db:check` 报告 25 个对象 / 17 个索引。
 
 **未交付**
 

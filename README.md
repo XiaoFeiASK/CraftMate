@@ -31,29 +31,31 @@
 
 ```text
 ┌──────────────── Console（Tauri 桌面端）────────────────┐
-│ 直播控制 · 评论队列 · 决策日志 · 人格 · 记忆 · 回放     │
+│ 直播控制 · 评论队列 · 决策日志 · 人格 · 接入状态         │
 └──────────────────────────┬─────────────────────────────┘
                            │ 本机 IPC / WebSocket
 ┌──────────────────────────▼─────────────────────────────┐
-│ 守护进程 Supervisord                                    │
-│ 进程拉起 · 健康检查 · 崩溃重启 · 日志轮转                │
-└───┬──────────────┬──────────────┬──────────────┬────────┘
-    │              │              │              │
- 接入端         执行内核         语音模块       Fabric Mod
- 抖音评论       仲裁 · 导演      TTS · 混音     反射 · 行为
- 归一化限流     人格 · 记忆      打断 · 字幕    寻路 · 相机
+│ Orchestrator（本机进程）                                 │
+│ 仲裁 · 承诺 · 持久化 · 控制面                           │
+└───┬──────────────┬──────────────┬──────────────────────┘
+    │              │              │
+ 接入端         语音服务        Bridge
+ 抖音评论       TTS · 字幕      协调器 · 队列
+ 归一化限流     打断 · 状态      模拟身体 · 看门狗
+
+              （目标态）Fabric Mod：反射 · 行为 · 寻路 · 相机
 ```
 
 四个部分的边界：
 
 - **接入端**只把平台事件变成统一格式，不做内容判断，不做游戏决策。
 - **执行内核**负责「怎么想」：理解评论、判断合理性、决定节目节奏、维护人格和记忆。它不知道 Minecraft API。
-- **Fabric Mod** 负责「怎么做」：反射、行为、寻路、相机、HUD。它不知道观众是谁。
+- **Bridge + Fabric Mod** 负责「怎么做」：Bridge 管协议、队列与看门狗，Fabric Mod 管反射、行为、寻路、相机与 HUD。它们不知道观众是谁。
 - **语音模块**负责「怎么说」：审查、分句、合成、混音、打断。它不决定说什么。
 
 管理端不参与运行逻辑。它崩了直播继续，它只是操作员的显示器和遥控器。
 
-> 上图是目标形态。当前实际只有管理端、Orchestrator、契约、Agent 内核与持久化切片，详见 [实现状态](docs/status.md)。
+> `mods/` 与 Supervisord 仍是目标态。当前已落地管理端、Orchestrator、Ingress、Voice、Bridge 协调器与模拟身体，详见 [实现状态](docs/status.md)。
 
 ## 设计要点
 
@@ -70,16 +72,16 @@
 
 ## 现在到哪了
 
-当前已落地：启动器式管理端、Tauri 桌面宿主、本机 WebSocket 控制面、确定性的 Stage A/B 仲裁、人格与承诺状态机、SQLite 持久化、可编辑的直播资料与界面偏好，以及抖音评论的 Ingress 接入端。
+当前已落地：启动器式管理端、Tauri 桌面宿主、本机 WebSocket 控制面、确定性的 Stage A/B 仲裁、人格与承诺状态机、SQLite 持久化、可编辑的直播资料与界面偏好、抖音评论 Ingress、带鉴权的 Voice 服务，以及 Bridge 协议、协调器、有界队列与模拟身体。
 
-还没有：真实抖音房间联调、模型调用、TTS、Fabric Mod。逐项事实以 [实现状态](docs/status.md) 为准。
+还没有：真实抖音房间联调、模型调用、真实 TTS 供应商与音频路由、Orchestrator 的 `/bridge` 装配、Fabric Mod。逐项事实以 [实现状态](docs/status.md) 为准。
 
 ## 快速开始
 
 ```bash
 npm install
-./start.command          # 启动桌面窗口与 orchestrator
-./start.command --web    # 只启动浏览器预览
+./start.command          # 桌面窗口 + Orchestrator + Voice
+./start.command --web    # 浏览器预览 + Orchestrator + Voice
 npm run dev              # 跳过环境检查，直接启动
 ```
 
@@ -96,6 +98,7 @@ npm run typecheck
 npm test
 npm run build
 npm run db:check
+npm run db:check:file
 ```
 
 桌面窗口需要 Rust / Cargo；没有时用 `./start.command --web`。完整环境、端口、数据库位置与排错见 [本地开发](docs/local-setup.md)。
@@ -108,20 +111,24 @@ craftmate/
 │  ├─ admin-console/     React 管理端
 │  └─ desktop-shell/     Tauri 2 桌面宿主
 ├─ services/
-│  ├─ orchestrator/      本机 WebSocket 控制面与运行时入口
-│  └─ ingress/           抖音评论接入、归一化与限流
+│  ├─ orchestrator/      本机 WebSocket 控制面、持久化与运行时入口
+│  ├─ ingress/           抖音评论接入、归一化与限流
+│  └─ voice/             分句、TTS 队列、字幕与播放
 ├─ packages/
-│  ├─ contracts/         观众、决策、控制面与 Bridge 契约
+│  ├─ contracts/         观众、决策、控制面、Ingress、Voice 与 Bridge 契约
 │  ├─ agent/             Agent 领域、场次编排与端口
-│  └─ storage/           SQLite 连接、迁移与 Store
+│  ├─ storage/           SQLite 连接、迁移与 Store
+│  ├─ bridge/            Bridge 协调器、队列、模拟身体与 WS 适配
+│  ├─ bridge-mcpfabric/  MCPFabric 技能映射与安全握手
+│  └─ local-auth/        本机共享 token 与 loopback 校验
 ├─ db/                   schema 与迁移
-├─ tools/                开发与模拟弹幕脚本
+├─ tools/                开发、模拟弹幕与 Bridge 验证脚本
 ├─ docs/                 架构、技术细节、计划与状态
 ├─ licenses/             MIT 与 Apache-2.0 全文
 └─ start.command         一键启动本机开发环境
 ```
 
-`services/supervisord/`、`services/voice/`、`mods/` 属于目标态，当前不存在。目录树不为未实现的部分预埋空壳。
+`services/supervisord/` 与 `mods/` 属于目标态，当前不存在。目录树不为未实现的部分预埋空壳。
 
 ## 文档地图
 
@@ -132,6 +139,8 @@ craftmate/
 | [架构纵览](docs/architecture.md) | 系统怎么分层、边界在哪、哪些不变量不能破 |
 | [技术设计](docs/technical-design.md) | 协议、参数、状态机、人格、记忆、存储的细节 |
 | [外部接入](docs/integration.md) | 抖音评论与游戏身体怎么接，为什么选 dyhub / mcpfabric |
+| [Bridge 执行通道](docs/bridge.md) | `/bridge` 协议、队列、安全边界与真机约束 |
+| [Bridge 运行报告](docs/bridge-run-report.md) | Bridge 的验证范围、阻塞项与验收结论 |
 | [功能更新计划](docs/delivery-plan.md) | M0–M8 里程碑、每个里程碑的剩余工作与出口条件 |
 | [实现状态](docs/status.md) | 现在能跑什么、哪些是部分实现、还缺什么 |
 | [本地开发](docs/local-setup.md) | 怎么启动、怎么验证、常见问题 |
@@ -142,9 +151,9 @@ craftmate/
 
 三条推荐阅读路径：
 
-1. **第一次接触**：README → 架构纵览 → 技术设计的「关键参数」与「运行时结构」→ 实现状态。
-2. **准备动手**：本地开发 → 实现状态 → 功能更新计划的当前里程碑。
-3. **接外部系统**：外部接入 → 技术设计的「本机协议」→ 决策记录。
+1. **第一次接触**：README → 架构纵览 → 技术设计 §1「关键参数」→ 实现状态。
+2. **准备动手**：本地开发 → 实现状态 → 交付计划的当前里程碑。
+3. **接外部系统**：外部接入 → Bridge 执行通道 → 技术设计 §2「本机协议」→ 决策记录。
 
 ## 参考与许可
 

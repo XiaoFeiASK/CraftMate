@@ -60,7 +60,7 @@ npm run dev:voice
 npm run dev:console
 ```
 
-控制面和 Voice 共用一个本机 token，默认保存在 `~/.craftmate/ingress-token`
+Orchestrator、Ingress 与 Voice 共用一个本机 token，默认保存在 `~/.craftmate/ingress-token`
 （权限 `0600`）。设 `CRAFTMATE_TOKEN` 可覆盖；设 `CRAFTMATE_TOKEN_FILE` 可改路径。
 不要把 token 写进 URL 或提交到仓库。
 
@@ -77,6 +77,19 @@ npm run dev:voice
 播放默认调用 macOS `afplay`；可用 `AUDIO_PLAYER` 换命令。音频路由
 （BlackHole → OBS）尚未自动配置，需要在本机音频设置里手动完成。
 
+Voice 的配置变量：
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `VOICE_PORT` | `4323` | Voice WebSocket 与健康检查端口 |
+| `VOICE_HOST` | `127.0.0.1` | 监听地址 |
+| `TTS_PRIMARY_URL` | 空 | 主 TTS HTTP 端点；未配置时进入仅字幕模式 |
+| `TTS_PRIMARY_KEY` | 空 | 主 TTS 的 Bearer token |
+| `TTS_BACKUP_URL` | 空 | 备用 TTS HTTP 端点 |
+| `TTS_BACKUP_KEY` | 空 | 备用 TTS 的 Bearer token |
+| `AUDIO_PLAYER` | `afplay` | 播放命令 |
+| `CRAFTMATE_VOICE` | `ws://127.0.0.1:4323/voice` | Orchestrator 连接的 Voice 地址 |
+
 接入真实抖音评论（需要先在本机跑起 dyhub）：
 
 ```bash
@@ -90,6 +103,8 @@ ingress；伪造 token、未 `hello` 或非 loopback 连接会被直接关闭。
 Ingress 健康检查 `http://127.0.0.1:4322/health` 会同时返回丢弃原因计数，
 例如 `rate limited` / `queue full`。
 
+`npm run start:ingress` 与上面的 `npx tsx` 等价，可任选一种。
+
 ## 3. 验证
 
 ```bash
@@ -97,6 +112,7 @@ npm run typecheck
 npm test
 npm run build
 npm run db:check
+npm run db:check:file
 ```
 
 `npm test` 覆盖 `packages`、`apps`、`services` 三个目录。新增测试文件放在对应包的
@@ -161,3 +177,17 @@ DOUYIN_ROOM_ID=<live.douyin.com 后面的数字> npm run start:ingress
 排查顺序：先 `curl http://127.0.0.1:4322/health` 看 `source.state` 与 `upstream`，
 再看控制台左下角的「抖音评论在线」。`upstream: false` 说明 ingress 没连上 Orchestrator，
 不是抖音的问题。
+
+## 8. Bridge 模拟身体
+
+Bridge 尚未装配进 Orchestrator，当前只能独立验证协议与协调器。`npm run dev:bridge`
+默认监听 `4323`，与 Voice 冲突，所以同时运行时必须显式指定端口：
+
+```bash
+BRIDGE_PORT=4391 npm run dev:bridge              # 终端 1：fake body
+BRIDGE_PORT=4391 npm run bridge:smoke            # 终端 2：跑一轮 mine_block
+BRIDGE_LONG_RUN_MS=60000 npm run bridge:long-run # 可选：虚拟时钟采样
+```
+
+`bridge:smoke` 只连接 fake body，不连接 Minecraft。真实 Mod、mcpfabric 与长时验收
+仍未完成，详见 [Bridge 运行报告](bridge-run-report.md)。

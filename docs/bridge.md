@@ -2,13 +2,14 @@
 
 > 本文说明游戏身体的协议、状态机、安全边界与当前验证程度。
 > 真机与长时验收记录见 [运行报告](bridge-run-report.md)。
+> 接入位置与权限分工见 [外部接入](integration.md) §3–4。
 
 ## 1. 边界
 
 Bridge 只做三件事：把已校验的技能命令送到游戏、把真实进度和结果带回、在失控时让身体自己停下。
 
 - **不做决策**：Orchestrator 选技能，Bridge 不重新解释观众意图。
-- **不做路由装配**：B 拥有 HTTP server 与 `/control`；C 提供 `createBridgeUpgrade()`，由 B 在 public upgrade 路由中挂载。
+- **不做路由装配**：Orchestrator 拥有 HTTP server 与 `/control`、`/ingress`；Bridge 提供 `createBridgeUpgrade()`，由 Orchestrator 在 upgrade 路由中挂载。
 - **不直接写数据库**：动作通过 `ActionPort` 记账，生产适配器复用 A 的 `action_attempt`。
 
 ```text
@@ -71,9 +72,17 @@ Mod 侧必须遵守：
 ## 6. 启动
 
 ```bash
-npm run dev:bridge          # fake body，ws://127.0.0.1:4323/bridge
+npm run dev:bridge          # fake body，默认 ws://127.0.0.1:4323/bridge
 npm run bridge:smoke        # 连接 fake body 并跑一轮 mine_block
 npm run bridge:long-run     # 默认 30 秒虚拟时钟采样
 ```
 
-当前 fake body 自带 `/health`，返回连接、所有权、队列深度与看门狗窗口。真实 Minecraft / MCPFabric 的详细步骤见 [运行报告](bridge-run-report.md)。
+`npm run dev:bridge` 与 `services/voice` 的默认端口都是 `4323`，同时启动时需显式错开：
+
+```bash
+BRIDGE_PORT=4391 npm run dev:bridge
+BRIDGE_PORT=4391 npm run bridge:smoke
+```
+
+当前 fake body 自带 `/health`，返回连接、所有权、队列深度与看门狗窗口。
+它只验证协议与协调器，不代表真实 Minecraft 身体可用；真机步骤与阻塞项见 [运行报告](bridge-run-report.md)。

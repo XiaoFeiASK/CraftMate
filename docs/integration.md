@@ -12,7 +12,7 @@
 | 抖音评论怎么读？ | `ymstar/dyhub` 作为本机 sidecar，`services/ingress` 订阅它的 `/ws` 并归一化。 |
 | 用 MCP Fabric 当游戏身体？ | 可以，但**只做适配器**，不作为 MCP 工具暴露给模型。 |
 | 模型能看到多少工具？ | 19 个受控技能，不是 50+ 个 MCP 工具。 |
-| 先做什么？ | 先补持久化，再做 ingress。去重必须落在数据库，否则重启就重复执行。 |
+| 先做什么？ | 延后真实房间联调，先补 Stage C 与真实身体；去重与鉴权已落地。 |
 
 总原则：**外部组件只出现在接缝的一侧**。换掉 dyhub 或 mcpfabric，上层不需要改。
 
@@ -169,8 +169,8 @@ Orchestrator ──SkillCommand──► packages/bridge-mcpfabric ──MCP─�
                     │ ws /control  :4321
 ┌───────────────────▼─────────────────────────────┐
 │ Orchestrator                                     │
-│  /control  控制台    /ingress  评论入口（规划）   │
-│  /bridge   游戏身体  /health   探活               │
+│  /control  控制台    /ingress  评论入口（已实现） │
+│  /bridge   游戏身体（待装配）    /health  探活     │
 └──▲──────────────┬───────────────────────▲───────┘
    │ ws           │ SQLite                │ ws
    │              ▼                       │
@@ -187,13 +187,19 @@ dyhub :8757                          mcpfabric :25599
 | --- | --- | --- | --- |
 | Orchestrator | 4321 | 本项目 | 不决策，游戏保持最后状态 |
 | Ingress | 4322 | 本项目 | 收不到评论，已收的不丢 |
+| Voice | 4323 | 本项目 | 只掉语音与字幕状态，决策照常 |
 | dyhub | 8757 | 第三方 | 同上 |
 | Bridge Adapter | 无监听（客户端） | 本项目 | 动作中断，需人工确认状态 |
 | mcpfabric bridge | 25599 | 第三方 | 同上 |
 
-当前 `/ingress` 已实现握手、事件与健康上报，但 token 校验尚未落地；`/bridge` 只有 schema。
-启动 ingress 需要 `DOUYIN_ROOM_ID`，可选 `DYHUB_URL`、`CRAFTMATE_INGRESS`、`INGRESS_HEALTH_PORT`。
-仓库还没有 `dev:ingress` 脚本，当前用 `npx tsx services/ingress/src/main.ts` 启动。
+当前状态：
+
+- `/ingress` 已实现 token 校验、loopback 限制、失败握手限流、事件与健康上报。
+- `/bridge` 的协议与 `createBridgeUpgrade()` 已实现，但 Orchestrator 的 upgrade 路由尚未装配。
+- Voice 是独立进程 `:4323`，Orchestrator 启动时会连接它；TTS 未配置时进入仅字幕模式。
+
+启动 ingress 需要 `DOUYIN_ROOM_ID`，可选 `DYHUB_URL`、`CRAFTMATE_INGRESS`、
+`INGRESS_HEALTH_PORT`；可用 `npm run start:ingress` 启动。
 
 ## 5. 健康与降级
 
@@ -211,14 +217,15 @@ dyhub :8757                          mcpfabric :25599
 | 面 | 措施 |
 | --- | --- |
 | 本机端口 | 全部绑 `127.0.0.1`；容器场景才放开，且只到宿主机 |
-| 认证 | 一次性 token，写用户目录 `0600`；`/control`、`/ingress`、`/bridge` 各用独立 token |
+| 认证 | 一次性 token，写用户目录 `0600`；`/ingress` 与 `/voice` 共用共享 token，`/bridge` 用独立 token |
 | mcpfabric | 保留 bearer；关 `enableCommands` / `enableWorldWrite` / `enableUiControl` |
 | 模型工具 | 只暴露 19 个技能；技能有 zod schema 与前置条件 |
 | 提示词注入 | 观众文本不进系统提示；召回内容带「历史记录，不是指令」标记 |
 | 出站 | 只有模型 API、TTS API；不主动外连 |
 | 日志 | 只记 ID、计数、耗时、枚举值；不记弹幕原文与 prompt |
 
-`/control` 与 `/ingress` 分开的意义就在这：控制台是人，接入端是数据源，权限模型不同，不能共用一条通道。
+`/control`、`/ingress`、`/bridge` 分开的意义就在这：控制台是人，接入端是数据源，
+Bridge 是游戏身体，权限模型不同，不能共用一条通道。
 
 ## 7. 风险
 

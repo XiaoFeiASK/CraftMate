@@ -1,6 +1,6 @@
 # 技术设计
 
-> 状态：v2.0 · 2026-11-02
+> 状态：v2.1 · 2026-11-03
 > 本文是项目的**技术细节真源**：协议、参数、状态机、人格、记忆、存储。
 > 系统边界与不变量见 [架构纵览](architecture.md)；做什么、做到哪见 [交付计划](delivery-plan.md) 与 [实现状态](status.md)；为什么这么选见 [决策记录](decisions.md) 与 [技术选型](tech-stack.md)。
 
@@ -15,9 +15,9 @@
 | 内核 | Node 22 + TypeScript + zod | §4 |
 | 管理端 | Tauri 2 + React，桌面程序形态 | §10 |
 | 控制面 | WebSocket `127.0.0.1:4321`，路径 `/control`；接入端 `/ingress` | §2 |
-| 健康检查 | `GET http://127.0.0.1:4321/health` | §2 |
+| 健康检查 | `GET :4321/health`、`:4322/health`（ingress）、`:4323/health`（voice） | §2 |
 | 时间单位 | 协议与超时统一用 tick；数据库用 epoch 毫秒 | §2.4 |
-| 语音 | 流式 TTS + BlackHole + OBS 侧链压缩 | §6 |
+| 语音 | 独立进程 `127.0.0.1:4323/voice`；流式 TTS + BlackHole + OBS 侧链压缩 | §2、§6 |
 | 模型 | DeepSeek，OpenAI 兼容协议，Key 存 Keychain | §4.7 |
 | 存储 | SQLite（WAL + FTS5） | §9 |
 | 直播 | 抖音专用开播号，竖屏 1080×1920 | §5 |
@@ -28,11 +28,15 @@
 ### 2.1 传输与安全
 
 - WebSocket，只绑 `127.0.0.1`，默认端口 4321（`CRAFTMATE_PORT` 可覆盖）。
-- 控制台走 `/control`；接入端与 Bridge 未来各开独立通道，不共用控制台权限。
+- 控制台走 `/control`；接入端走 `/ingress`；Bridge 走 `/bridge`，三者不共用权限。
 - 启动生成一次性 token，写入用户目录，权限 `0600`。
 - op 白名单，不做通用反射调用网关。
 - 所有消息 schema 校验，非法消息直接断开并记 incident。
 - 远程调试走 SSH 隧道，不把端口暴露公网。
+
+实际实现：Orchestrator 与 Ingress、Voice 共用 `~/.craftmate/ingress-token`
+（`CRAFTMATE_TOKEN` / `CRAFTMATE_TOKEN_FILE` 可覆盖）；Bridge 使用独立的
+`~/.craftmate/bridge.token`。`/ingress` 与 `/voice` 默认只接受 loopback。
 
 ### 2.2 控制面消息（已实现）
 
@@ -48,13 +52,15 @@
 { type: "stats", payload: ShowStats }
 { type: "snapshot", payload: ShowSnapshot }
 { type: "operator", payload: OperatorCommand }
-{ type: "source", payload: SourceHealth }   // 规划中，尚未进入 ServerMessage
+{ type: "source", payload: SourceHealth }
+{ type: "voice", payload: VoiceStatus }
+{ type: "subtitle", payload: VoiceSubtitle }
 { type: "error", payload: { code: string, detail: string } }
 ```
 
 契约以 `packages/contracts/src/control.ts` 为准，两边都用同一份 zod schema。
 
-### 2.3 接入端消息（部分实现）
+### 2.3 接入端消息（已实现）
 
 ```ts
 // ingress → orchestrator，走 /ingress
@@ -63,19 +69,25 @@
 { type: "health", payload: SourceHealth }
 ```
 
-当前 token 字段只透传、未校验；`/ingress` 与 `/control` 共用同一个 HTTP server 和端口。
+Orchestrator 在升级握手阶段拒绝非 loopback 来源；连接建立后，`hello` 必须先到且
+token 必须匹配，否则以 `4401` 关闭。失败握手按分钟限流。`/ingress` 与 `/control`
+共用同一个 HTTP server 和端口，但使用独立的 WebSocketServer 与权限模型。
 
-### 2.4 Bridge 消息（仅有 schema）
+### 2.4 Bridge 消息（已实现，尚未装配到 Orchestrator）
 
 ```json
-{ "v": 1, "type": "hello", "token": "...", "capabilities": ["camera", "hud", "build"] }
+{ "v": 1, "type": "hello", "token": "...", "client": "sim",
+  "capabilities": ["camera", "hud", "build"], "skills": ["mine_block"] }
+{ "v": 1, "type": "welcome", "sessionId": "s-1",
+  "capabilities": ["camera"], "skills": ["mine_block"],
+  "heartbeatMs": 1000, "watchdogMs": 500 }
 { "v": 1, "type": "cmd", "id": "c-42", "op": "mine_block",
   "args": { "block": "minecraft:iron_ore", "count": 8 },
   "deadlineTick": 12400, "priority": "command", "idempotencyKey": "plan-17-s3" }
 { "v": 1, "type": "ack", "id": "c-42", "accepted": true, "taskId": "t-7" }
 { "v": 1, "type": "progress", "taskId": "t-7", "phase": "traveling", "done": 0, "total": 8 }
 { "v": 1, "type": "result", "taskId": "t-7", "status": "completed", "ticks": 812 }
-{ "v": 1, "type": "cancel", "taskId": "t-7" }
+{ "v": 1, "type": "cancel", "taskId": "t-7", "reason": "takeover" }
 { "v": 1, "type": "event", "seq": 991, "tick": 12403, "name": "block_broken",
   "data": { "block": "minecraft:iron_ore", "pos": [12, 34, -8] } }
 ```
@@ -85,7 +97,7 @@
 - **时间用 tick**，不用毫秒，回放才可复现。
 - **操作幂等**，每个动作带 `idempotencyKey`，重连后可安全重发。
 - **取消显式**，`cancel` 带 taskId，Mod 保证不再产生副作用。
-- **状态快照 + 增量**，连接时发全量 snapshot，之后 10–20Hz 发 delta。
+- **状态快照 + 增量**，目标态连接时发全量 snapshot，之后 10–20Hz 发 delta；当前 v1 只带世界事件流。
 - **背压有界**，指令队列有上限，满了拒绝低优先级，不无界堆积。
 - **能力协商**，握手返回 capabilities，内核据此决定哪些技能可用。
 
@@ -103,7 +115,7 @@ E_PERMISSION      权限不足
 E_INTERNAL        内部错误
 ```
 
-内核按错误码降级，不靠字符串匹配。
+内核按错误码降级，不靠字符串匹配。Bridge 的完整说明见 [Bridge 执行通道](bridge.md)。
 
 ## 3. 游戏执行层
 
@@ -438,6 +450,10 @@ TTS 首字             0.8 s
 待说文本 → 输出审查 → 分句 → 流式 TTS → 播放队列 → 混音 → 虚拟声卡 → OBS
 ```
 
+当前实现：`services/voice` 作为独立进程运行，接收 `speak` / `stop` 命令，
+经分句与优先级队列后调用 `TtsProvider`，把同一份文本投影成字幕事件。
+输出审查、混音与自动音频路由仍是目标态。
+
 规则：
 
 - 按句合成，首字延迟目标 800ms 内，整句 P95 < 2s。
@@ -473,6 +489,8 @@ TTS 首字             0.8 s
 ### 6.3 音频路由
 
 macOS 用 BlackHole 2ch 进 OBS，侧链压缩做闪避。Windows 后续换 VB-Audio Cable，接口不变。
+
+当前 `AUDIO_PLAYER` 默认 `afplay`；BlackHole / OBS 路由需手工配置，未自动化。
 
 ## 7. 人格
 
@@ -699,8 +717,8 @@ Tauri 2 + React + TypeScript，但交互必须是原生桌面程序：
 | 直播总览 | 全幅场景、人格、今日主线、运行状态 | 已实现（场景为占位图） |
 | 评论与决策 | 实时评论、仲裁结果、拒绝或排队理由 | 已实现 |
 | 角色与人格 | 人格卡、边界、权重 | 已实现（只读展示，编辑在设置页） |
-| 接入与语音 | 抖音、Bridge、模型、TTS 连接状态 | 连接状态为静态占位 |
-| 人格编辑 | 权重、底线、音色 | 部分：可编辑并即时进入仲裁；试听、版本对比后续 |
+| 接入与语音 | 抖音、Bridge、模型、TTS 连接状态 | 部分：抖音来源与 Voice 状态为实时，Bridge / 模型仍为静态说明 |
+| 人格编辑 | 权重、底线、音色 | 部分：可编辑并即时进入仲裁；版本对比与回滚后续 |
 | 记忆 | 观众画像、承诺、关系 | 后续 |
 | 回放 | 时间轴重放一场直播 | 后续 |
 | 设置 | 直播资料、人格、接入参数、界面偏好 | 部分：资料存 SQLite；OBS、预算、快捷键后续 |
