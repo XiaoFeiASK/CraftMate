@@ -26,6 +26,7 @@ export class EventGate {
   private windowCount = 0;
   private queue: AudienceEvent[] = [];
   private dropped = 0;
+  private readonly reasons: Record<string, number> = {};
   private readonly options: GateOptions;
 
   constructor(options: GateOptions = {}) {
@@ -79,6 +80,11 @@ export class EventGate {
     return { queued: this.queue.length, dropped: this.dropped };
   }
 
+  /** Counter by drop reason, so the console can explain a burst instead of guessing. */
+  dropCounts(): Readonly<Record<string, number>> {
+    return { ...this.reasons };
+  }
+
   private prune(now: number): void {
     for (const [key, at] of this.seen) {
       if (now - at >= this.dedupeWindowMs) this.seen.delete(key);
@@ -87,6 +93,7 @@ export class EventGate {
 
   private report(kind: string, reason: string): void {
     this.dropped += 1;
+    this.reasons[reason] = (this.reasons[reason] ?? 0) + 1;
     this.options.onDrop?.(kind, reason);
   }
 }

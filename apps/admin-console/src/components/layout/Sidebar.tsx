@@ -1,5 +1,5 @@
 import type { DrawerMode } from "../operations/OperationsDrawer.tsx";
-import type { ShowMode, ShowSettings, SourceHealth } from "@craftmate/contracts";
+import type { ShowMode, ShowSettings, SourceHealth, VoiceStatus } from "@craftmate/contracts";
 import type { WireState } from "../../lib/connection.ts";
 
 interface SidebarProps {
@@ -9,6 +9,7 @@ interface SidebarProps {
   readonly personaName: string;
   readonly settings: ShowSettings | null;
   readonly sourceHealth: SourceHealth | null;
+  readonly voiceStatus: VoiceStatus | null;
   readonly onSelect: (drawer: DrawerMode | null) => void;
 }
 
@@ -89,6 +90,7 @@ export function Sidebar({
   personaName,
   settings,
   sourceHealth,
+  voiceStatus,
   onSelect,
 }: SidebarProps): React.JSX.Element {
   const statusLabel = state === "open" ? "内核在线" : state === "connecting" ? "正在连接" : "内核离线";
@@ -159,6 +161,13 @@ export function Sidebar({
             <span>{modeLabel(mode)}</span>
           </div>
         </div>
+        <div className="daemon-status" data-state={voiceState(state, voiceStatus)}>
+          <span className="daemon-status__dot" aria-hidden="true" />
+          <div>
+            <strong>{voiceLabel(voiceStatus)}</strong>
+            <span>{voiceStatus?.detail ?? "语音服务未连接"}</span>
+          </div>
+        </div>
         <span className="sidebar__build">v0.0.1 · 本地开发</span>
       </div>
     </aside>
@@ -184,6 +193,20 @@ function sourceLabel(health: SourceHealth | null): string {
     default:
       return "抖音断开";
   }
+}
+
+function voiceState(link: WireState, voice: VoiceStatus | null): WireState {
+  if (link !== "open" || !voice) return link === "open" ? "connecting" : link;
+  if (voice.state === "degraded" || voice.state === "disabled") return "error";
+  return "open";
+}
+
+function voiceLabel(voice: VoiceStatus | null): string {
+  if (!voice) return "语音未接入";
+  if (voice.state === "speaking") return "正在说话";
+  if (voice.state === "degraded") return "语音降级";
+  if (voice.state === "disabled") return "语音已停用";
+  return "语音待命";
 }
 
 interface NavigationButtonProps {
