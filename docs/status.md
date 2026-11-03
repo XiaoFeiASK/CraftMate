@@ -155,8 +155,9 @@ npm run db:check:file
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
 | Wire 协议 v1 | 已实现 | 完整帧、能力协商、错误码、幂等键与 fail-closed token 校验。 |
-| 协调器与队列 | 已实现 | 有界队列、单运行项、终态不可逆、接管保留队列、急停进入 `none`。 |
-| 看门狗 | 已实现 | 500ms 无心跳时本地释放按键；断线释放输入。 |
+| 协调器与队列 | 已实现 | 有界队列、单运行项、终态不可逆、接管/急停取消全部未完成项。 |
+| 控制权 | 已实现 | sticky owner 跨 socket 重连；显式 release 才恢复 Agent；旧 generation 被拒绝。 |
+| 看门狗 | 已实现 | 500ms 无心跳时本地释放按键；断线释放输入；自停状态跨重连保持。 |
 | 动作记账 | 已实现 | `MemoryActionPort` 与复用 `action_attempt` 的 `SqliteActionPort`。 |
 | WebSocket 适配 | 已实现 | `createBridgeUpgrade()` 挂到既有 HTTP server，不另开监听端口。 |
 | 模拟身体与工具 | 已实现 | `SimBody`、`npm run dev:bridge`、`bridge:smoke`、`bridge:long-run`。 |

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ownershipSchema } from "./bridge.ts";
 import { budgetSchema, memorySchema, reviewCandidateSchema, personaVersionSchema } from "./memory.ts";
 import { personaProfileSchema } from "./settings.ts";
 import { timelineEntrySchema } from "./replay.ts";
@@ -6,7 +7,9 @@ import { timelineEntrySchema } from "./replay.ts";
 export const bridgeHealthSchema = z.object({
   connected: z.boolean(),
   client: z.string().nullable(),
-  owner: z.enum(["agent", "operator", "none"]),
+  owner: ownershipSchema,
+  permission: z.enum(["agent", "operator", "stopped"]),
+  generation: z.number().int().positive(),
   skills: z.array(z.string()).readonly(),
   queued: z.number().int().nonnegative(),
   running: z.number().int().nonnegative(),

@@ -148,11 +148,17 @@ export const bridgeServerFrameSchema = z.discriminatedUnion("type", [
     v: z.literal(BRIDGE_PROTOCOL_VERSION),
     type: z.literal("welcome"),
     sessionId: z.string().min(1),
+    /**
+     * The body must obey this owner immediately. A reconnect after takeover or
+     * stop must not assume `agent` just because the token matched.
+     */
+    owner: ownershipSchema,
+    generation: z.number().int().positive(),
     capabilities: z.array(bridgeCapabilitySchema),
     skills: z.array(skillNameSchema),
     heartbeatMs: z.number().int().positive(),
     watchdogMs: z.number().int().positive(),
-  }),
+  }).strict(),
   z.object({
     v: z.literal(BRIDGE_PROTOCOL_VERSION),
     type: z.literal("cmd"),
@@ -168,6 +174,8 @@ export const bridgeServerFrameSchema = z.discriminatedUnion("type", [
     v: z.literal(BRIDGE_PROTOCOL_VERSION),
     type: z.literal("cancel"),
     taskId: z.string().min(1),
+    /** Command id, usable before the body has acknowledged a taskId. */
+    id: z.string().min(1).optional(),
     reason: z.string().min(1),
   }),
   z.object({

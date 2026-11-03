@@ -2,6 +2,7 @@ import type { IncomingMessage, Server } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import { BodySession, type BodyHealth, type BodySessionOptions } from "./coordinator.ts";
+import { ControlAuthority } from "./control.ts";
 import type { BridgeServerFrame } from "@craftmate/contracts";
 
 export interface BridgeUpgradeOptions
@@ -15,6 +16,11 @@ export interface BridgeUpgrade {
   /** Wire into the existing HTTP server's `upgrade` event. */
   handleUpgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void;
   readonly session: BodySession;
+  /** Stable operator API; survives socket replacement. */
+  takeOver(reason?: string): void;
+  release(reason?: string): void;
+  emergencyStop(reason?: string): void;
+  control(): BodySession["control"];
   /** Cheap snapshot for `/health`; never triggers a command. */
   health(): BodyHealth;
   close(): Promise<void>;
@@ -30,6 +36,9 @@ export function createBridgeUpgrade(options: BridgeUpgradeOptions): BridgeUpgrad
     noServer: true,
     maxPayload: options.maxPayloadBytes ?? 64 * 1024,
   });
+  // Operator intent belongs to the body, not the socket. Keeping this outside
+  // `newSession()` is what prevents reconnect from clearing takeover or stop.
+  const control = options.control ?? new ControlAuthority();
   let session: BodySession | null = null;
   let socket: WebSocket | null = null;
 
@@ -53,7 +62,7 @@ export function createBridgeUpgrade(options: BridgeUpgradeOptions): BridgeUpgrad
    * terminal, so a reconnect gets a fresh session; reusing the old one left
    * the bridge permanently unowned (`agent does not own the body (none)`).
    */
-  const newSession = (): BodySession => new BodySession({ ...options, transport });
+  const newSession = (): BodySession => new BodySession({ ...options, transport, control });
   let current = newSession();
 
   wss.on("connection", (connected: WebSocket) => {
@@ -102,6 +111,16 @@ export function createBridgeUpgrade(options: BridgeUpgradeOptions): BridgeUpgrad
     get session() {
       return current;
     },
+    takeOver(reason = "operator takeover"): void {
+      current.takeOver(reason);
+    },
+    release(reason = "operator released control"): void {
+      current.release(reason);
+    },
+    emergencyStop(reason = "operator emergency stop"): void {
+      current.emergencyStop(reason);
+    },
+    control: () => current.control,
     health: () => current.health(),
     async close() {
       current.close("bridge server closing");

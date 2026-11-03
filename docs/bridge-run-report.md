@@ -1,9 +1,10 @@
 # 方向 C 运行报告
 
 > 记录日期：2026-11-03
-> 分支：已合并至 `main`（原分支 `fix/m2-bridge-execution`）
-> 基线：`4e4a610`；合并提交 `27de9e7`
-> 结论：**Bridge 协议、模拟身体、队列与看门狗已通过自动化与短时运行；Minecraft 真机、60 分钟和 4 小时未完成，不得把本节结果当作直播验收。**
+> 分支：`fix/bridge-control-reconnect`（任务 C 首个切片）
+> 基线：`8a8f243`
+> 结论：**控制权跨重连、急停/接管不自动获权与本地 500ms 停止已通过自动化；
+> Minecraft 真机、MCPFabric、60 分钟和 4 小时仍未完成，不得把本节结果当作直播验收。**
 
 ## 1. 环境
 
@@ -15,7 +16,7 @@
 | Java | Temurin 21.0.13 LTS |
 | Minecraft | 未安装 / 未启动 |
 | MCPFabric | 未安装 / 未连接 |
-| 分支基线 | `4e4a610`（已验证于合并前） |
+| 分支基线 | `8a8f243` |
 
 ## 2. 自动化
 
@@ -40,8 +41,11 @@ Bridge 专项覆盖：
 - 有界队列与优先级淘汰；
 - 终态不可逆；
 - ACK 前取消/超时后迟到 ACK 的补偿取消；
-- 接管保留队列、急停进入 `none`；
-- 500ms 本地看门狗释放按键；
+- 接管/急停取消运行与排队项，支持中恢复 `agent`；
+- 接管/急停后重连不自动获权，`welcome` 携带 sticky owner/generation；
+- 旧 generation 的迟到模型结果被拒绝；
+- ACK 前取消按 command id 阻止身体执行；
+- 500ms 本地看门狗释放按键，且看门狗停机同样跨重连保持；
 - WebSocket 真实往返与断线释放。
 
 没有用 mock 冒充的项：真机移动/挖掘、窗口失焦、tick 线程零 I/O、真实 Minecraft 崩溃恢复。
@@ -94,7 +98,8 @@ BRIDGE_LONG_RUN_MS=60000 BRIDGE_SAMPLE_MS=5000 \
 
 ## 4. 真机阻塞
 
-当前机器没有 Minecraft 客户端、Fabric Loader、MCPFabric；因此以下验收全部未完成：
+2026-11-03 复查：`~/Library/Application Support/minecraft` 只有缓存目录，没有
+启动器、版本、Fabric Loader 或 MCPFabric；Java 21.0.13 可用。因此以下验收全部未完成：
 
 - 真实移动与挖掘目标方块；
 - 进度/结果关联 `traceId`；

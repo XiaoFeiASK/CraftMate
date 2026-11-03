@@ -42,13 +42,39 @@ Orchestrator ──SkillCommand──► BodySession ──WS /bridge──► S
 - `taskId` 由身体生成，服务端在 `ack` 后采纳；排队超时的命令若迟到 ACK，服务端立即回 `cancel`。
 - 终态为 `completed / preempted / cancelled / failed / timeout`，首个终态获胜。
 - 非法帧以 `E_SCHEMA` 拒绝并关闭连接；forge token 以 4401 关闭，且不进入 agent 所有权。
+- `welcome` 携带当前 `owner` 与 `generation`。token 只证明身份，不证明操作许可；
+  重连时身体必须服从服务端的接管/急停状态，不能自行回到 `agent`。
+- `cancel` 同时带 `taskId` 和 `id`；身体在 ACK 前收到取消时按命令 id 拒绝执行。
 
 ## 3. 队列与控制权
 
 - 队列有界（默认 32）。满时高优先级可以淘汰最低优先级的**排队项**，绝不淘汰运行项。
 - 同时最多一个运行项；运行项只能由显式取消、终态或看门狗结束。
-- `takeOver` 取消运行项并保留排队项；`emergencyStop` 取消所有项并进入 `none`；`release` 恢复 `agent` 并重新泵队列。
-- 断线 500ms：身体本地释放按键、停止任务、进入 `none`。服务端同时取消在途与排队动作。
+- `takeOver` 取消运行项与全部排队项，进入 `operator`；`emergencyStop` 同样取消全部项并进入 `none`。
+- 只有显式的 `release` 才恢复 `agent` 并重新泵队列。
+- 控制权属于身体而非 socket。接管/急停后即使 Bridge 重连成功，`welcome` 仍报告
+  `operator`/`none`，旧队列不会重放。
+- 每次控制权变化推进 `generation`。使用旧代际发出的模型结果会得到 `E_PERMISSION`，
+  防止“规划中接管”后仍产生副作用。
+- 断线 500ms：身体本地释放按键、停止任务、进入 `none`；服务端超时同样进入 `stopped`，
+  并保持到显式交还。
+
+## 3.1 操作员 API
+
+B 只应调用以下稳定入口，不要直接依赖某个 socket 会话：
+
+```ts
+const bridge = createBridgeUpgrade({ ... });
+
+bridge.takeOver("控制台接管");
+bridge.release("控制台交还");
+bridge.emergencyStop("控制台急停");
+bridge.control(); // { permission, generation, reason, at }
+bridge.health();  // 含 owner / permission / generation / queued / running
+```
+
+`bridge.session` 仍用于派发 Agent 技能；它会在重连时被替换，操作员控制必须走
+`bridge.takeOver/release/emergencyStop`。
 
 ## 4. 安全
 
