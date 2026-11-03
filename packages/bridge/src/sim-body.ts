@@ -65,6 +65,7 @@ export class SimBody {
   private readonly pressed = new Set<string>();
   private readonly completedKeys = new Set<string>();
   private readonly cancelledTasks = new Set<string>();
+  private readonly cancelledCommands = new Set<string>();
 
   constructor(options: SimBodyOptions) {
     this.options = options;
@@ -118,7 +119,10 @@ export class SimBody {
     const frame = parsed.data;
     this.lastServerFrameAt = this.clock.now();
     if (frame.type === "welcome") {
-      this.owner = "agent";
+      // Matching a token proves identity, not permission to act. The server's
+      // sticky owner survives reconnects and may still be operator or none.
+      this.owner = frame.owner;
+      if (frame.owner !== "agent") this.stopCurrent("handshake owner is not agent");
       return;
     }
     if (frame.type === "ownership") {
@@ -128,7 +132,13 @@ export class SimBody {
     }
     if (frame.type === "cancel") {
       this.cancelledTasks.add(frame.taskId);
-      if (this.current?.taskId === frame.taskId) this.stopCurrent(frame.reason);
+      if (frame.id !== undefined) this.cancelledCommands.add(frame.id);
+      if (
+        this.current?.taskId === frame.taskId ||
+        (frame.id !== undefined && this.current?.commandId === frame.id)
+      ) {
+        this.stopCurrent(frame.reason);
+      }
       return;
     }
     if (frame.type === "cmd") this.execute(frame);
@@ -158,7 +168,23 @@ export class SimBody {
     this.handle(frame);
   }
 
+  /** Same local stop path used by the tick loop; exposed for deterministic tests. */
+  checkWatchdog(): void {
+    this.checkServerWatchdog();
+  }
+
   private execute(frame: SkillCommand & { type: "cmd" }): void {
+    if (this.cancelledCommands.has(frame.id)) {
+      this.options.send({
+        v: 1,
+        type: "ack",
+        id: frame.id,
+        accepted: false,
+        code: "E_CANCELLED",
+        detail: "command was cancelled before it reached the body",
+      });
+      return;
+    }
     if (this.owner !== "agent") {
       this.options.send({
         v: 1,
@@ -265,6 +291,9 @@ export class SimBody {
   private heartbeat(): void {
     if (this.closed) return;
     this.tick += 1;
+    // The server watchdog measures silence since the last received frame,
+    // not since the task began. Sending our own heartbeat must not keep a
+    // dead control plane looking alive.
     this.options.send({ v: 1, type: "heartbeat", tick: this.tick, owner: this.owner });
   }
 
@@ -276,6 +305,7 @@ export class SimBody {
   private checkServerWatchdog(): void {
     if (this.closed || this.current === null) return;
     if (this.clock.now() - this.lastServerFrameAt < 500) return;
+    this.lastServerFrameAt = this.clock.now();
     this.stopCurrent("server heartbeat missed");
     this.owner = "none";
     this.options.onOwnership?.("none", "server heartbeat missed");

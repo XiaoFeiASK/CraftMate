@@ -6,6 +6,7 @@ import type {
   SkillCommand,
 } from "@craftmate/contracts";
 import { BodySession, CLOSE_PROTOCOL, CLOSE_UNAUTHORIZED } from "./coordinator.ts";
+import { ControlAuthority } from "./control.ts";
 import { MemoryActionPort } from "./memory-action-port.ts";
 import { CommandQueue } from "./queue.ts";
 import { SimBody, createVirtualScheduler } from "./sim-body.ts";
@@ -22,7 +23,6 @@ interface Harness {
   readonly welcome: () => Extract<BridgeServerFrame, { type: "welcome" }> | undefined;
   readonly frame: (command: Partial<SkillCommand> & { id: string }) => SkillCommand;
   readonly advance: (ms: number) => void;
-  readonly connect: (token?: string) => void;
 }
 
 function createHarness(mode: "auto" | "manual" = "auto"): Harness {
@@ -90,10 +90,6 @@ function createHarness(mode: "auto" | "manual" = "auto"): Harness {
       now += ms;
       scheduler.advance(ms);
     },
-    connect: (token = TOKEN) => {
-      body.start();
-      void token;
-    },
   };
 }
 
@@ -119,6 +115,8 @@ describe("bridge handshake and capability negotiation", () => {
     if (welcome?.type === "welcome") {
       assert.equal(welcome.watchdogMs, 500);
       assert.equal(welcome.sessionId, "session-test");
+      assert.equal(welcome.owner, "agent");
+      assert.equal(welcome.generation, 1);
     }
   });
 
@@ -269,7 +267,7 @@ describe("bridge command lifecycle", () => {
     assert.deepEqual(harness.body.state().pressed, []);
   });
 
-  test("takeover cancels running work but keeps queued work", () => {
+  test("takeover cancels running and queued work", () => {
     const harness = createHarness("manual");
     connectHarness(harness);
     harness.coordinator.issue(harness.frame({ id: "c-1" }));
@@ -278,7 +276,11 @@ describe("bridge command lifecycle", () => {
     harness.coordinator.takeOver();
 
     assert.equal(harness.coordinator.currentOwnership.owner, "operator");
-    assert.equal(harness.actions.snapshot()[0]?.status, "cancelled");
+    assert.deepEqual(
+      harness.actions.snapshot().map((attempt) => attempt.status),
+      ["cancelled", "cancelled"],
+    );
+    assert.equal(harness.coordinator.health().queued, 0);
   });
 });
 
@@ -302,6 +304,161 @@ describe("bridge local watchdog", () => {
     assert.ok(harness.body.state().cancelled.length > 0);
   });
 });
+
+describe("bridge control ownership", () => {
+  function createSessions(control: ControlAuthority) {
+    let now = 1_000;
+    const scheduler = createVirtualScheduler(() => now);
+    const clock = { now: () => now };
+    const actions = new MemoryActionPort();
+
+    const open = () => {
+      let coordinator: BodySession;
+      const body = new SimBody({
+        token: TOKEN,
+        clock,
+        scheduler,
+        ticksPerCommand: 20,
+        autoComplete: false,
+        send: (frame) => coordinator.handle(frame),
+      });
+      coordinator = new BodySession({
+        token: TOKEN,
+        sessionId: "session-control",
+        clock,
+        scheduler,
+        actions,
+        control,
+        transport: {
+          send: (frame) => body.handle(frame),
+          close: () => {},
+        },
+      });
+      body.start();
+      return { coordinator, body };
+    };
+
+    return { open, actions, advance: (ms: number) => { now += ms; scheduler.advance(ms); } };
+  }
+
+  test("takeover invalidates queued work and does not auto-grant control on reconnect", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    first.coordinator.issue(sessionsCommand("c-1"));
+    first.coordinator.issue(sessionsCommand("c-2"));
+    sessions.advance(50);
+
+    first.coordinator.takeOver();
+    assert.equal(first.coordinator.currentOwnership.owner, "operator");
+    assert.deepEqual(
+      sessions.actions.snapshot().map((attempt) => attempt.status),
+      ["cancelled", "cancelled"],
+    );
+    assert.deepEqual(first.body.state().pressed, []);
+
+    first.coordinator.close("socket closed");
+    const second = sessions.open();
+    assert.equal(second.coordinator.currentOwnership.owner, "operator");
+    assert.equal(second.coordinator.control.permission, "operator");
+    assert.throws(() => second.coordinator.issue(sessionsCommand("c-3")), /not permitted/);
+
+    second.coordinator.release();
+    assert.equal(second.coordinator.currentOwnership.owner, "agent");
+    assert.equal(second.coordinator.control.permission, "agent");
+    assert.doesNotThrow(() => second.coordinator.issue(sessionsCommand("c-4")));
+  });
+
+  test("emergency stop survives reconnect until the operator explicitly releases", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    first.coordinator.issue(sessionsCommand("c-1"));
+    sessions.advance(50);
+    first.coordinator.emergencyStop();
+    first.coordinator.close("socket closed");
+
+    const second = sessions.open();
+    assert.equal(second.coordinator.health().owner, "none");
+    assert.equal(second.coordinator.health().permission, "stopped");
+    assert.throws(() => second.coordinator.issue(sessionsCommand("c-2")), /not permitted/);
+
+    second.coordinator.release("operator resumed");
+    assert.equal(second.coordinator.health().owner, "agent");
+    assert.doesNotThrow(() => second.coordinator.issue(sessionsCommand("c-3")));
+  });
+
+  test("a stale control generation cannot issue work after takeover", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    const generation = first.coordinator.control.generation;
+    first.coordinator.takeOver();
+
+    assert.throws(
+      () => first.coordinator.issue(sessionsCommand("late-model-result"), {
+        expectedGeneration: generation,
+      }),
+      /stale control generation/,
+    );
+    assert.equal(sessions.actions.snapshot().length, 0);
+  });
+
+  test("a heartbeat watchdog stop is sticky across reconnect too", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    first.coordinator.issue(sessionsCommand("c-1"));
+    sessions.advance(1_000);
+    assert.equal(first.coordinator.health().permission, "stopped");
+    first.coordinator.close("socket closed");
+
+    const second = sessions.open();
+    assert.equal(second.coordinator.health().owner, "none");
+    assert.throws(() => second.coordinator.issue(sessionsCommand("c-2")), /not permitted/);
+  });
+
+  test("late ACK and result frames cannot revive work cancelled by takeover", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    first.coordinator.issue(sessionsCommand("c-1"));
+    sessions.advance(50);
+    first.coordinator.takeOver();
+
+    first.coordinator.handle({
+      v: 1,
+      type: "ack",
+      id: "c-1",
+      accepted: true,
+      taskId: "late-task",
+    });
+    first.coordinator.handle({
+      v: 1,
+      type: "result",
+      taskId: "late-task",
+      status: "completed",
+    });
+    assert.deepEqual(
+      sessions.actions.snapshot().map((attempt) => attempt.status),
+      ["cancelled"],
+    );
+    assert.equal(first.coordinator.health().owner, "operator");
+    assert.deepEqual(first.body.state().pressed, []);
+  });
+});
+
+function sessionsCommand(id: string): SkillCommand {
+  return {
+    v: 1,
+    type: "cmd",
+    id,
+    op: "mine_block",
+    args: {},
+    priority: "command",
+    idempotencyKey: `control-key-${id}`,
+  };
+}
 
 describe("bridge queue", () => {
   const command = (id: string, priority: SkillCommand["priority"]): SkillCommand => ({

@@ -8,6 +8,12 @@ import type {
   SkillName,
 } from "@craftmate/contracts";
 import { bridgeClientFrameSchema } from "@craftmate/contracts";
+import {
+  ControlAuthority,
+  ownerFor,
+  type ControlPermission,
+  type ControlSnapshot,
+} from "./control.ts";
 import { BridgeError } from "./errors.ts";
 import { CommandQueue, type TaskRecord } from "./queue.ts";
 import {
@@ -47,6 +53,8 @@ export interface BodyHealth {
   readonly tick: number;
   readonly lastSeenAt: number;
   readonly watchdogMs: number;
+  readonly permission: ControlPermission;
+  readonly generation: number;
 }
 
 export interface BodySessionOptions {
@@ -60,8 +68,15 @@ export interface BodySessionOptions {
   readonly queueCapacity?: number;
   readonly heartbeatMs?: number;
   readonly watchdogMs?: number;
+  /** Shared across reconnects; omit to create a session-local authority. */
+  readonly control?: ControlAuthority;
   readonly onOwnership?: (state: OwnershipState) => void;
   readonly onOutcome?: (outcome: CommandOutcome) => void;
+}
+
+export interface IssueOptions {
+  /** Rejects work authorised before a takeover, stop or reconnect. */
+  readonly expectedGeneration?: number;
 }
 
 const CLOSE_UNAUTHORIZED = 4401;
@@ -79,6 +94,7 @@ export class BodySession {
   private readonly clock: Clock;
   private readonly scheduler: TimerScheduler;
   private readonly queue: CommandQueue;
+  private readonly authority: ControlAuthority;
   private body: NegotiatedBody | null = null;
   private ownership: OwnershipState;
   private readonly capabilities = new Set<BridgeCapability>();
@@ -97,6 +113,7 @@ export class BodySession {
     this.clock = options.clock ?? { now: () => Date.now() };
     this.scheduler = options.scheduler ?? systemTimers;
     this.queue = new CommandQueue({ capacity: options.queueCapacity ?? 32 });
+    this.authority = options.control ?? new ControlAuthority();
     this.ownership = { owner: "none", reason: "awaiting handshake", at: this.clock.now() };
     this.lastSeenAt = this.clock.now();
   }
@@ -107,6 +124,10 @@ export class BodySession {
 
   get currentOwnership(): OwnershipState {
     return this.ownership;
+  }
+
+  get control(): ControlSnapshot {
+    return this.authority.current;
   }
 
   health(): BodyHealth {
@@ -122,6 +143,8 @@ export class BodySession {
       tick: this.tick,
       lastSeenAt: this.lastSeenAt,
       watchdogMs: this.options.watchdogMs ?? BRIDGE_LIMITS.watchdogMs,
+      permission: this.authority.current.permission,
+      generation: this.authority.current.generation,
     };
   }
 
@@ -171,7 +194,7 @@ export class BodySession {
         this.tick = Math.max(this.tick, parsed.data.tick);
         break;
       case "ownership":
-        this.setOwnership(parsed.data.owner, parsed.data.reason, "body");
+        this.onBodyOwnership(parsed.data.owner, parsed.data.reason);
         break;
       case "heartbeat":
         this.tick = Math.max(this.tick, parsed.data.tick);
@@ -183,9 +206,24 @@ export class BodySession {
   }
 
   /** Returns the command id, or throws a typed BridgeError. */
-  issue(command: SkillCommand): string {
+  issue(command: SkillCommand, options: IssueOptions = {}): string {
     if (this.closed) throw new BridgeError("E_CANCELLED", "bridge session is closed");
+    if (
+      options.expectedGeneration !== undefined &&
+      options.expectedGeneration !== this.authority.current.generation
+    ) {
+      throw new BridgeError(
+        "E_PERMISSION",
+        `stale control generation ${options.expectedGeneration} (current ${this.authority.current.generation})`,
+      );
+    }
     if (!this.body) throw new BridgeError("E_PERMISSION", "body has not completed hello");
+    if (this.authority.current.permission !== "agent") {
+      throw new BridgeError(
+        "E_PERMISSION",
+        `agent control is not permitted (${this.authority.current.permission})`,
+      );
+    }
     if (this.ownership.owner !== "agent") {
       throw new BridgeError("E_PERMISSION", `agent does not own the body (${this.ownership.owner})`);
     }
@@ -242,37 +280,37 @@ export class BodySession {
     const record = this.queue.cancelCommand(commandId);
     if (!record) return;
     this.settle(record, "cancelled", "E_CANCELLED", reason, true);
-    this.transport.send({ v: 1, type: "cancel", taskId: record.taskId, reason });
+    this.transport.send({ v: 1, type: "cancel", taskId: record.taskId, id: record.command.id, reason });
   }
 
-  /** Operator takeover cancels current work and keeps the queue. */
+  /**
+   * Operator takeover invalidates everything authorised for the Agent. Queued
+   * work is cancelled too: replaying a pre-takeover plan after release is
+   * indistinguishable from a late model result.
+   */
   takeOver(reason = "operator takeover"): void {
-    const active = this.queue.active().filter((record) => record.status === "running");
-    for (const record of active) {
-      this.settle(record, "cancelled", "E_CANCELLED", reason, true);
-      this.transport.send({ v: 1, type: "cancel", taskId: record.taskId, reason });
-    }
+    this.cancelAuthorisedWork(reason);
+    this.authority.takeOver(reason);
     this.setOwnership("operator", reason, "orchestrator");
   }
 
-  release(): void {
-    this.setOwnership("agent", "operator released control", "orchestrator");
+  release(reason = "operator released control"): void {
+    this.authority.release(reason);
+    this.setOwnership(ownerFor("agent"), reason, "orchestrator");
     this.pump(this.clock.now());
   }
 
   emergencyStop(reason = "operator emergency stop"): void {
-    const active = this.queue.active();
-    for (const record of active) {
-      this.settle(record, "cancelled", "E_CANCELLED", reason, true);
-      this.transport.send({ v: 1, type: "cancel", taskId: record.taskId, reason });
-    }
-    this.setOwnership("none", reason, "orchestrator");
+    this.cancelAuthorisedWork(reason);
+    this.authority.emergencyStop(reason);
+    this.setOwnership(ownerFor("stopped"), reason, "orchestrator");
   }
 
   close(reason = "orchestrator closing"): void {
     if (this.closed) return;
     this.closed = true;
     this.stopTimers();
+    this.authority.transportLost(reason);
     for (const record of this.queue.active()) {
       this.settle(record, "cancelled", "E_CANCELLED", reason, false);
     }
@@ -298,16 +336,25 @@ export class BodySession {
     for (const capability of hello.capabilities) this.capabilities.add(capability);
     for (const skill of hello.skills) this.skills.add(skill);
     this.lastSeenAt = this.clock.now();
-    this.ownership = { owner: "agent", reason: "handshake accepted", at: this.clock.now() };
+    const permission = this.authority.current.permission;
+    const owner = ownerFor(permission);
+    const reason =
+      permission === "agent" ? "handshake accepted" : this.authority.current.reason;
+    this.installOwnership(owner, reason);
     this.transport.send({
       v: 1,
       type: "welcome",
       sessionId: this.options.sessionId,
+      owner,
+      generation: this.authority.current.generation,
       capabilities: [...this.capabilities],
       skills: [...this.skills],
       heartbeatMs: this.options.heartbeatMs ?? BRIDGE_LIMITS.heartbeatMs,
       watchdogMs: this.options.watchdogMs ?? BRIDGE_LIMITS.watchdogMs,
     });
+    if (owner !== "agent") {
+      this.transport.send({ v: 1, type: "ownership", owner, reason });
+    }
     this.startTimers();
   }
 
@@ -337,6 +384,7 @@ export class BodySession {
         v: 1,
         type: "cancel",
         taskId: frame.taskId,
+        id: frame.id,
         reason: `already ${adopted.status} before ack`,
       });
       return;
@@ -373,7 +421,14 @@ export class BodySession {
    * makes ACK/progress/result ordering testable.
    */
   private pump(now: number): void {
-    if (this.closed || !this.body || this.ownership.owner !== "agent") return;
+    if (
+      this.closed ||
+      !this.body ||
+      this.authority.current.permission !== "agent" ||
+      this.ownership.owner !== "agent"
+    ) {
+      return;
+    }
     if (this.queue.active().some((record) => record.status === "running")) return;
     const next = this.queue.peek();
     if (!next || this.sentCommands.has(next.command.id)) return;
@@ -440,10 +495,56 @@ export class BodySession {
       this.fail("E_PERMISSION", `body cannot drop ownership from ${this.ownership.owner}`, undefined);
       return;
     }
-    this.ownership = { owner, reason, at: this.clock.now() };
-    this.options.onOwnership?.(this.ownership);
+    this.installOwnership(owner, reason);
     if (source === "orchestrator") {
       this.transport.send({ v: 1, type: "ownership", owner, reason });
+    }
+  }
+
+  private installOwnership(owner: Ownership, reason: string): void {
+    this.ownership = { owner, reason, at: this.clock.now() };
+    this.options.onOwnership?.(this.ownership);
+  }
+
+  /**
+   * The body may hand control to a human or stop itself, but it may never
+   * grant itself Agent control after a takeover or emergency stop.
+   */
+  private onBodyOwnership(owner: Ownership, reason: string): void {
+    if (owner === "agent") {
+      if (this.authority.current.permission !== "agent") {
+        this.fail("E_PERMISSION", "body cannot self-grant agent control", "ownership");
+        this.transport.send({
+          v: 1,
+          type: "ownership",
+          owner: ownerFor(this.authority.current.permission),
+          reason: this.authority.current.reason,
+        });
+        return;
+      }
+      this.setOwnership(owner, reason, "body");
+      this.pump(this.clock.now());
+      return;
+    }
+    this.cancelAuthorisedWork(reason);
+    if (owner === "operator") this.authority.takeOver(reason);
+    else this.authority.emergencyStop(reason);
+    this.setOwnership(owner, reason, "body");
+  }
+
+  private cancelAuthorisedWork(reason: string): void {
+    for (const record of this.queue.active()) {
+      const reachedBody = record.status === "running" || this.sentCommands.has(record.command.id);
+      this.settle(record, "cancelled", "E_CANCELLED", reason, false);
+      if (reachedBody) {
+        this.transport.send({
+          v: 1,
+          type: "cancel",
+          taskId: record.taskId,
+          id: record.command.id,
+          reason,
+        });
+      }
     }
   }
 
@@ -455,7 +556,9 @@ export class BodySession {
       return;
     }
     this.lastSeenAt = this.clock.now();
-    this.emergencyStop(reason);
+    this.cancelAuthorisedWork(reason);
+    this.authority.emergencyStop(reason);
+    this.installOwnership(ownerFor("stopped"), reason);
   }
 
   private startTimers(): void {
@@ -479,6 +582,7 @@ export class BodySession {
           v: 1,
           type: "cancel",
           taskId: record.taskId,
+          id: record.command.id,
           reason: "deadline passed",
         });
       }
@@ -488,6 +592,7 @@ export class BodySession {
           v: 1,
           type: "cancel",
           taskId: record.taskId,
+          id: record.command.id,
           reason: "deadline passed",
         });
       }

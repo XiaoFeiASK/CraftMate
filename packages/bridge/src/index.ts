@@ -1,6 +1,17 @@
 export { BRIDGE_LIMITS, BodySession } from "./coordinator.ts";
-export type { BodyHealth, BodySessionOptions, BodyTransport } from "./coordinator.ts";
+export type {
+  BodyHealth,
+  BodySessionOptions,
+  BodyTransport,
+  IssueOptions,
+} from "./coordinator.ts";
 export { CLOSE_PROTOCOL, CLOSE_REPLACED, CLOSE_UNAUTHORIZED } from "./coordinator.ts";
+export { ControlAuthority, ownerFor } from "./control.ts";
+export type {
+  ControlAuthorityOptions,
+  ControlPermission,
+  ControlSnapshot,
+} from "./control.ts";
 export { BridgeError } from "./errors.ts";
 export { CommandQueue } from "./queue.ts";
 export type { TaskRecord } from "./queue.ts";
