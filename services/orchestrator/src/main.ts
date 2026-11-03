@@ -104,20 +104,59 @@ voiceLink = connectVoice({
   onStatus: (status) => server.publishVoiceStatus(status),
   onSubtitle: (subtitle) => {
     server.publishSubtitle(subtitle);
-    // Drive commitment state transitions from Voice events: the promise moves
-    // from "proposed" → "spoken" when actually playing, and to a terminal
-    // state on failure or cancellation.
-    if (subtitle.commitmentId) {
+    
+    // Forward playback events to the commitment ledger when a commitmentId is present.
+    // The ledger tracks promise fulfillment, so real playback state must be reflected.
+    
+    // speaking: real playback has started, transition from proposed to spoken
+    if (subtitle.commitmentId && subtitle.state === "speaking") {
       try {
-        if (subtitle.state === "speaking" || subtitle.state === "spoken") {
-          const current = persistent.show.ledger.get(subtitle.commitmentId);
-          if (current?.status === "proposed") {
-            persistent.show.ledger.transition(subtitle.commitmentId, "spoken", "voice playing");
-          }
-        } else if (subtitle.state === "failed") {
-          persistent.show.ledger.transition(subtitle.commitmentId, "cancelled", "voice failed");
-        } else if (subtitle.state === "cancelled") {
+        const commitment = persistent.show.ledger.get(subtitle.commitmentId);
+        // Only transition from proposed to spoken; avoid re-transitioning if already spoken.
+        if (commitment && commitment.status === "proposed") {
+          persistent.show.ledger.transition(subtitle.commitmentId, "spoken", "voice speaking");
+        }
+      } catch (error) {
+        console.warn(
+          `orchestrator: could not mark commitment ${subtitle.commitmentId} as spoken — ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+    
+    // spoken: playback completed successfully, commitment is already in spoken state
+    if (subtitle.commitmentId && subtitle.state === "spoken") {
+      // Verify the commitment exists and log completion for observability.
+      const commitment = persistent.show.ledger.get(subtitle.commitmentId);
+      if (commitment) {
+        console.log(`orchestrator: commitment ${subtitle.commitmentId} playback completed`);
+      }
+    }
+    
+    // cancelled: utterance was cancelled before or during playback
+    if (subtitle.commitmentId && subtitle.state === "cancelled") {
+      try {
+        const commitment = persistent.show.ledger.get(subtitle.commitmentId);
+        if (commitment && commitment.status !== "cancelled" && commitment.status !== "expired") {
           persistent.show.ledger.transition(subtitle.commitmentId, "cancelled", "voice cancelled");
+        }
+      } catch (error) {
+        console.warn(
+          `orchestrator: could not cancel commitment ${subtitle.commitmentId} — ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+    
+    // failed: playback failed, cancel the commitment
+    if (subtitle.commitmentId && subtitle.state === "failed") {
+      try {
+        const commitment = persistent.show.ledger.get(subtitle.commitmentId);
+        if (commitment && commitment.status !== "cancelled" && commitment.status !== "expired") {
+          // `spoken` cannot move to `broken`; an undelivered line is cancelled.
+          persistent.show.ledger.transition(subtitle.commitmentId, "cancelled", "voice failed");
         }
       } catch (error) {
         console.warn(
