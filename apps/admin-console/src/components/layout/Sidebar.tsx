@@ -1,6 +1,7 @@
 import type { DrawerMode } from "../operations/OperationsDrawer.tsx";
-import type { ShowMode, ShowSettings, SourceHealth } from "@craftmate/contracts";
+import type { ShowMode, ShowSettings, ShowStats, SourceHealth } from "@craftmate/contracts";
 import type { WireState } from "../../lib/connection.ts";
+import mascot from "../../assets/dafeiyu.png";
 
 interface SidebarProps {
   readonly drawer: DrawerMode | null;
@@ -9,6 +10,7 @@ interface SidebarProps {
   readonly personaName: string;
   readonly settings: ShowSettings | null;
   readonly sourceHealth: SourceHealth | null;
+  readonly stats: ShowStats;
   readonly onSelect: (drawer: DrawerMode | null) => void;
 }
 
@@ -89,6 +91,7 @@ export function Sidebar({
   personaName,
   settings,
   sourceHealth,
+  stats,
   onSelect,
 }: SidebarProps): React.JSX.Element {
   const statusLabel = state === "open" ? "内核在线" : state === "connecting" ? "正在连接" : "内核离线";
@@ -144,6 +147,13 @@ export function Sidebar({
         </section>
       </nav>
 
+      <SessionPanel
+        settings={settings}
+        stats={stats}
+        online={state === "open"}
+        onOpenConsole={() => onSelect("decisions")}
+      />
+
       <div className="sidebar__footer">
         <div className="daemon-status" data-state={sourceState(state, sourceHealth)}>
           <span className="daemon-status__dot" aria-hidden="true" />
@@ -186,6 +196,65 @@ function sourceLabel(health: SourceHealth | null): string {
   }
 }
 
+interface SessionPanelProps {
+  readonly settings: ShowSettings | null;
+  readonly stats: ShowStats;
+  readonly online: boolean;
+  readonly onOpenConsole: () => void;
+}
+
+/** Today's goal and counters, docked in the sidebar so the stage stays clear. */
+function SessionPanel({ settings, stats, online, onOpenConsole }: SessionPanelProps): React.JSX.Element {
+  const progress = Math.round(settings?.goalProgress ?? 0);
+
+  return (
+    <section className="session-panel" aria-labelledby="session-goal">
+      <span className="session-panel__mascot" aria-hidden="true">
+        <img src={mascot} alt="" />
+      </span>
+      <h2 className="sidebar__section-title">本场</h2>
+      <div className="session-panel__goal">
+        <span>今日主线</span>
+        <strong id="session-goal">{settings?.goal ?? "正在读取本场目标"}</strong>
+        <div className="session-panel__progress">
+          <div
+            role="progressbar"
+            aria-label="今日主线进度"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress}
+          >
+            <span style={{ width: `${progress}%` }} />
+          </div>
+          <output>{progress}%</output>
+        </div>
+      </div>
+
+      <dl className="session-panel__stats">
+        <div>
+          <dt>已收到</dt>
+          <dd>{stats.received}</dd>
+        </div>
+        <div>
+          <dt>待兑现</dt>
+          <dd>{stats.openCommitments}</dd>
+        </div>
+        <div>
+          <dt>决策</dt>
+          <dd>{stats.decided}</dd>
+        </div>
+      </dl>
+
+      <button className="session-panel__launch" type="button" onClick={onOpenConsole}>
+        <span>{online ? "进入播控台" : "等待内核启动"}</span>
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <path d="m7 4 6 6-6 6" />
+        </svg>
+      </button>
+    </section>
+  );
+}
+
 interface NavigationButtonProps {
   readonly item: NavigationItem;
   readonly selected: boolean;
@@ -206,7 +275,6 @@ function NavigationButton({ item, selected, onClick }: NavigationButtonProps): R
         <strong>{item.label}</strong>
         <small>{item.detail}</small>
       </span>
-      <Chevron />
     </button>
   );
 }
@@ -232,14 +300,6 @@ function WhaleAvatar(): React.JSX.Element {
       <path fill="#ffcf8a" d="M24 42h8v4h-8z" />
       <path fill="#f2f7ff" d="M24 24h5v5h-5z" />
       <path fill="#6f8ee0" d="M42 37h7v5h-4v4h-3z" />
-    </svg>
-  );
-}
-
-function Chevron(): React.JSX.Element {
-  return (
-    <svg className="nav-item__chevron" viewBox="0 0 16 16" aria-hidden="true">
-      <path d="m6 3.5 4.5 4.5L6 12.5" />
     </svg>
   );
 }

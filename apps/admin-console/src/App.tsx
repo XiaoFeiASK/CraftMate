@@ -23,7 +23,13 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="app">
-      <TitleBar view={drawer} onSelect={setDrawer} />
+      <TitleBar
+        view={drawer}
+        state={state}
+        mode={mode}
+        settings={settings}
+        onSelect={setDrawer}
+      />
       <div className="app__workspace">
         <Sidebar
           drawer={drawer}
@@ -32,17 +38,10 @@ export function App(): React.JSX.Element {
           personaName={personaName}
           settings={settings}
           sourceHealth={snapshot.sourceHealth}
+          stats={snapshot.stats}
           onSelect={setDrawer}
         />
-        <LiveHero
-          state={state}
-          mode={mode}
-          personaName={personaName}
-          settings={settings}
-          stats={snapshot.stats}
-          reduceMotion={preferences.reduceMotion}
-          onOpenConsole={() => setDrawer("decisions")}
-        />
+        <LiveHero reduceMotion={preferences.reduceMotion} />
       </div>
 
       {drawer ? (
