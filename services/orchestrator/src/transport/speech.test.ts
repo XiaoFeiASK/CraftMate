@@ -64,7 +64,9 @@ describe("decision to speech", () => {
       assert.equal(seenAtCall, outcome?.commitmentId);
       const stored = commitments.open();
       assert.equal(stored.length, 1);
-      assert.equal(stored[0]?.status, "spoken");
+      // The commitment is "proposed" after being handed to Voice. Voice events
+      // will drive it to "spoken" when actually playing.
+      assert.equal(stored[0]?.status, "proposed");
       assert.equal(stored[0]?.utterance, "好，我去挖铁矿。");
     } finally {
       close();
@@ -106,7 +108,9 @@ describe("decision to speech", () => {
     const second = openDatabase({ file, skipMigrations: true });
     try {
       const restored = new CommitmentStore(second, context);
-      assert.equal(restored.open()[0]?.status, "spoken");
+      // After restart, the commitment is still "proposed" because Voice hasn't
+      // reported back yet. Only Voice events move it to "spoken".
+      assert.equal(restored.open()[0]?.status, "proposed");
       const rebuilt = new CommitmentLedger({ journal: restored });
       rebuilt.restore(restored.open());
       assert.equal(rebuilt.open().length, 1);

@@ -343,9 +343,13 @@ export class Show {
     if (input.decision.audienceRef.length === 0) {
       throw new Error(`decision ${input.decision.id} has no hashed audience reference`);
     }
+   // Retrieve the sourceId from the recorder if available, so the commitment
+   // can be traced back to its originating audience event.
+   const sourceId = this.recorder?.findSourceId?.(input.decision.eventId) ?? null;
     return this.ledger.reserve({
       audienceRef: input.decision.audienceRef,
       utterance: input.utterance,
+     sourceId,
       planId: input.decision.id,
     });
   }

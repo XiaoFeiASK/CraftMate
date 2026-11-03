@@ -37,7 +37,7 @@ export class SqliteRecorder implements ShowRecorder {
   }
 
   recordDecision(decision: Decision): void {
-    const sourceId = this.sourceIds.get(decision.eventId) ?? this.findSource(decision.eventId);
+    const sourceId = this.findSourceId(decision.eventId);
     if (!sourceId) throw new Error(`decision ${decision.id} has no stored source`);
     this.decisions.append(this.context, sourceId, decision, decision.eventId);
   }
@@ -54,7 +54,11 @@ export class SqliteRecorder implements ShowRecorder {
    * Evicted cache entries are recovered from the database, which is also what
    * makes a decision traceable after a process restart.
    */
-  private findSource(eventId: string): string | undefined {
+  findSourceId(eventId: string): string | undefined {
+    // Check cache first for fast path
+    const cached = this.sourceIds.get(eventId);
+    if (cached) return cached;
+    // Fall back to database lookup
     const row = this.db
       .prepare(
         `SELECT id FROM source
