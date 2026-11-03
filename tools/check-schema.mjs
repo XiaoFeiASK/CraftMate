@@ -77,6 +77,7 @@ for (const required of [
   "persona_version",
   "show_session",
   "show_settings",
+  "source_retention_audit",
   "source",
   "decision_log",
   "action_attempt",
@@ -143,6 +144,19 @@ expectThrow(
   "INSERT INTO show_settings (session_id, content_json, updated_at_ms) VALUES (?, ?, ?)",
   ["session-2", "not json", 3_100],
   "non-JSON settings",
+);
+db.prepare(
+  "INSERT INTO source_retention_audit (id, session_id, source_id, action, content_hash, occurred_at_ms) VALUES (?, ?, ?, ?, ?, ?)",
+).run("retention-1", "session-1", "source-1", "raw_text_expired", "hash-1", 86_404_000);
+expectThrow(
+  "INSERT INTO source_retention_audit (id, session_id, source_id, action, content_hash, occurred_at_ms) VALUES (?, ?, ?, ?, ?, ?)",
+  ["retention-dup", "session-1", "source-1", "raw_text_expired", "hash-1", 86_405_000],
+  "duplicate retention audit for one source",
+);
+expectThrow(
+  "INSERT INTO source_retention_audit (id, session_id, source_id, action, content_hash, occurred_at_ms) VALUES (?, ?, ?, ?, ?, ?)",
+  ["retention-bad-action", "session-1", "source-operator-1", "deleted", "hash-2", 86_405_000],
+  "unknown retention audit action",
 );
 db.prepare(
   "INSERT INTO source (id, external_event_id, session_id, kind, actor_ref, raw_text, content_hash, received_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

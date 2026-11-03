@@ -9,7 +9,7 @@
 - **部分**：写清哪一段是假的。
 - **未实现**：没有代码占位。
 
-最后核对：2026-11-03（分支 `fix/m2-bridge-execution`，方向 C 交付）。
+最后核对：2026-11-03（合并方向 A / B / C 的 M1–M2 切片）。
 
 ## 1. 能跑起来的东西
 
@@ -22,8 +22,9 @@ npm run build
 npm run db:check
 ```
 
-2026-11-03 实测：`npm run typecheck` 通过，`npm test` 69 项全绿，`db:check` 报告
-25 个对象 / 17 个索引。桌面窗口需 Rust / Cargo，已在本机实际启动验证。
+2026-11-03 实测：`npm run typecheck`、`npm test`、`npm run build`、
+`db:check` / `db:check:file`（合并 A 的保留审计后为 26 个对象 / 19 个索引）通过。
+桌面窗口需 Rust / Cargo，已在本机实际启动验证。
 
 方向 B 补充：Orchestrator + Voice 已用真实进程联调（fake TTS / 仅字幕模式），
 控制台能看到说话状态、字幕与急停取消；真实 TTS 供应商与 BlackHole / OBS 路由
@@ -88,7 +89,7 @@ npm run db:check
 | Stage B 打分 | 已实现 | 意图置信度 + 人格权重 + 阈值，纯确定性。 |
 | 仲裁决策 | 已实现 | 六种决策 + 优先级排序，无模型调用。 |
 | 人格结构 | 已实现 | 结构化人格、权重、边界；当前只有「大肥鱼」一个实例。 |
-| 承诺账本 | 已实现 | 内存状态机，禁止跳过「说出口」。 |
+| 承诺账本 | 已实现 | 状态机禁止跳过「说出口」；写端口先落库再更新内存，启动时恢复未完成承诺。 |
 | 场次编排与运行模式 | 已实现 | `agent` / `operator` / `stopped` 三态。 |
 | 持久化写端口 | 已实现 | `ShowRecorder` 端口；先写 source，再仲裁，再写 decision。 |
 | Stage C 规划与模型 | 未实现 | 没有任何 Provider，也没有生成式回应。 |
@@ -98,14 +99,14 @@ npm run db:check
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| v1 schema | 已实现 | `0001_initial.sql`，15 张表（含 FTS 主表）+ 4 个视图。 |
+| v1 schema | 已实现 | `0001`–`0004`，16 张表（含 FTS 主表与保留审计）+ 4 个视图。 |
 | 约束与视图校验 | 已实现 | `npm run db:check`，内存库与真实 WAL 文件库两种模式。 |
 | 连接与迁移执行器 | 已实现 | WAL、外键、`busy_timeout`；checksum 漂移直接失败。 |
-| `SessionStore` / `SourceStore` / `DecisionStore` / `ActionStore` / `SettingsStore` | 已实现 | 启动恢复、事件去重、决策落库、动作幂等、按场次保存配置。 |
-| 存储层自动化测试 | 已实现 | 覆盖事件去重、重启恢复、场次幂等启动、设置跨重启。 |
-| 承诺落库 | 部分 | `commitment` 表已建，`Show` 尚未写承诺状态迁移。 |
+| `SessionStore` / `SourceStore` / `DecisionStore` / `ActionStore` / `SettingsStore` / `CommitmentStore` | 已实现 | 启动恢复、事件去重、决策落库、动作幂等、按场次保存配置、承诺状态迁移。 |
+| 存储层自动化测试 | 已实现 | 覆盖去重、重启恢复、承诺恢复与非法迁移、保留审计、空库/升级/checksum 漂移。 |
+| 承诺落库 | 已实现 | `reserve → spoken → …` 在同一事务写状态和事件；重启由 `commitment_open` 恢复。 |
 | 记忆与待审仓储 | 未实现 | 只有表结构。 |
-| 保留策略执行 | 部分 | `SourceStore.expireRawText()` 已实现，没有定时任务调用它。 |
+| 保留策略执行 | 已实现 | Orchestrator 启动时先清一轮，之后每小时按批清理；原文置空、哈希保留、逐条写审计。 |
 
 ### 2.7 接入端 `services/ingress`
 
@@ -135,17 +136,17 @@ npm run db:check
 
 按「会不会让下一步做错」排序，不按工作量。
 
-1. **承诺还没落库**。`Show` 的承诺只存在内存，重启后 `commitment_open` 为空。
-2. **`/ingress` 不校验 token**。ingress 会发 `hello.token`，Orchestrator 收下就不再看，
-   本机任何进程都能往决策流里灌事件。
-3. **Ingress 只对 fake dyhub 验证过**。断线、房间关闭、洪峰已有自动化测试，但真实房间的字段映射仍未校准。
-4. **Bridge 未接真实身体**。协议、模拟身体、队列与看门狗已实现；`/bridge` 尚未由 B 的 HTTP upgrade 路由装配，Fabric Mod 与 mcpfabric 未接入。
-5. **`Decision.skill` 恒为 `null`**。`EXECUTE` 目前只是标签，没有技能与参数，Bridge 无从下发。
-6. **`MemoryAudienceStore` 没有上限**。冷却和投票记录只增不减，长直播会缓慢泄漏。
-7. **`Show.seen` 只在内存**。重启后依赖数据库唯一索引去重，但内存层仍会重新消费。
-8. **管理端没有服务端错误提示**。`error` 消息在连接层被忽略，设置保存失败目前只会停
-   在「未保存」，没有可读的错误原因。
-9. **`db:check` 不是迁移测试**。它验证 schema，不验证「老库升级到新库」。
+1. **Ingress 只对 fake dyhub 验证过**。断线、房间关闭、洪峰已有自动化测试，但真实房间的字段映射仍未校准。
+2. **Bridge 未接真实身体**。协议、模拟身体、队列与看门狗已实现；`/bridge` 尚未由 B 的 HTTP upgrade 路由装配，Fabric Mod 与 mcpfabric 未接入。
+3. **`Decision.skill` 恒为 `null`**。`EXECUTE` 目前只是标签，没有技能与参数，Bridge 无从下发。
+4. **决策自动说话未接通**。承诺账本已可持久化，但还没有 Stage C 生成可播文本；Voice 目前只接操作员试听/显式命令。
+5. **真实 TTS 与音频路由未联调**。Voice 只验证到 fake TTS / 仅字幕模式的真实进程链路。
+6. **M4 运营界面未实现**。记忆审核、人格版本对比/回滚、按场次/traceId 回放时间轴仍未落地。
+
+方向 A 的 M1 代码项已闭合：承诺恢复、去重收敛（内存 2000 条快速路径 + 数据库裁决）、
+有界观众历史（500 人 / 每意图 200 样本）、保留清理与审计、迁移升级测试。**M1 出口
+仍需环境验收**：真实 `~/.craftmate/craftmate.db` 的升级副本、桌面端重启联调，以及
+由 B 提供发声链路后才能验证「开口前已落库」。
 
 ## 4. 明确不存在的东西
 

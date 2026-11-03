@@ -670,8 +670,11 @@ PRAGMA synchronous = NORMAL
 | `SourceStore` | 追加证据；`inserted:false` 表示重复事件；按 24 小时清空原文。 |
 | `DecisionStore` | 追加决策、按场次读取最近记录。 |
 | `ActionStore` | 以幂等键创建动作尝试，并写入终态。 |
+| `CommitmentStore` | 承诺与状态事件的唯一写入口；按 revision 条件更新，重试安全。 |
 
-`source.raw_expires_at_ms = received_at_ms + 24h`。清理把 `raw_text` 置空，保留 `content_hash` 与结构化指标，并留一行审计记录。
+`source.raw_expires_at_ms = received_at_ms + 24h`。清理把 `raw_text` 置空，保留 `content_hash` 与结构化指标，并在同一事务内为每个 source 写一行 `source_retention_audit`。Orchestrator 启动时清一轮，之后每小时执行；每批 500 行，重跑不会重复审计。
+
+承诺状态迁移先写库再改内存：`CommitmentStore.transit()` 同时更新 `commitment` 与追加 `commitment_event`，上下文是 `(id, revision, from_status)`；非法跳转在领域层就被拒绝，仓储层再以 revision 做并发保护。
 
 ## 10. 管理端
 

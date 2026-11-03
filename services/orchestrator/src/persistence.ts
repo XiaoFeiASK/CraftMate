@@ -1,12 +1,14 @@
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Show, dafeiyu, type Persona } from "@craftmate/agent";
+import { CommitmentLedger, Show, dafeiyu, type Persona } from "@craftmate/agent";
 import { showSettingsSchema } from "@craftmate/contracts";
 import {
+  CommitmentStore,
   DecisionStore,
   SettingsStore,
   SessionStore,
+  SourceStore,
   SqliteRecorder,
   openDatabase,
   type SessionContext,
@@ -18,6 +20,8 @@ export interface PersistentShow {
   readonly context: SessionContext;
   /** Persists a settings edit, then applies it to the running show. */
   saveSettings(next: unknown): ReturnType<Show["currentSettings"]> | null;
+  /** Purges expired raw text and writes one audit row per source. */
+  expireRawText(now?: number): number;
   close(): void;
 }
 
@@ -38,17 +42,22 @@ export function createPersistentShow(options: {
   const context = new SessionStore(db).bootstrap(persona, options.goalText ?? DEFAULT_GOAL);
   const decisions = new DecisionStore(db);
   const settingsStore = new SettingsStore(db);
+  const commitments = new CommitmentStore(db, context);
+  const sources = new SourceStore(db);
   const history = decisions.recent(context.sessionId, 50);
   const totals = decisions.counts(context.sessionId);
   const stored = showSettingsSchema.safeParse(settingsStore.read(context.sessionId));
+  const ledger = new CommitmentLedger({ journal: commitments });
+  ledger.restore(commitments.open());
 
   const show = new Show({
     persona,
     ...(stored.success ? { settings: stored.data } : {}),
     goalText: options.goalText ?? DEFAULT_GOAL,
     recorder: new SqliteRecorder(db, context),
+    ledger,
     history: history.reverse(),
-    totals: { ...totals, openCommitments: 0 },
+    totals: { ...totals, openCommitments: commitments.openCount() },
   });
 
   return {
@@ -62,6 +71,7 @@ export function createPersistentShow(options: {
       settingsStore.write(context.sessionId, parsed.data);
       return show.updateSettings(parsed.data);
     },
+    expireRawText: (now) => sources.expireRawText(now),
     close: () => db.close(),
   };
 }
