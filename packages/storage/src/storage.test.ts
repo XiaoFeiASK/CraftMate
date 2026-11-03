@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { appendFileSync, copyFileSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { CommitmentLedger, Show, dafeiyu } from "@craftmate/agent";
 import { loadMigrations, openDatabase } from "./database.ts";
 import { SqliteRecorder } from "./recorder.ts";
@@ -16,6 +17,7 @@ import {
 import { defaultSettings } from "@craftmate/agent/application";
 
 const temporaryDatabase = (): string => join(mkdtempSync(join(tmpdir(), "craftmate-test-")), "show.db");
+const migrationsDir = join(dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url))))), "db", "migrations");
 
 const comment = (id: string, text: string) => ({
   id,
@@ -218,11 +220,18 @@ describe("storage", () => {
     db.close();
   });
 
+  test("a non-positive retention batch size is rejected before any write", () => {
+    const db = openDatabase({ file: temporaryDatabase() });
+    const sources = new SourceStore(db);
+    assert.throws(() => sources.expireRawText(Date.now(), 0), /positive integer/);
+    db.close();
+  });
+
   test("opening an up-to-date database applies no migrations twice", () => {
     const file = temporaryDatabase();
     openDatabase({ file }).close();
     const db = openDatabase({ file });
-    const migrations = loadMigrations(join(process.cwd(), "db", "migrations"));
+    const migrations = loadMigrations(migrationsDir);
     assert.equal(
       (db.prepare("SELECT count(*) AS n FROM schema_migration").get() as { n: number }).n,
       migrations.length,
@@ -232,8 +241,9 @@ describe("storage", () => {
 
   test("an old database upgrades by applying only the missing migration", () => {
     const dir = mkdtempSync(join(tmpdir(), "craftmate-migrations-"));
-    const sourceDir = join(process.cwd(), "db", "migrations");
-    for (const name of readdirSync(sourceDir).filter((file) => file.endsWith(".sql")).sort().slice(0, 3)) {
+    const sourceDir = migrationsDir;
+    const all = readdirSync(sourceDir).filter((file) => file.endsWith(".sql")).sort();
+    for (const name of all.slice(0, -1)) {
       copyFileSync(join(sourceDir, name), join(dir, name));
     }
 
@@ -242,7 +252,7 @@ describe("storage", () => {
     const db = openDatabase({ file });
     assert.equal(
       (db.prepare("SELECT count(*) AS n FROM schema_migration").get() as { n: number }).n,
-      4,
+      all.length,
     );
     assert.ok(
       db
@@ -255,7 +265,7 @@ describe("storage", () => {
   test("a changed migration checksum aborts startup instead of continuing", () => {
     const dir = mkdtempSync(join(tmpdir(), "craftmate-migrations-"));
     const name = "0001_initial.sql";
-    copyFileSync(join(process.cwd(), "db", "migrations", name), join(dir, name));
+    copyFileSync(join(migrationsDir, name), join(dir, name));
     const file = temporaryDatabase();
     openDatabase({ file, migrationsDir: dir }).close();
 

@@ -159,6 +159,9 @@ export class SourceStore {
    * backlog cannot hold the write lock for the whole stream.
    */
   expireRawText(now = Date.now(), batchSize = 500): number {
+    if (!Number.isInteger(batchSize) || batchSize <= 0) {
+      throw new Error(`batchSize must be a positive integer, got ${batchSize}`);
+    }
     let total = 0;
     for (;;) {
       this.db.exec("BEGIN IMMEDIATE");
@@ -215,14 +218,22 @@ export class CommitmentStore implements CommitmentJournal {
     try {
       const existing = this.db
         .prepare(
-          `SELECT status, revision, utterance, audience_ref, created_at_ms
+          `SELECT session_id, status, revision, utterance, audience_ref, created_at_ms
            FROM commitment WHERE id = ?`,
         )
         .get(commitment.id) as
-        | { status: CommitmentStatus; revision: number; utterance: string; audience_ref: string; created_at_ms: number }
+        | {
+            session_id: string;
+            status: CommitmentStatus;
+            revision: number;
+            utterance: string;
+            audience_ref: string;
+            created_at_ms: number;
+          }
         | undefined;
       if (existing) {
         const identical =
+          existing.session_id === this.context.sessionId &&
           existing.status === commitment.status &&
           existing.revision === commitment.revision &&
           existing.utterance === commitment.utterance &&

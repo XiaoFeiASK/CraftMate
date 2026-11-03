@@ -22,7 +22,7 @@ npm run build
 npm run db:check
 ```
 
-2026-11-03 实测：`npm run typecheck`、`npm test`（79 项）、`npm run build`、
+2026-11-03 实测：`npm run typecheck`、`npm test`（本分支 50 项）、`npm run build`、
 `db:check` / `db:check:file`（26 个对象 / 19 个索引）通过。桌面窗口需 Rust / Cargo，
 已在本机实际启动验证。
 
