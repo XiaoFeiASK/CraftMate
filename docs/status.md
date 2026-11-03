@@ -9,7 +9,7 @@
 - **部分**：写清哪一段是假的。
 - **未实现**：没有代码占位。
 
-最后核对：2026-11-03（方向 A 分支 `fix/agent-data-kernel-m1`，工作区含并行改动）。
+最后核对：2026-11-03（合并方向 A / B / C 的 M1–M2 切片）。
 
 ## 1. 能跑起来的东西
 
@@ -65,7 +65,7 @@ npm run db:check
 | 模拟弹幕 | 已实现 | `tools/mock.ts`，脚本化样本，不是真实平台。 |
 | `/ingress` 通道 | 已实现 | 只接受 loopback + 共享 token；`hello` 后才收 `event` / `health`，失败会明确关闭并记日志。 |
 | 真实抖音接入 | 部分 | `services/ingress` 已有 dyhub 适配、归一化、限流与重连；用 fake dyhub 覆盖断线、房间关闭、坏输入与洪峰，尚未接真实房间。 |
-| `/bridge` 通道 | 未实现 | 只有 schema，设计见 [技术设计](technical-design.md)。 |
+| `/bridge` 通道 | 部分 | 协调器、队列、模拟身体与 WebSocket 适配已实现；尚未接入 Orchestrator 的 upgrade 路由与真实 Fabric Mod。 |
 
 ### 2.4 契约 `packages/contracts`
 
@@ -76,6 +76,7 @@ npm run db:check
 | 优先级 schema | 已实现 | 8 级枚举，已进入 `Decision`。 |
 | 控制面消息 | 已实现 | 客户端/服务端判别联合，有往返测试。 |
 | Bridge 指令与错误码 | 部分 | `cmd` / `event` / 错误码 / 动作状态有 schema；`hello` / `ack` / `progress` / `result` / `cancel` 未定义，无实现。 |
+| Bridge v1 完整帧 | 已实现 | `hello` / `welcome` / `ack` / `progress` / `result` / `cancel` / 心跳 / 所有权，含 schema 与往返测试。 |
 | 逐技能参数 schema | 未实现 | `args` 仍是 `record(unknown)`。 |
 | 来源健康状态 | 已实现 | `SourceHealth` 进入 `ShowSnapshot`，并有 `source` 消息，契约测试已覆盖。 |
 | Voice 契约 | 已实现 | 统一 `VoiceUtterance` / `VoiceEvent` / `VoiceStatus`，字幕与语音共用同一文本。 |
@@ -124,8 +125,11 @@ npm run db:check
 | --- | --- | --- |
 | 语音 `services/voice` | 部分 | 有分句、有界优先级队列、短句边界抢占、急停、主备 TTS、熔断、字幕与状态上报；真实 TTS 供应商和音频路由尚未联调。 |
 | 决策自动说话 | 未实现 | 需要方向 A 的 Stage C 生成可播文本；当前 Voice 只接操作员试听与显式命令，不自行编造回复。 |
-| Bridge 服务 | 未实现 | 只有 `packages/contracts/src/bridge.ts` 的 schema。 |
+| Bridge 服务 | 部分 | 协议、协调器、模拟身体与 WS 适配已实现；真实游戏端未接入。 |
+| Bridge 协调器与队列 | 已实现 | `packages/bridge`：有界队列、幂等、终态、接管/急停、500ms 看门狗、WebSocket 适配。 |
+| Bridge 模拟身体 | 已实现 | `SimBody` 与 `npm run dev:bridge` / `bridge:smoke` / `bridge:long-run`。 |
 | Fabric Mod | 未实现 | 没有 `mods/`、没有 Gradle 工程、没有 Fabric 依赖。 |
+| MCPFabric 适配清单 | 部分 | `packages/bridge-mcpfabric` 有技能映射与安全握手校验；未连接真实 mcpfabric。 |
 | OBS / 抖音 SDK | 未实现 | 没有推流集成，没有平台 SDK。 |
 
 ## 3. 已知缺口
@@ -133,9 +137,11 @@ npm run db:check
 按「会不会让下一步做错」排序，不按工作量。
 
 1. **Ingress 只对 fake dyhub 验证过**。断线、房间关闭、洪峰已有自动化测试，但真实房间的字段映射仍未校准。
-2. **Bridge 只有一半契约**。缺 `hello` / `ack` / `progress` / `result` / `cancel`，无法表达「已接受 / 执行中 / 已完成 / 超时」。
+2. **Bridge 未接真实身体**。协议、模拟身体、队列与看门狗已实现；`/bridge` 尚未由 B 的 HTTP upgrade 路由装配，Fabric Mod 与 mcpfabric 未接入。
 3. **`Decision.skill` 恒为 `null`**。`EXECUTE` 目前只是标签，没有技能与参数，Bridge 无从下发。
 4. **决策自动说话未接通**。承诺账本已可持久化，但还没有 Stage C 生成可播文本；Voice 目前只接操作员试听/显式命令。
+5. **真实 TTS 与音频路由未联调**。Voice 只验证到 fake TTS / 仅字幕模式的真实进程链路。
+6. **M4 运营界面未实现**。记忆审核、人格版本对比/回滚、按场次/traceId 回放时间轴仍未落地。
 
 方向 A 的 M1 代码项已闭合：承诺恢复、去重收敛（内存 2000 条快速路径 + 数据库裁决）、
 有界观众历史（500 人 / 每意图 200 样本）、保留清理与审计、迁移升级测试。**M1 出口
