@@ -4,6 +4,7 @@ import type {
   ActionStatus,
   AudienceEvent,
   Decision,
+  ShowSettings,
   SkillCall,
 } from "@craftmate/contracts";
 
@@ -312,6 +313,43 @@ export class ActionStore {
          WHERE id = ?`,
       )
       .run(status, Date.now(), terminal ? Date.now() : null, errorCode ?? null, attemptId);
+  }
+}
+
+/**
+ * Per-session configuration. Reading returns an unvalidated JSON value: the
+ * caller owns the schema so this package never becomes a second source of truth
+ * for the settings shape.
+ */
+export class SettingsStore {
+  private readonly db: DatabaseSync;
+
+  constructor(db: DatabaseSync) {
+    this.db = db;
+  }
+
+  read(sessionId: string): unknown {
+    const row = this.db
+      .prepare("SELECT content_json FROM show_settings WHERE session_id = ?")
+      .get(sessionId) as { content_json: string } | undefined;
+    if (!row) return null;
+    try {
+      return JSON.parse(row.content_json) as unknown;
+    } catch {
+      return null;
+    }
+  }
+
+  write(sessionId: string, settings: ShowSettings): void {
+    this.db
+      .prepare(
+        `INSERT INTO show_settings (session_id, content_json, updated_at_ms)
+         VALUES (?, ?, ?)
+         ON CONFLICT (session_id) DO UPDATE
+           SET content_json = excluded.content_json,
+               updated_at_ms = excluded.updated_at_ms`,
+      )
+      .run(sessionId, JSON.stringify(settings), Date.now());
   }
 }
 

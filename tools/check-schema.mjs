@@ -76,6 +76,7 @@ for (const required of [
   "schema_migration",
   "persona_version",
   "show_session",
+  "show_settings",
   "source",
   "decision_log",
   "action_attempt",
@@ -125,6 +126,24 @@ expectThrow(
 db.prepare(
   "INSERT INTO show_session (id, session_no, persona_version_id, goal_text, status, started_at_ms, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
 ).run("session-2", 2, "persona-1-v1", "修屋顶", "live", 3_050, 3_050);
+db.prepare(
+  "INSERT INTO show_settings (session_id, content_json, updated_at_ms) VALUES (?, ?, ?)",
+).run("session-1", '{"goal":"盖海崖小屋"}', 3_075);
+expectThrow(
+  "INSERT INTO show_settings (session_id, content_json, updated_at_ms) VALUES (?, ?, ?)",
+  ["session-1", '{"goal":"盖海崖小屋"}', 3_100],
+  "duplicate session settings",
+);
+expectThrow(
+  "INSERT INTO show_settings (session_id, content_json, updated_at_ms) VALUES (?, ?, ?)",
+  ["session-missing", '{"goal":"x"}', 3_100],
+  "settings for a missing session",
+);
+expectThrow(
+  "INSERT INTO show_settings (session_id, content_json, updated_at_ms) VALUES (?, ?, ?)",
+  ["session-2", "not json", 3_100],
+  "non-JSON settings",
+);
 db.prepare(
   "INSERT INTO source (id, external_event_id, session_id, kind, actor_ref, raw_text, content_hash, received_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 ).run("source-other-session", "douyin-comment-1", "session-2", "comment", "viewer-1", "同一条事件", "hash-x", 3_100);

@@ -9,6 +9,8 @@ export interface OpenOptions {
   readonly file: string;
   /** Directory holding `*.sql` migrations. Defaults to the repo's `db/migrations`. */
   readonly migrationsDir?: string;
+  /** Open an already-migrated database read-only without applying migrations. */
+  readonly skipMigrations?: boolean;
 }
 
 export interface Migration {
@@ -38,7 +40,7 @@ export function openDatabase(options: OpenOptions): DatabaseSync {
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA synchronous = NORMAL");
   }
-  migrate(db, options.migrationsDir ?? DEFAULT_MIGRATIONS);
+  if (!options.skipMigrations) migrate(db, options.migrationsDir ?? DEFAULT_MIGRATIONS);
   return db;
 }
 

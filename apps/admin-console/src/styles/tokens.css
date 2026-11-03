@@ -4,6 +4,7 @@
   --linen: #f8f5ef;
   --linen-deep: #f1ece4;
   --paper: #fffdf9;
+  --panel: #fdfbf7;
   --ink: #27241f;
   --ink-soft: #6b655b;
   --ink-faint: #9b9488;
@@ -12,6 +13,9 @@
   --action: #315c47;
   --action-hover: #254a39;
   --action-ink: #f7fbf7;
+  --surface-raised: rgba(255, 255, 255, 0.88);
+  --surface-sunken: rgba(255, 255, 255, 0.52);
+  --surface-solid: #ffffff;
   --blossom: #c96f84;
   --blossom-soft: #f6e3e6;
   --mint: #4f8d6d;
@@ -41,8 +45,64 @@
 
   --titlebar-height: 52px;
   --sidebar-width: 292px;
+  --ui-scale: 1;
 
   color-scheme: light;
+}
+
+/*
+ * Dark theme. Only surfaces and ink change; semantic colors (mint, amber,
+ * coral, blossom) stay put so decision badges keep their meaning.
+ */
+:root[data-theme="dark"] {
+  --canvas: #16181a;
+  --linen: #1c1f22;
+  --linen-deep: #202428;
+  --paper: #212529;
+  --panel: #202428;
+  --ink: #ecebe8;
+  --ink-soft: #b3b0aa;
+  --ink-faint: #85827c;
+  --rule: rgba(255, 255, 255, 0.09);
+  --rule-strong: rgba(255, 255, 255, 0.16);
+  --action-ink: #f4fbf6;
+  --surface-raised: rgba(255, 255, 255, 0.06);
+  --surface-sunken: rgba(255, 255, 255, 0.035);
+  --surface-solid: #262b30;
+  --blossom-soft: rgba(201, 111, 132, 0.18);
+  --scrim: rgba(4, 6, 7, 0.55);
+  --shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.34);
+  --shadow-lift: 0 26px 70px rgba(0, 0, 0, 0.5);
+  --shadow-nav: 0 2px 8px rgba(0, 0, 0, 0.26);
+
+  color-scheme: dark;
+}
+
+/* Text scale is a root multiplier; fixed px sizes opt in via `--ui-scale`. */
+
+/* Accent presets only move the action color, never the decision semantics. */
+:root[data-accent="blossom"] {
+  --action: #9c4a60;
+  --action-hover: #833c50;
+}
+
+:root[data-accent="ocean"] {
+  --action: #2f5a86;
+  --action-hover: #254971;
+}
+
+:root[data-accent="plum"] {
+  --action: #614574;
+  --action-hover: #503760;
+}
+
+:root[data-reduce-motion="true"] *,
+:root[data-reduce-motion="true"] *::before,
+:root[data-reduce-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
 }
 
 * { box-sizing: border-box; }

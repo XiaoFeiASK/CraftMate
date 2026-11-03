@@ -3,12 +3,14 @@ import {
   serverMessageSchema,
   type ClientMessage,
   type OperatorKind,
+  type ShowSettings,
   type ShowMode,
   type ShowSnapshot,
 } from "@craftmate/contracts";
 import { reconnectDelay, type WireState } from "./connection.ts";
 
 const ENDPOINT = import.meta.env.VITE_CRAFTMATE_WS ?? "ws://127.0.0.1:4321/control";
+const EMPTY_PERSONA_NAME = "大肥鱼";
 
 const emptySnapshot: ShowSnapshot = {
   mode: "agent",
@@ -23,8 +25,10 @@ export interface ControlLink {
   readonly snapshot: ShowSnapshot;
   readonly mode: ShowMode;
   readonly personaName: string;
+  readonly settings: ShowSettings | null;
   sendComment(nickname: string, text: string): void;
   sendOperator(kind: OperatorKind, text?: string): void;
+  saveSettings(next: ShowSettings): void;
   simulateBurst(): void;
 }
 
@@ -33,7 +37,8 @@ export function useControlLink(): ControlLink {
   const [state, setState] = useState<WireState>("connecting");
   const [snapshot, setSnapshot] = useState<ShowSnapshot>(emptySnapshot);
   const [mode, setMode] = useState<ShowMode>("agent");
-  const [personaName, setPersonaName] = useState("大肥鱼");
+  const [personaName, setPersonaName] = useState(EMPTY_PERSONA_NAME);
+  const [settings, setSettings] = useState<ShowSettings | null>(null);
   const sequence = useRef(0);
 
   useEffect(() => {
@@ -47,6 +52,7 @@ export function useControlLink(): ControlLink {
           setPersonaName(message.payload.persona.name);
           setSnapshot(message.payload.snapshot);
           setMode(message.payload.snapshot.mode);
+          setSettings(message.payload.settings);
           break;
         case "decision":
           setSnapshot((current) => ({
@@ -66,6 +72,10 @@ export function useControlLink(): ControlLink {
           break;
         case "source":
           setSnapshot((current) => ({ ...current, sourceHealth: message.payload }));
+          break;
+        case "settings":
+          setSettings(message.payload);
+          setPersonaName(message.payload.persona.name);
           break;
         default:
           break;
@@ -147,6 +157,11 @@ export function useControlLink(): ControlLink {
     [send],
   );
 
+  const saveSettings = useCallback(
+    (next: ShowSettings) => send({ type: "settings", payload: next }),
+    [send],
+  );
+
   const simulateBurst = useCallback(() => {
     const lines = [
       "去挖点铁矿",
@@ -163,8 +178,18 @@ export function useControlLink(): ControlLink {
   }, [sendComment]);
 
   return useMemo(
-    () => ({ state, snapshot, mode, personaName, sendComment, sendOperator, simulateBurst }),
-    [state, snapshot, mode, personaName, sendComment, sendOperator, simulateBurst],
+    () => ({
+      state,
+      snapshot,
+      mode,
+      personaName,
+      settings,
+      sendComment,
+      sendOperator,
+      saveSettings,
+      simulateBurst,
+    }),
+    [state, snapshot, mode, personaName, settings, sendComment, sendOperator, saveSettings, simulateBurst],
   );
 }
 

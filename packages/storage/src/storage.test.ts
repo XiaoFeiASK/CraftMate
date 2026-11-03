@@ -6,7 +6,8 @@ import { describe, test } from "node:test";
 import { Show, dafeiyu } from "@craftmate/agent";
 import { openDatabase } from "./database.ts";
 import { SqliteRecorder } from "./recorder.ts";
-import { DecisionStore, SessionStore } from "./stores.ts";
+import { DecisionStore, SessionStore, SettingsStore } from "./stores.ts";
+import { defaultSettings } from "@craftmate/agent/application";
 
 const temporaryDatabase = (): string => join(mkdtempSync(join(tmpdir(), "craftmate-test-")), "show.db");
 
@@ -60,5 +61,30 @@ describe("storage", () => {
     assert.equal(first.sessionId, second.sessionId);
     assert.equal((db.prepare("SELECT count(*) AS n FROM show_session").get() as { n: number }).n, 1);
     db.close();
+  });
+
+  test("settings survive a restart and are scoped to the live session", () => {
+    const file = temporaryDatabase();
+    const first = openDatabase({ file });
+    const context = new SessionStore(first).bootstrap(dafeiyu, "盖房");
+    const settings = defaultSettings(dafeiyu);
+    new SettingsStore(first).write(context.sessionId, {
+      ...settings,
+      goal: "挖一组钻石",
+      goalProgress: 64,
+      persona: { ...settings.persona, name: "大肥鱼二号" },
+    });
+    first.close();
+
+    const second = openDatabase({ file });
+    const stored = new SettingsStore(second).read(context.sessionId) as {
+      goal: string;
+      goalProgress: number;
+      persona: { name: string };
+    };
+    assert.equal(stored.goal, "挖一组钻石");
+    assert.equal(stored.goalProgress, 64);
+    assert.equal(stored.persona.name, "大肥鱼二号");
+    second.close();
   });
 });

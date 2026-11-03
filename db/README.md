@@ -20,7 +20,9 @@ SQLite 是单机运行时的持久层。迁移文件在这里，连接、迁移�
 
 ## 首个迁移
 
-`0001_initial.sql` 覆盖 12 组实体、15 张表（含 FTS 主表）与 4 个视图：
+`0001_initial.sql` 覆盖 12 组实体、15 张表（含 FTS 主表）与 4 个视图；
+`0002_show_settings.sql` 增加按场次保存的可变配置，`0003` 清掉初版误建的
+`app_preference`（界面偏好存在浏览器本机，服务端不读）：
 
 - `persona` / `persona_version`
 - `show_session`
@@ -33,6 +35,7 @@ SQLite 是单机运行时的持久层。迁移文件在这里，连接、迁移�
 - `review_candidate`
 - `incident`
 - `schema_migration`
+- `show_settings`（`0002`，一场一行，JSON 内容由契约校验）
 
 运行时由 `openDatabase()` 在启动时自动建库并跑迁移；`db:check` 只做独立校验，
 不写任何真实数据库。

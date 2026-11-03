@@ -4,11 +4,21 @@ import { TitleBar } from "./components/layout/TitleBar.tsx";
 import { Sidebar } from "./components/layout/Sidebar.tsx";
 import { LiveHero } from "./components/scene/LiveHero.tsx";
 import { OperationsDrawer, type DrawerMode } from "./components/operations/OperationsDrawer.tsx";
-
-const TARGET = "盖一间带床和箱子的海崖小屋";
+import { usePreferences } from "./lib/preferences.ts";
 
 export function App(): React.JSX.Element {
-  const { state, snapshot, mode, personaName, sendComment, sendOperator, simulateBurst } = useControlLink();
+  const {
+    state,
+    snapshot,
+    mode,
+    personaName,
+    settings,
+    sendComment,
+    sendOperator,
+    saveSettings,
+    simulateBurst,
+  } = useControlLink();
+  const { preferences, update, reset } = usePreferences();
   const [drawer, setDrawer] = useState<DrawerMode | null>(null);
 
   return (
@@ -20,6 +30,7 @@ export function App(): React.JSX.Element {
           state={state}
           mode={mode}
           personaName={personaName}
+          settings={settings}
           sourceHealth={snapshot.sourceHealth}
           onSelect={setDrawer}
         />
@@ -27,8 +38,9 @@ export function App(): React.JSX.Element {
           state={state}
           mode={mode}
           personaName={personaName}
+          settings={settings}
           stats={snapshot.stats}
-          target={TARGET}
+          reduceMotion={preferences.reduceMotion}
           onOpenConsole={() => setDrawer("decisions")}
         />
       </div>
@@ -40,10 +52,15 @@ export function App(): React.JSX.Element {
           showMode={mode}
           personaName={personaName}
           snapshot={snapshot}
+          settings={settings}
+          preferences={preferences}
           onClose={() => setDrawer(null)}
           onComment={sendComment}
           onOperator={sendOperator}
           onBurst={simulateBurst}
+          onSaveSettings={saveSettings}
+          onPreferences={update}
+          onResetPreferences={reset}
         />
       ) : null}
     </div>

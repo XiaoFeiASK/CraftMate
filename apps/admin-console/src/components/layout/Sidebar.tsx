@@ -1,5 +1,5 @@
 import type { DrawerMode } from "../operations/OperationsDrawer.tsx";
-import type { ShowMode, SourceHealth } from "@craftmate/contracts";
+import type { ShowMode, ShowSettings, SourceHealth } from "@craftmate/contracts";
 import type { WireState } from "../../lib/connection.ts";
 
 interface SidebarProps {
@@ -7,6 +7,7 @@ interface SidebarProps {
   readonly state: WireState;
   readonly mode: ShowMode;
   readonly personaName: string;
+  readonly settings: ShowSettings | null;
   readonly sourceHealth: SourceHealth | null;
   readonly onSelect: (drawer: DrawerMode | null) => void;
 }
@@ -67,6 +68,18 @@ const SYSTEM_ITEMS: readonly NavigationItem[] = [
       </svg>
     ),
   },
+  {
+    label: "设置",
+    detail: "资料与界面",
+    drawer: "settings",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 3.5v2M12 18.5v2M20.5 12h-2M5.5 12h-2M17.9 6.1l-1.4 1.4M7.5 16.5l-1.4 1.4M17.9 17.9l-1.4-1.4M7.5 7.5 6.1 6.1" />
+        <circle cx="12" cy="12" r="7.4" />
+      </svg>
+    ),
+  },
 ] as const;
 
 export function Sidebar({
@@ -74,6 +87,7 @@ export function Sidebar({
   state,
   mode,
   personaName,
+  settings,
   sourceHealth,
   onSelect,
 }: SidebarProps): React.JSX.Element {
@@ -87,7 +101,7 @@ export function Sidebar({
           <WhaleAvatar />
           <div className="account__copy">
             <strong>{personaName}</strong>
-            <span>专用直播账号</span>
+            <span>{settings?.accountLabel ?? "专用直播账号"}</span>
           </div>
           <span className="account__badge">玩家</span>
         </div>
@@ -145,7 +159,7 @@ export function Sidebar({
             <span>{modeLabel(mode)}</span>
           </div>
         </div>
-        <span className="sidebar__build">M0 · 本地开发</span>
+        <span className="sidebar__build">v0.0.1 · 本地开发</span>
       </div>
     </aside>
   );

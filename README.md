@@ -70,7 +70,7 @@
 
 ## 现在到哪了
 
-当前已落地：启动器式管理端、Tauri 桌面宿主、本机 WebSocket 控制面、确定性的 Stage A/B 仲裁、人格与承诺状态机、SQLite 持久化，以及抖音评论的 Ingress 接入端。
+当前已落地：启动器式管理端、Tauri 桌面宿主、本机 WebSocket 控制面、确定性的 Stage A/B 仲裁、人格与承诺状态机、SQLite 持久化、可编辑的直播资料与界面偏好，以及抖音评论的 Ingress 接入端。
 
 还没有：真实抖音房间联调、模型调用、TTS、Fabric Mod。逐项事实以 [实现状态](docs/status.md) 为准。
 

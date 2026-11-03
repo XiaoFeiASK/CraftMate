@@ -3,6 +3,7 @@ export { SqliteRecorder } from "./recorder.ts";
 export {
   ActionStore,
   DecisionStore,
+  SettingsStore,
   SessionStore,
   SourceStore,
   type AppendSourceResult,

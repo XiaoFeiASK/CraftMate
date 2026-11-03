@@ -1,9 +1,11 @@
-import type { OperatorKind, ShowMode, ShowSnapshot } from "@craftmate/contracts";
+import type { OperatorKind, ShowMode, ShowSettings, ShowSnapshot } from "@craftmate/contracts";
 import { DecisionStream } from "../DecisionStream.tsx";
 import { OperatorBar } from "../OperatorBar.tsx";
+import { SettingsView } from "../settings/SettingsView.tsx";
 import type { WireState } from "../../lib/connection.ts";
+import type { Preferences } from "../../lib/preferences.ts";
 
-export type DrawerMode = "decisions" | "persona" | "connections";
+export type DrawerMode = "decisions" | "persona" | "connections" | "settings";
 
 interface OperationsDrawerProps {
   readonly mode: DrawerMode;
@@ -11,16 +13,22 @@ interface OperationsDrawerProps {
   readonly showMode: ShowMode;
   readonly personaName: string;
   readonly snapshot: ShowSnapshot;
+  readonly settings: ShowSettings | null;
+  readonly preferences: Preferences;
   readonly onClose: () => void;
   readonly onComment: (nickname: string, text: string) => void;
   readonly onOperator: (kind: OperatorKind, text?: string) => void;
   readonly onBurst: () => void;
+  readonly onSaveSettings: (next: ShowSettings) => void;
+  readonly onPreferences: (patch: Partial<Preferences>) => void;
+  readonly onResetPreferences: () => void;
 }
 
 const TITLES: Record<DrawerMode, { readonly title: string; readonly detail: string }> = {
   decisions: { title: "评论与决策", detail: "每条弹幕为什么被执行、排队或拒绝" },
   persona: { title: "角色与人格", detail: "当前以单一人格运行，可在这里查看设定" },
   connections: { title: "接入与语音", detail: "抖音评论、模型与语音的连接状态" },
+  settings: { title: "设置", detail: "直播资料、人格权重与界面偏好" },
 };
 
 export function OperationsDrawer({
@@ -29,10 +37,15 @@ export function OperationsDrawer({
   showMode,
   personaName,
   snapshot,
+  settings,
+  preferences,
   onClose,
   onComment,
   onOperator,
   onBurst,
+  onSaveSettings,
+  onPreferences,
+  onResetPreferences,
 }: OperationsDrawerProps): React.JSX.Element {
   const title = TITLES[mode];
 
@@ -54,12 +67,27 @@ export function OperationsDrawer({
 
         <div className="drawer__body">
           {mode === "decisions" ? <DecisionsView snapshot={snapshot} /> : null}
-          {mode === "persona" ? <PersonaView personaName={personaName} /> : null}
-          {mode === "connections" ? <ConnectionsView state={state} mode={showMode} /> : null}
+          {mode === "persona" ? (
+            <PersonaView personaName={personaName} settings={settings} />
+          ) : null}
+          {mode === "connections" ? (
+            <ConnectionsView state={state} mode={showMode} settings={settings} />
+          ) : null}
+          {mode === "settings" ? (
+            <SettingsView
+              settings={settings}
+              state={state}
+              preferences={preferences}
+              onPreferences={onPreferences}
+              onResetPreferences={onResetPreferences}
+              onSave={onSaveSettings}
+            />
+          ) : null}
         </div>
 
         {mode === "decisions" ? (
           <OperatorBar
+            personaName={personaName}
             onComment={onComment}
             onOperator={onOperator}
             onBurst={onBurst}
@@ -90,7 +118,15 @@ function DecisionsView({ snapshot }: { readonly snapshot: ShowSnapshot }): React
   );
 }
 
-function PersonaView({ personaName }: { readonly personaName: string }): React.JSX.Element {
+function PersonaView({
+  personaName,
+  settings,
+}: {
+  readonly personaName: string;
+  readonly settings: ShowSettings | null;
+}): React.JSX.Element {
+  const persona = settings?.persona;
+
   return (
     <div className="persona-view">
       <div className="persona-view__portrait" aria-hidden="true">
@@ -99,28 +135,62 @@ function PersonaView({ personaName }: { readonly personaName: string }): React.J
       <div>
         <span className="eyebrow">当前人格</span>
         <h3>{personaName}</h3>
-        <p>软萌爱撒娇的蓝色鲸鱼娘，贪吃爱面子，大方承认自己是「大肥鱼」。</p>
+        <p>{persona?.identity ?? "正在读取人格设定…"}</p>
       </div>
       <dl className="persona-view__facts">
-        <div><dt>语气</dt><dd>软糯、短句、会撒娇</dd></div>
-        <div><dt>坚持</dt><dd>不吹牛，答应的事尽量做到</dd></div>
-        <div><dt>偏好</dt><dd>白饭和钻石一样重要</dd></div>
-        <div><dt>边界</dt><dd>危险动作会认真拒绝</dd></div>
+        <div><dt>语气</dt><dd>{persona?.tone ?? "—"}</dd></div>
+        <div><dt>坚持</dt><dd>{persona?.values.join(" · ") || "—"}</dd></div>
+        <div><dt>边界</dt><dd>{persona?.boundaries.join(" · ") || "—"}</dd></div>
+        <div><dt>音色</dt><dd>{persona ? `${persona.voice.voiceId} @ ${persona.voice.speed}×` : "—"}</dd></div>
       </dl>
-      <p className="panel-note">人格编辑与试听将在接入 DeepSeek 和火山 TTS 后开放。</p>
+      <div className="weight-bars">
+        {persona
+          ? (
+              [
+                ["obedience", "听话"],
+                ["risk", "冒险"],
+                ["sass", "嘴硬"],
+                ["patience", "耐心"],
+                ["gluttony", "贪吃"],
+              ] as const
+            ).map(([key, label]) => (
+              <div key={key} className="weight-bar">
+                <span>{label}</span>
+                <i><b style={{ width: `${persona.weights[key] * 100}%` }} /></i>
+                <em>{persona.weights[key].toFixed(2)}</em>
+              </div>
+            ))
+          : null}
+      </div>
+      <p className="panel-note">人格修改在「设置」里保存后立即影响仲裁；试听要等 TTS 接入。</p>
     </div>
   );
 }
 
-function ConnectionsView({ state, mode }: { readonly state: WireState; readonly mode: ShowMode }): React.JSX.Element {
+function ConnectionsView({
+  state,
+  mode,
+  settings,
+}: {
+  readonly state: WireState;
+  readonly mode: ShowMode;
+  readonly settings: ShowSettings | null;
+}): React.JSX.Element {
+  const room = settings?.integrations.douyinRoomId;
+  const model = settings?.integrations.deepseekModel;
+
   return (
     <div className="connections-view">
       <ConnectionRow label="本地执行内核" value={state === "open" ? "已连接" : "未连接"} tone={state === "open" ? "good" : "bad"} />
       <ConnectionRow label="运行模式" value={modeLabel(mode)} tone={mode === "agent" ? "good" : "warn"} />
       <ConnectionRow label="Fabric Bridge" value="等待接入" tone="quiet" />
-      <ConnectionRow label="抖音直播" value="待配置" tone="quiet" />
-      <ConnectionRow label="DeepSeek" value="待配置 API Key" tone="quiet" />
-      <ConnectionRow label="语音合成" value="待配置音色" tone="quiet" />
+      <ConnectionRow label="抖音直播" value={room ? `房间 ${room}（未联调）` : "待配置"} tone="quiet" />
+      <ConnectionRow label="模型" value={model ? `${model}（未接 Key）` : "待配置 API Key"} tone="quiet" />
+      <ConnectionRow
+        label="语音合成"
+        value={settings ? `${settings.persona.voice.provider} / ${settings.persona.voice.voiceId}` : "待配置音色"}
+        tone="quiet"
+      />
       <p className="panel-note">这些是下一阶段的接入点，没有连接时界面会明确显示，不会假装在线。</p>
     </div>
   );

@@ -7,6 +7,7 @@ import {
   type OperatorNotice,
   type PersonaSummary,
   type ShowMode,
+  type ShowSettings,
   type ShowSnapshot,
   type ShowStats,
   type SourceHealth,
@@ -53,6 +54,9 @@ export class MemoryAudienceStore implements AudienceStore {
 
 interface ShowOptions {
   readonly persona: Persona;
+  /** Operator-editable projection; defaults are derived from the persona. */
+  readonly settings?: ShowSettings;
+  readonly goalText?: string;
   readonly clock?: Clock;
   readonly audience?: AudienceStore;
   readonly ledger?: CommitmentLedger;
@@ -64,16 +68,37 @@ interface ShowOptions {
   readonly totals?: ShowStats;
 }
 
+export function defaultSettings(persona: Persona, goalText = "盖一间带床和箱子的海崖小屋"): ShowSettings {
+  return {
+    goal: goalText,
+    goalProgress: 18,
+    worldName: "本地单人世界",
+    gameVersion: "1.21.11",
+    accountLabel: "专用直播账号",
+    integrations: { douyinRoomId: "", deepseekModel: "" },
+    persona: {
+      name: persona.name,
+      identity: persona.identity,
+      tone: persona.style.tone,
+      values: persona.values.slice(0, 8),
+      boundaries: persona.boundaries.slice(0, 8),
+      weights: persona.weights,
+      voice: persona.voice,
+    },
+  };
+}
+
 /**
  * The live show: ingest audience events, arbitrate, and expose a read model.
  * No transport, storage, or model code lives here.
  */
 export class Show {
-  private readonly persona: Persona;
+  private readonly personaId: string;
   private readonly clock: Clock;
   private readonly audience: AudienceStore;
   readonly ledger: CommitmentLedger;
-  private readonly arbiter: Arbiter;
+  private arbiter: Arbiter;
+  private settings: ShowSettings;
   private readonly decisions: Decision[] = [];
   private readonly seen = new Set<string>();
   private readonly recorder: ShowRecorder | null;
@@ -87,12 +112,13 @@ export class Show {
   private sourceHealth: SourceHealth | null = null;
 
   constructor(options: ShowOptions) {
-    this.persona = options.persona;
+    this.personaId = options.persona.id;
     this.clock = options.clock ?? systemClock;
     this.audience = options.audience ?? new MemoryAudienceStore(this.clock);
     this.ledger = options.ledger ?? new CommitmentLedger();
+    this.settings = options.settings ?? defaultSettings(options.persona, options.goalText);
     this.arbiter = new Arbiter({
-      persona: this.persona,
+      persona: this.personaFor(this.settings),
       history: this.audience,
       clock: this.clock,
     });
@@ -128,12 +154,28 @@ export class Show {
   }
 
   personaSummary(): PersonaSummary {
+    const { persona } = this.settings;
     return {
-      id: this.persona.id,
-      name: this.persona.name,
-      identity: this.persona.identity,
-      weights: this.persona.weights,
+      id: this.personaId,
+      name: persona.name,
+      identity: persona.identity,
+      weights: persona.weights,
     };
+  }
+
+  currentSettings(): ShowSettings {
+    return structuredClone(this.settings);
+  }
+
+  /** The settings are replaced wholesale so a partial edit can never drop a field. */
+  updateSettings(next: ShowSettings): ShowSettings {
+    this.settings = structuredClone(next);
+    this.arbiter = new Arbiter({
+      persona: this.personaFor(this.settings),
+      history: this.audience,
+      clock: this.clock,
+    });
+    return this.currentSettings();
   }
 
   applyOperator(command: OperatorCommand): ShowMode {
@@ -220,5 +262,24 @@ export class Show {
       default:
         break;
     }
+  }
+
+  private personaFor(settings: ShowSettings): Persona {
+    const { persona } = settings;
+    return {
+      id: this.personaId,
+      name: persona.name,
+      identity: persona.identity,
+      values: persona.values,
+      style: {
+        tone: persona.tone,
+        sentenceLength: "short",
+        verbalTics: ["唔", "哼", "肥鱼"],
+        quirks: ["先嘴硬再关心", "被叫大肥鱼会骄傲地应一声", "遇到苦力怕会怂"],
+      },
+      boundaries: persona.boundaries,
+      weights: persona.weights,
+      voice: persona.voice,
+    };
   }
 }

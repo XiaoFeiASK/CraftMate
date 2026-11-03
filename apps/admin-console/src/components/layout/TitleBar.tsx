@@ -13,6 +13,7 @@ const TABS: readonly { readonly label: string; readonly view: DrawerMode | null 
   { label: "评论区", view: "decisions" },
   { label: "人格", view: "persona" },
   { label: "接入", view: "connections" },
+  { label: "设置", view: "settings" },
 ] as const;
 
 export function TitleBar({ view, onSelect }: TitleBarProps): React.JSX.Element {
@@ -57,8 +58,11 @@ export function TitleBar({ view, onSelect }: TitleBarProps): React.JSX.Element {
         <button
           className="titlebar__button"
           type="button"
-          aria-label="接入与设置"
-          onClick={() => onSelect("connections")}
+          aria-label="设置"
+          title="设置"
+          aria-pressed={view === "settings"}
+          data-current={view === "settings"}
+          onClick={() => onSelect("settings")}
         >
           <svg viewBox="0 0 20 20" aria-hidden="true">
             <circle cx="10" cy="10" r="2.5" />

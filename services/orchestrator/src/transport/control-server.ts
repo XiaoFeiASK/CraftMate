@@ -5,11 +5,18 @@ import {
   audienceEventSchema,
   clientMessageSchema,
   sourceHealthSchema,
+  showSettingsSchema,
   type ServerMessage,
 } from "@craftmate/contracts";
 
+export interface SettingsWriter {
+  /** Returns null when the payload failed validation and was not persisted. */
+  saveSettings(next: unknown): unknown | null;
+}
+
 interface ControlServerOptions {
   readonly show: Show;
+  readonly settings?: SettingsWriter;
   readonly port: number;
   /** Defaults to loopback. Containers must widen it to receive host traffic. */
   readonly host?: string;
@@ -32,7 +39,12 @@ interface Connection {
  * Transport adapter: wire messages in, application calls out. It owns no
  * business rules and no state beyond connection bookkeeping.
  */
-export function createControlServer({ show, port, host = "127.0.0.1" }: ControlServerOptions): ControlServer {
+export function createControlServer({
+  show,
+  settings,
+  port,
+  host = "127.0.0.1",
+}: ControlServerOptions): ControlServer {
   const http = createServer((request, response) => {
     if (request.url === "/health") {
       response.writeHead(200, { "content-type": "application/json" });
@@ -72,7 +84,11 @@ export function createControlServer({ show, port, host = "127.0.0.1" }: ControlS
 
     send(socket, {
       type: "ready",
-      payload: { persona: show.personaSummary(), snapshot: show.snapshot() },
+      payload: {
+        persona: show.personaSummary(),
+        snapshot: show.snapshot(),
+        settings: show.currentSettings(),
+      },
     });
 
     socket.on("message", (raw) => {
@@ -95,6 +111,32 @@ export function createControlServer({ show, port, host = "127.0.0.1" }: ControlS
       if (parsed.data.type === "operator") {
         show.applyOperator(parsed.data.payload);
         broadcast({ type: "operator", payload: parsed.data.payload });
+        broadcast({ type: "snapshot", payload: show.snapshot() });
+        return;
+      }
+
+      if (parsed.data.type === "settings") {
+        // An in-memory Show (tests, previews) has no persistence layer, so the
+        // edit still applies to the running show instead of being dropped.
+        const applied = settings
+          ? settings.saveSettings(parsed.data.payload)
+          : show.updateSettings(parsed.data.payload);
+        if (!applied) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_SETTINGS", detail: "设置未保存，请检查后重试" },
+          });
+          return;
+        }
+        const current = showSettingsSchema.safeParse(applied);
+        if (!current.success) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_SETTINGS", detail: "设置已读取但格式不合法" },
+          });
+          return;
+        }
+        broadcast({ type: "settings", payload: current.data });
         broadcast({ type: "snapshot", payload: show.snapshot() });
         return;
       }

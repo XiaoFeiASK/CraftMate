@@ -2,8 +2,10 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Show, dafeiyu, type Persona } from "@craftmate/agent";
+import { showSettingsSchema } from "@craftmate/contracts";
 import {
   DecisionStore,
+  SettingsStore,
   SessionStore,
   SqliteRecorder,
   openDatabase,
@@ -14,6 +16,8 @@ import type { Decision } from "@craftmate/contracts";
 export interface PersistentShow {
   readonly show: Show;
   readonly context: SessionContext;
+  /** Persists a settings edit, then applies it to the running show. */
+  saveSettings(next: unknown): ReturnType<Show["currentSettings"]> | null;
   close(): void;
 }
 
@@ -33,17 +37,33 @@ export function createPersistentShow(options: {
   const db = openDatabase({ file: options.dbPath ?? defaultDatabasePath() });
   const context = new SessionStore(db).bootstrap(persona, options.goalText ?? DEFAULT_GOAL);
   const decisions = new DecisionStore(db);
+  const settingsStore = new SettingsStore(db);
   const history = decisions.recent(context.sessionId, 50);
   const totals = decisions.counts(context.sessionId);
+  const stored = showSettingsSchema.safeParse(settingsStore.read(context.sessionId));
 
   const show = new Show({
     persona,
+    ...(stored.success ? { settings: stored.data } : {}),
+    goalText: options.goalText ?? DEFAULT_GOAL,
     recorder: new SqliteRecorder(db, context),
     history: history.reverse(),
     totals: { ...totals, openCommitments: 0 },
   });
 
-  return { show, context, close: () => db.close() };
+  return {
+    show,
+    context,
+    saveSettings: (next) => {
+      const parsed = showSettingsSchema.safeParse(next);
+      // A rejected edit must leave the running show untouched: silently
+      // clamping a bad value makes the operator think it was applied.
+      if (!parsed.success) return null;
+      settingsStore.write(context.sessionId, parsed.data);
+      return show.updateSettings(parsed.data);
+    },
+    close: () => db.close(),
+  };
 }
 
 /** `~/.craftmate/craftmate.db`, overridable for tests and Docker. */

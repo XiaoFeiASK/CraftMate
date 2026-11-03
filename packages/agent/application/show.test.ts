@@ -71,3 +71,31 @@ describe("show operator modes", () => {
     assert.match(show.snapshot().operatorNotice?.detail ?? "", /不会发到直播间/);
   });
 });
+
+describe("show settings", () => {
+  test("defaults come from the persona, not from the console", () => {
+    const { show } = createShow();
+    const settings = show.currentSettings();
+
+    assert.equal(settings.persona.name, dafeiyu.name);
+    assert.equal(settings.persona.identity, dafeiyu.identity);
+    assert.deepEqual(settings.persona.weights, dafeiyu.weights);
+    assert.equal(settings.goal, "盖一间带床和箱子的海崖小屋");
+  });
+
+  test("an update replaces the active arbitration weights", () => {
+    const { show } = createShow();
+    const before = show.personaSummary().weights.obedience;
+    const settings = show.currentSettings();
+
+    show.updateSettings({
+      ...settings,
+      goal: "去钓鱼",
+      persona: { ...settings.persona, weights: { ...settings.persona.weights, obedience: 0.1 } },
+    });
+
+    assert.equal(show.personaSummary().weights.obedience, 0.1);
+    assert.notEqual(before, show.personaSummary().weights.obedience);
+    assert.equal(show.currentSettings().goal, "去钓鱼");
+  });
+});

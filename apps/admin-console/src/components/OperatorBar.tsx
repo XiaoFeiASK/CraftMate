@@ -2,13 +2,20 @@ import { useState, type FormEvent } from "react";
 import type { OperatorKind } from "@craftmate/contracts";
 
 interface OperatorBarProps {
+  readonly personaName: string;
   readonly onComment: (nickname: string, text: string) => void;
   readonly onOperator: (kind: OperatorKind, text?: string) => void;
   readonly onBurst: () => void;
   readonly disabled: boolean;
 }
 
-export function OperatorBar({ onComment, onOperator, onBurst, disabled }: OperatorBarProps): React.JSX.Element {
+export function OperatorBar({
+  personaName,
+  onComment,
+  onOperator,
+  onBurst,
+  disabled,
+}: OperatorBarProps): React.JSX.Element {
   const [text, setText] = useState("");
   const [whisperOpen, setWhisperOpen] = useState(false);
   const [whisper, setWhisper] = useState("");
@@ -34,7 +41,7 @@ export function OperatorBar({ onComment, onOperator, onBurst, disabled }: Operat
     <footer className="bar">
       {whisperOpen ? (
         <form className="bar__whisper" onSubmit={submitWhisper}>
-          <label htmlFor="whisper">只对 {`大肥鱼`} 说，不进直播间</label>
+          <label htmlFor="whisper">只对 {personaName} 说，不进直播间</label>
           <input
             id="whisper"
             value={whisper}

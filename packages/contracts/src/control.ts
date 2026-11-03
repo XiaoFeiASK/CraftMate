@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { audienceEventSchema, sourceHealthSchema } from "./audience.ts";
 import { decisionSchema } from "./decision.ts";
+import { showSettingsSchema } from "./settings.ts";
 
 export const showModeSchema = z.enum(["agent", "operator", "stopped"]);
 export type ShowMode = z.infer<typeof showModeSchema>;
@@ -58,6 +59,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("hello") }),
   z.object({ type: z.literal("comment"), payload: audienceEventSchema }),
   z.object({ type: z.literal("operator"), payload: operatorCommandSchema }),
+  z.object({ type: z.literal("settings"), payload: showSettingsSchema }),
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -67,6 +69,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
     payload: z.object({
       persona: personaSummarySchema,
       snapshot: showSnapshotSchema,
+      settings: showSettingsSchema,
     }),
   }),
   z.object({ type: z.literal("decision"), payload: decisionSchema }),
@@ -74,6 +77,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("snapshot"), payload: showSnapshotSchema }),
   z.object({ type: z.literal("operator"), payload: operatorCommandSchema }),
   z.object({ type: z.literal("source"), payload: sourceHealthSchema }),
+  z.object({ type: z.literal("settings"), payload: showSettingsSchema }),
   z.object({
     type: z.literal("error"),
     payload: z.object({ code: z.string(), detail: z.string() }),

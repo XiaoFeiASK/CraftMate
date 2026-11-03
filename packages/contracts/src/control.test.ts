@@ -6,6 +6,7 @@ import {
   showSnapshotSchema,
   type ShowSnapshot,
 } from "./control.ts";
+import { showSettingsSchema } from "./settings.ts";
 
 const snapshot: ShowSnapshot = {
   mode: "agent",
@@ -34,6 +35,23 @@ describe("control protocol", () => {
         payload: {
           persona: { id: "dafeiyu", name: "大肥鱼", identity: "鲸鱼娘", weights: { risk: 0.45 } },
           snapshot,
+          settings: {
+            goal: "盖房",
+            goalProgress: 20,
+            worldName: "本地世界",
+            gameVersion: "1.21.11",
+            accountLabel: "直播号",
+            integrations: { douyinRoomId: "", deepseekModel: "" },
+            persona: {
+              name: "大肥鱼",
+              identity: "鲸鱼娘",
+              tone: "软糯",
+              values: ["不吹牛"],
+              boundaries: ["不念隐私"],
+              weights: { obedience: 0.6, risk: 0.45, sass: 0.5, patience: 0.5, gluttony: 0.75 },
+              voice: { provider: "volcengine", voiceId: "dafeiyu", speed: 1 },
+            },
+          },
         },
       }).success,
       true,
@@ -44,6 +62,35 @@ describe("control protocol", () => {
         payload: { kind: "whisper", text: "先别跳" },
       }).success,
       true,
+    );
+  });
+
+  test("settings reject blank labels and out-of-range weights", () => {
+    const valid = {
+      goal: "盖房",
+      goalProgress: 20,
+      worldName: "本地世界",
+      gameVersion: "1.21.11",
+      accountLabel: "直播号",
+      integrations: { douyinRoomId: "", deepseekModel: "" },
+      persona: {
+        name: "大肥鱼",
+        identity: "鲸鱼娘",
+        tone: "软糯",
+        values: [],
+        boundaries: [],
+        weights: { obedience: 0.6, risk: 0.45, sass: 0.5, patience: 0.5, gluttony: 0.75 },
+        voice: { provider: "volcengine", voiceId: "dafeiyu", speed: 1 },
+      },
+    };
+    assert.equal(showSettingsSchema.safeParse(valid).success, true);
+    assert.equal(showSettingsSchema.safeParse({ ...valid, goal: "   " }).success, false);
+    assert.equal(
+      showSettingsSchema.safeParse({
+        ...valid,
+        persona: { ...valid.persona, weights: { ...valid.persona.weights, risk: 1.4 } },
+      }).success,
+      false,
     );
   });
 });

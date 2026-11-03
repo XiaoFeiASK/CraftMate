@@ -6,7 +6,12 @@ const port = Number(process.env.CRAFTMATE_PORT ?? 4321);
 // or a container needs to reach the socket.
 const host = process.env.CRAFTMATE_HOST ?? "127.0.0.1";
 const persistent = createPersistentShow();
-const server = createControlServer({ show: persistent.show, port, host });
+const server = createControlServer({
+  show: persistent.show,
+  settings: { saveSettings: (next) => persistent.saveSettings(next) },
+  port,
+  host,
+});
 
 const shutdown = async (): Promise<void> => {
   await server.close();
