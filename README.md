@@ -132,7 +132,7 @@ craftmate/
 | [架构纵览](docs/architecture.md) | 系统怎么分层、边界在哪、哪些不变量不能破 |
 | [技术设计](docs/technical-design.md) | 协议、参数、状态机、人格、记忆、存储的细节 |
 | [外部接入](docs/integration.md) | 抖音评论与游戏身体怎么接，为什么选 dyhub / mcpfabric |
-| [交付计划](docs/delivery-plan.md) | 先做什么、每个切片交付什么、怎么验收 |
+| [功能更新计划](docs/delivery-plan.md) | M0–M8 里程碑、每个里程碑的剩余工作与出口条件 |
 | [实现状态](docs/status.md) | 现在能跑什么、哪些是部分实现、还缺什么 |
 | [本地开发](docs/local-setup.md) | 怎么启动、怎么验证、常见问题 |
 | [技术选型](docs/tech-stack.md) | 为什么用 TS / Tauri / Java，而不是 Python / Go / Electron |
@@ -143,7 +143,7 @@ craftmate/
 三条推荐阅读路径：
 
 1. **第一次接触**：README → 架构纵览 → 技术设计的「关键参数」与「运行时结构」→ 实现状态。
-2. **准备动手**：本地开发 → 实现状态 → 交付计划的当前切片。
+2. **准备动手**：本地开发 → 实现状态 → 功能更新计划的当前里程碑。
 3. **接外部系统**：外部接入 → 技术设计的「本机协议」→ 决策记录。
 
 ## 参考与许可

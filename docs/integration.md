@@ -154,7 +154,7 @@ Orchestrator ──SkillCommand──► packages/bridge-mcpfabric ──MCP─�
 | `emote` | 自研 | 弱 | 无动画工具 |
 | `wait` | 本地计时 | — | 不需要工具 |
 
-19 个技能里 5 个强、6 个中、7 个弱或缺失、1 个本地。这说明 **MCPFabric 适合做 M1 演示，不适合做最终身体**；弱项在自研 Mod 里补。
+19 个技能里 5 个强、6 个中、7 个弱或缺失、1 个本地。这说明 **MCPFabric 适合做 M5 的过渡身体，不适合做最终身体**；弱项在自研 Mod 里补。
 
 ### 3.3 截图不等于推流
 

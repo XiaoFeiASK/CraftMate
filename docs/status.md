@@ -9,7 +9,7 @@
 - **部分**：写清哪一段是假的。
 - **未实现**：没有代码占位。
 
-最后核对：2026-11-02（工作区，含未提交改动）。
+最后核对：2026-11-03（`main` @ `ae85149`）。
 
 ## 1. 能跑起来的东西
 
@@ -22,7 +22,7 @@ npm run build
 npm run db:check
 ```
 
-2026-11-02 实测：`npm run typecheck` 通过，`npm test` 23 项全绿，`db:check` 报告
+2026-11-03 实测：`npm run typecheck` 通过，`npm test` 26 项全绿，`db:check` 报告
 24 个对象 / 17 个索引。桌面窗口需 Rust / Cargo，已在本机实际启动验证。
 
 ## 2. 当前状态
@@ -110,16 +110,6 @@ npm run db:check
 | `/health` | 已实现 | `GET :4322/health`，返回源状态、计数、丢弃数、上游连接。 |
 | 真实房间联调 | 未实现 | 只用 `tools/fake/dyhub.mjs` 验证过，尚未接 dyhub 实机。 |
 
-### 2.7 接入端 `services/ingress`
-
-| 能力 | 状态 | 说明 |
-| --- | --- | --- |
-| dyhub WebSocket 适配 | 已实现 | 订阅 `/ws`，处理连接状态与重连。 |
-| 事件归一化 | 已实现 | `DanmakuEvent → AudienceEvent`，`roomStatus` 转健康状态。 |
-| 去重、限流、背压 | 已实现 | 10 分钟进程内窗口、每秒上限、有界队列，丢弃计数。 |
-| 上报 `/ingress` | 已实现 | 带 60 秒缓冲，Orchestrator 重启后补发。 |
-| 联调桩 | 部分 | `tools/fake/dyhub.mjs` 可手工联调；尚未接入 `npm test`。 |
-
 ### 2.8 语音与游戏执行
 
 | 目标 | 状态 | 说明 |
@@ -134,7 +124,8 @@ npm run db:check
 按「会不会让下一步做错」排序，不按工作量。
 
 1. **承诺还没落库**。`Show` 的承诺只存在内存，重启后 `commitment_open` 为空。
-2. **存储层没有测试**。迁移、去重、幂等键都依赖 SQL 约束，当前靠 `db:check` 间接验证。
+2. **`/ingress` 不校验 token**。ingress 会发 `hello.token`，Orchestrator 收下就不再看，
+   本机任何进程都能往决策流里灌事件。
 3. **Ingress 没有自动化测试**。断线、房间关闭、洪峰只靠手工联调，未进 `npm test`。
 4. **Bridge 只有一半契约**。缺 `hello` / `ack` / `progress` / `result` / `cancel`，无法表达「已接受 / 执行中 / 已完成 / 超时」。
 5. **`Decision.skill` 恒为 `null`**。`EXECUTE` 目前只是标签，没有技能与参数，Bridge 无从下发。

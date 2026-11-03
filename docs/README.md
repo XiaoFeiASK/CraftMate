@@ -9,7 +9,7 @@
 | 系统分几层、边界在哪、哪些不能破 | [architecture.md](architecture.md) |
 | 协议、参数、状态机、人格、记忆、表结构 | [technical-design.md](technical-design.md) |
 | 抖音评论和游戏身体怎么接 | [integration.md](integration.md) |
-| 接下来做什么、怎么验收 | [delivery-plan.md](delivery-plan.md) |
+| 接下来做什么、做到什么算完 | [delivery-plan.md](delivery-plan.md) |
 | 现在能跑什么、哪些是假的 | [status.md](status.md) |
 | 怎么启动、怎么排错 | [local-setup.md](local-setup.md) |
 | 为什么用 TS / Tauri / Java | [tech-stack.md](tech-stack.md) |
@@ -20,7 +20,7 @@
 ## 三条阅读路径
 
 1. **第一次接触**：architecture → technical-design §1 → status。
-2. **准备动手**：local-setup → status → delivery-plan 的 M1 当前切片。
+2. **准备动手**：local-setup → status → delivery-plan 的当前里程碑。
 3. **接外部系统**：integration → technical-design §2「本机协议」→ decisions。
 
 ## 文档职责
@@ -32,7 +32,7 @@
 | `architecture.md` | 边界、不变量、状态机形态、部署拓扑 | 字段、参数、代码路径 |
 | `technical-design.md` | 协议、参数、算法、存储、人格与记忆细节 | 路线图、选型论证 |
 | `integration.md` | 外部组件选型与映射 | 分阶段排期（放交付计划） |
-| `delivery-plan.md` | 顺序、切片、验收、PR 规则 | 现状事实（放 status） |
+| `delivery-plan.md` | M0–M8 里程碑、剩余工作、出口条件、PR 规则 | 现状事实（放 status） |
 | `status.md` | 已实现 / 部分 / 未实现 | 计划与设计 |
 | `tech-stack.md` | 语言与框架的取舍论证 | 具体实现细节 |
 | `decisions.md` | 不可轻易回退的决定 | 实现细节 |

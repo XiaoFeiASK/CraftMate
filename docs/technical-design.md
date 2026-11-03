@@ -643,17 +643,17 @@ PRAGMA synchronous = NORMAL
 
 | 实体 | 表 | 归属 | 说明 |
 | --- | --- | --- | --- |
-| 人格 | `persona` / `persona_version` | M2 | 按 revision 追加，同一时刻只有一个 `active`。 |
-| 场次 | `show_session` | M1.1 | 一次直播；证据、决策、承诺都挂在 `session_id` 上。 |
-| 证据 | `source` | M1.1 | append-only；`external_event_id` 做平台去重。 |
-| 决策 | `decision_log` | M1.1 | 一条证据可有多次 revision，`decision_current` 取最新。 |
-| 动作 | `action_attempt` | M1.5 | 一次执行尝试，带 `idempotency_key` 和终态时间。 |
-| 世界 | `world_event` | M1.5 | Mod 侧事件流，`(session_id, seq)` 唯一。 |
-| 承诺 | `commitment` / `commitment_event` | M1.1 | 当前状态 + 状态迁移时间线。 |
-| 记忆 | `memory` / `memory_evidence` / `memory_fts` | M2 | 版本链 + 证据关联 + 检索索引。 |
-| 待审 | `review_candidate` | M2 | 需要操作员批准的经验、技能或人格修订。 |
-| 事故 | `incident` | M1.1 | 结构化失败记录。 |
-| 迁移 | `schema_migration` | M1.1 | 版本、名称、校验和。 |
+| 人格 | `persona` / `persona_version` | M7 | 按 revision 追加，同一时刻只有一个 `active`。 |
+| 场次 | `show_session` | M1 | 一次直播；证据、决策、承诺都挂在 `session_id` 上。 |
+| 证据 | `source` | M1 | append-only；`external_event_id` 做平台去重。 |
+| 决策 | `decision_log` | M1 | 一条证据可有多次 revision，`decision_current` 取最新。 |
+| 动作 | `action_attempt` | M5 | 一次执行尝试，带 `idempotency_key` 和终态时间。 |
+| 世界 | `world_event` | M5 | Mod 侧事件流，`(session_id, seq)` 唯一。 |
+| 承诺 | `commitment` / `commitment_event` | M1 | 当前状态 + 状态迁移时间线。 |
+| 记忆 | `memory` / `memory_evidence` / `memory_fts` | M7 | 版本链 + 证据关联 + 检索索引。 |
+| 待审 | `review_candidate` | M7 | 需要操作员批准的经验、技能或人格修订。 |
+| 事故 | `incident` | M1 | 结构化失败记录。 |
+| 迁移 | `schema_migration` | M1 | 版本、名称、校验和。 |
 
 四个读模型视图，避免调用方各自写「取最新」的 SQL：
 
@@ -687,7 +687,7 @@ Tauri 2 + React + TypeScript，但交互必须是原生桌面程序：
 - 关闭窗口 = 隐藏，不退出。
 - 多显示器位置记忆。
 
-当前 M0 已按 Launcher 方向落地：自绘标题栏、分组侧栏、全幅场景、同窗操作抽屉。
+管理端已按 Launcher 方向落地：自绘标题栏、分组侧栏、全幅场景、同窗操作抽屉。
 
 ### 10.2 页面
 
@@ -758,7 +758,7 @@ Tauri 2 + React + TypeScript，但交互必须是原生桌面程序：
 
 | 编号 | 事项 | 影响 |
 | --- | --- | --- |
-| O-01 | 抖音官方能力资质进度 | 决定 M1 走官方还是抓取 |
+| O-01 | 抖音官方能力资质进度 | 决定 M2 走官方还是抓取 |
 | O-02 | 每小时预算上限 | 运行时配置项 |
 | O-03 | 世界种子与初始地形 | 开播前运营决策 |
 | O-04 | 直播时段与时长 | 影响节奏设计 |
