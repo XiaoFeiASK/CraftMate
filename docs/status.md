@@ -9,7 +9,7 @@
 - **部分**：写清哪一段是假的。
 - **未实现**：没有代码占位。
 
-最后核对：2026-11-03（工作区，含未提交改动）。
+最后核对：2026-11-03（分支 `fix/m2-bridge-execution`，方向 C 交付）。
 
 ## 1. 能跑起来的东西
 
@@ -71,6 +71,7 @@ npm run db:check
 | 优先级 schema | 已实现 | 8 级枚举，已进入 `Decision`。 |
 | 控制面消息 | 已实现 | 客户端/服务端判别联合，有往返测试。 |
 | Bridge 指令与错误码 | 部分 | `cmd` / `event` / 错误码 / 动作状态有 schema；`hello` / `ack` / `progress` / `result` / `cancel` 未定义，无实现。 |
+| Bridge v1 完整帧 | 已实现 | `hello` / `welcome` / `ack` / `progress` / `result` / `cancel` / 心跳 / 所有权，含 schema 与往返测试。 |
 | 逐技能参数 schema | 未实现 | `args` 仍是 `record(unknown)`。 |
 | 来源健康状态 | 已实现 | `SourceHealth` 进入 `ShowSnapshot`，并有 `source` 消息，契约测试已覆盖。 |
 
@@ -118,7 +119,10 @@ npm run db:check
 | --- | --- | --- |
 | 语音 `services/voice` | 未实现 | 没有 TTS、分句、音频路由、字幕。设计见 [技术设计](technical-design.md) §6。 |
 | Bridge 服务 | 未实现 | 只有 `packages/contracts/src/bridge.ts` 的 schema。 |
+| Bridge 协调器与队列 | 已实现 | `packages/bridge`：有界队列、幂等、终态、接管/急停、500ms 看门狗、WebSocket 适配。 |
+| Bridge 模拟身体 | 已实现 | `SimBody` 与 `npm run dev:bridge` / `bridge:smoke` / `bridge:long-run`。 |
 | Fabric Mod | 未实现 | 没有 `mods/`、没有 Gradle 工程、没有 Fabric 依赖。 |
+| MCPFabric 适配清单 | 部分 | `packages/bridge-mcpfabric` 有技能映射与安全握手校验；未连接真实 mcpfabric。 |
 | OBS / 抖音 SDK | 未实现 | 没有推流集成，没有平台 SDK。 |
 
 ## 3. 已知缺口
@@ -129,7 +133,7 @@ npm run db:check
 2. **`/ingress` 不校验 token**。ingress 会发 `hello.token`，Orchestrator 收下就不再看，
    本机任何进程都能往决策流里灌事件。
 3. **Ingress 没有自动化测试**。断线、房间关闭、洪峰只靠手工联调，未进 `npm test`。
-4. **Bridge 只有一半契约**。缺 `hello` / `ack` / `progress` / `result` / `cancel`，无法表达「已接受 / 执行中 / 已完成 / 超时」。
+4. **Bridge 未接真实身体**。协议、模拟身体、队列与看门狗已实现；`/bridge` 尚未由 B 的 HTTP upgrade 路由装配，Fabric Mod 与 mcpfabric 未接入。
 5. **`Decision.skill` 恒为 `null`**。`EXECUTE` 目前只是标签，没有技能与参数，Bridge 无从下发。
 6. **`MemoryAudienceStore` 没有上限**。冷却和投票记录只增不减，长直播会缓慢泄漏。
 7. **`Show.seen` 只在内存**。重启后依赖数据库唯一索引去重，但内存层仍会重新消费。

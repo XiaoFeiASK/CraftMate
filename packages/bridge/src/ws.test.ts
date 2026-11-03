@@ -1,0 +1,107 @@
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { describe, test } from "node:test";
+import { WebSocket } from "ws";
+import { MemoryActionPort } from "./memory-action-port.ts";
+import { connectBridgeClient } from "./ws-client.ts";
+import { attachBridgeUpgrade, createBridgeUpgrade } from "./ws-server.ts";
+
+const TOKEN = "ws-test-token-0123456789";
+
+async function withBridge(
+  run: (url: string, health: () => ReturnType<ReturnType<typeof createBridgeUpgrade>["health"]>) => Promise<void>,
+): Promise<void> {
+  const http = createServer();
+  const bridge = createBridgeUpgrade({
+    token: TOKEN,
+    sessionId: "ws-session",
+    actions: new MemoryActionPort(),
+  });
+  attachBridgeUpgrade(http, bridge);
+  await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", () => resolve()));
+  const address = http.address();
+  if (address === null || typeof address === "string") throw new Error("no port");
+  try {
+    await run(`ws://127.0.0.1:${address.port}/bridge`, () => bridge.health());
+  } finally {
+    await bridge.close();
+    await new Promise<void>((resolve) => http.close(() => resolve()));
+  }
+}
+
+describe("bridge WebSocket transport", () => {
+  test("a valid client negotiates and completes a command over the wire", async () => {
+    await withBridge(async (url) => {
+      const client = connectBridgeClient({
+        url,
+        token: TOKEN,
+        ticksPerCommand: 1,
+      });
+      await client.open;
+      await delay(100);
+
+      const command = {
+        v: 1 as const,
+        type: "cmd" as const,
+        id: "wire-1",
+        op: "mine_block" as const,
+        args: { block: "minecraft:stone" },
+        priority: "command" as const,
+        idempotencyKey: "wire-key-1",
+      };
+      client.body.handle(command);
+      await delay(150);
+      await client.close();
+    });
+  });
+
+  test("a forged token is closed and never accepted as a body", async () => {
+    await withBridge(async (url) => {
+      const socket = new WebSocket(url);
+      await new Promise<void>((resolve, reject) => {
+        socket.once("open", () => resolve());
+        socket.once("error", reject);
+      });
+      const closed = new Promise<number>((resolve) => socket.once("close", (code) => resolve(code)));
+      socket.send(
+        JSON.stringify({
+          v: 1,
+          type: "hello",
+          token: "forged",
+          client: "intruder",
+          capabilities: ["move"],
+          skills: ["goto"],
+        }),
+      );
+      assert.equal(await closed, 4401);
+    });
+  });
+
+  test("a socket close releases the body's inputs locally", async () => {
+    await withBridge(async (url) => {
+      const client = connectBridgeClient({
+        url,
+        token: TOKEN,
+        ticksPerCommand: 20,
+      });
+      await client.open;
+      await delay(100);
+      client.body.handle({
+        v: 1,
+        type: "cmd",
+        id: "wire-held",
+        op: "mine_block",
+        args: {},
+        priority: "command",
+        idempotencyKey: "wire-held-key",
+      });
+      await delay(60);
+      assert.ok(client.body.state().pressed.length > 0);
+      await client.close();
+      await delay(80);
+      assert.deepEqual(client.body.state().pressed, []);
+    });
+  });
+});
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));

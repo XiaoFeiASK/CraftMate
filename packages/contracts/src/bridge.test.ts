@@ -1,0 +1,89 @@
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+import {
+  bridgeClientFrameSchema,
+  bridgeErrorCodeSchema,
+  bridgeServerFrameSchema,
+  skillCommandSchema,
+  worldEventSchema,
+} from "./bridge.ts";
+
+describe("bridge wire protocol", () => {
+  test("round-trips every v1 frame type", () => {
+    const frames = [
+      { v: 1, type: "hello", token: "t", client: "sim", capabilities: ["mine"], skills: ["mine_block"] },
+      { v: 1, type: "ack", id: "c-1", accepted: true, taskId: "t-1" },
+      { v: 1, type: "progress", taskId: "t-1", phase: "mining", done: 1, total: 2 },
+      { v: 1, type: "result", taskId: "t-1", status: "completed", ticks: 4 },
+      { v: 1, type: "event", seq: 1, tick: 2, name: "block_broken", data: {} },
+      { v: 1, type: "ownership", owner: "operator", reason: "keyboard" },
+      { v: 1, type: "heartbeat", tick: 2, owner: "agent" },
+    ];
+    for (const frame of frames) {
+      assert.equal(bridgeClientFrameSchema.safeParse(frame).success, true, JSON.stringify(frame));
+    }
+
+    const serverFrames = [
+      {
+        v: 1,
+        type: "welcome",
+        sessionId: "s",
+        capabilities: ["mine"],
+        skills: ["mine_block"],
+        heartbeatMs: 1000,
+        watchdogMs: 500,
+      },
+      {
+        v: 1,
+        type: "cmd",
+        id: "c-1",
+        op: "mine_block",
+        args: {},
+        priority: "command",
+        idempotencyKey: "k",
+      },
+      { v: 1, type: "cancel", taskId: "t-1", reason: "stop" },
+      { v: 1, type: "ownership", owner: "none", reason: "estop" },
+      { v: 1, type: "heartbeat", tick: 1, owner: "agent" },
+      { v: 1, type: "error", code: "E_SCHEMA", detail: "bad" },
+    ];
+    for (const frame of serverFrames) {
+      assert.equal(bridgeServerFrameSchema.safeParse(frame).success, true, JSON.stringify(frame));
+    }
+  });
+
+  test("rejects unknown capabilities, missing ids and invalid protocol versions", () => {
+    assert.equal(
+      bridgeClientFrameSchema.safeParse({
+        v: 1,
+        type: "hello",
+        token: "t",
+        client: "sim",
+        capabilities: ["teleport"],
+        skills: ["goto"],
+      }).success,
+      false,
+    );
+    assert.equal(
+      skillCommandSchema.safeParse({
+        v: 1,
+        type: "cmd",
+        id: "",
+        op: "goto",
+        args: {},
+        priority: "command",
+        idempotencyKey: "k",
+      }).success,
+      false,
+    );
+    assert.equal(
+      worldEventSchema.safeParse({ v: 2, type: "event", seq: 1, tick: 1, name: "x", data: {} }).success,
+      false,
+    );
+  });
+
+  test("error codes are a closed enum, not free text", () => {
+    assert.equal(bridgeErrorCodeSchema.safeParse("E_TIMEOUT").success, true);
+    assert.equal(bridgeErrorCodeSchema.safeParse("timeout").success, false);
+  });
+});
