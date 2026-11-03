@@ -48,10 +48,10 @@ describe("commitment source tracing", () => {
         reason: "可行",
         score: 0.8,
         stage: "planned",
-        skill: { name: "mine_block", args: { material: "iron_ore" } },
+        skill: { name: "mine_block", args: { material: "iron_ore" }, idempotencyKey: "test-idem-1" },
         speech: "好的，我去挖铁矿。",
         audienceRef: "viewer:abc123",
-        trace: { provider: "deepseek", model: "test", latencyMs: 100, degraded: false },
+        trace: { provider: "deepseek", model: "test", latencyMs: 100, degraded: false, detail: "" },
         at: Date.now(),
       };
       decisions.append(context, source.id, decision, event.id);
