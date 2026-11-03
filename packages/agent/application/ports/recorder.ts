@@ -13,4 +13,9 @@ export interface ShowRecorder {
    * recorder does not have to implement a second write path.
    */
   updateDecision?(decision: Decision): void;
+  /**
+   * Retrieves the stored source_id for a given external event id. Used when
+   * reserving commitments so they can be traced back to their originating event.
+   */
+  findSourceId?(eventId: string): string | undefined;
 }

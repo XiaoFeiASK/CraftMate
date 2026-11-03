@@ -19,8 +19,8 @@ export interface SpeechOutcome {
 /**
  * The only path from a planned decision to audio.
  *
- * Order is the invariant: reserve (commits to SQLite) → mark spoken → hand to
- * Voice. If Voice is missing or the reservation throws, nothing is said, and
+ * Order is the invariant: reserve (commits to SQLite) → hand to Voice → Voice
+ * marks spoken when actually playing. If Voice is missing or the reservation throws, nothing is said, and
  * the console still receives the decision with its speech text.
  */
 export function speakDecision(
@@ -36,7 +36,8 @@ export function speakDecision(
   if (show.snapshot().mode !== "agent" || !voice) return null;
 
   const commitment = show.reserveCommitment({ decision, utterance: text });
-  show.ledger.transition(commitment.id, "spoken", "handed to voice");
+  // The commitment stays "proposed" until Voice actually plays it. The Voice
+  // service will emit events (speaking/spoken/failed) that drive the state.
   voice.speak({
     text,
     decisionId: decision.id,

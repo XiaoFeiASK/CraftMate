@@ -104,11 +104,21 @@ voiceLink = connectVoice({
   onStatus: (status) => server.publishVoiceStatus(status),
   onSubtitle: (subtitle) => {
     server.publishSubtitle(subtitle);
-    // A failed utterance must not leave a promise marked as merely "spoken".
-    if (subtitle.commitmentId && subtitle.state === "failed") {
+    // Drive commitment state transitions from Voice events: the promise moves
+    // from "proposed" → "spoken" when actually playing, and to a terminal
+    // state on failure or cancellation.
+    if (subtitle.commitmentId) {
       try {
-        // `spoken` cannot move to `broken`; an undelivered line is cancelled.
-        persistent.show.ledger.transition(subtitle.commitmentId, "cancelled", "voice failed");
+        if (subtitle.state === "speaking" || subtitle.state === "spoken") {
+          const current = persistent.show.ledger.get(subtitle.commitmentId);
+          if (current?.status === "proposed") {
+            persistent.show.ledger.transition(subtitle.commitmentId, "spoken", "voice playing");
+          }
+        } else if (subtitle.state === "failed") {
+          persistent.show.ledger.transition(subtitle.commitmentId, "cancelled", "voice failed");
+        } else if (subtitle.state === "cancelled") {
+          persistent.show.ledger.transition(subtitle.commitmentId, "cancelled", "voice cancelled");
+        }
       } catch (error) {
         console.warn(
           `orchestrator: could not close commitment ${subtitle.commitmentId} — ${
