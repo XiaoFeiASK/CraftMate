@@ -74,7 +74,9 @@ describe("storage", () => {
     const history = new DecisionStore(second).recent(context.sessionId, 10);
     assert.equal(history.length, 1);
     assert.equal(history[0]?.text, "盖个房子给我看看");
-    assert.equal(history[0]?.priority, "ambient");
+    // A build request is actionable, so it survives as an EXECUTE decision.
+    assert.equal(history[0]?.decision, "EXECUTE");
+    assert.equal(history[0]?.priority, "command");
     second.close();
   });
 

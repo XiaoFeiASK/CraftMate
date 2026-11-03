@@ -7,6 +7,7 @@ import type {
   ShowSettings,
   SkillCall,
 } from "@craftmate/contracts";
+import { skillCallSchema } from "@craftmate/contracts";
 import type {
   Commitment,
   CommitmentJournal,
@@ -407,12 +408,14 @@ export class DecisionStore {
   }
 
   append(context: SessionContext, sourceId: string, decision: Decision, traceId: string): void {
+    const trace = decision.trace;
     this.db
       .prepare(
         `INSERT INTO decision_log
            (id, session_id, source_id, persona_version_id, trace_id, revision, stage,
-            intent, decision, priority, score, reason, trace_json, created_at_ms)
-         VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            intent, decision, priority, score, reason, trace_json, speech_text, skill_json,
+            provider, model, latency_ms, created_at_ms)
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         decision.id,
@@ -426,8 +429,44 @@ export class DecisionStore {
         decision.priority,
         decision.score,
         decision.reason,
-        JSON.stringify({ eventId: decision.eventId, nickname: decision.nickname }),
+        JSON.stringify({
+          eventId: decision.eventId,
+          nickname: decision.nickname,
+          audienceRef: decision.audienceRef,
+        }),
+        decision.speech,
+        decision.skill === null ? null : JSON.stringify(decision.skill),
+        trace?.provider ?? null,
+        trace?.model ?? null,
+        trace?.latencyMs ?? null,
         decision.at,
+      );
+  }
+
+  /**
+   * Applies a Stage C result to the row created by `append`. Revision stays 1
+   * because this is the same decision, only better informed — bumping it would
+   * make the replay timeline show two answers to one comment.
+   */
+  update(decision: Decision): void {
+    const trace = decision.trace;
+    this.db
+      .prepare(
+        `UPDATE decision_log
+         SET stage = ?, priority = ?, reason = ?, speech_text = ?, skill_json = ?,
+             provider = ?, model = ?, latency_ms = ?
+         WHERE id = ?`,
+      )
+      .run(
+        decision.stage,
+        decision.priority,
+        decision.reason,
+        decision.speech,
+        decision.skill === null ? null : JSON.stringify(decision.skill),
+        trace?.provider ?? null,
+        trace?.model ?? null,
+        trace?.latencyMs ?? null,
+        decision.id,
       );
   }
 
@@ -435,7 +474,8 @@ export class DecisionStore {
     const rows = this.db
       .prepare(
         `SELECT d.id, d.intent, d.decision, d.priority, d.score, d.reason, d.stage,
-                d.created_at_ms, d.trace_json, s.raw_text
+                d.created_at_ms, d.trace_json, d.speech_text, d.skill_json,
+                d.provider, d.model, d.latency_ms, s.raw_text
          FROM decision_log d
          JOIN source s ON s.id = d.source_id
          WHERE d.session_id = ? ORDER BY d.created_at_ms DESC LIMIT ?`,
@@ -450,11 +490,22 @@ export class DecisionStore {
       stage: Decision["stage"];
       created_at_ms: number;
       trace_json: string;
+      speech_text: string;
+      skill_json: string | null;
+      provider: string | null;
+      model: string | null;
+      latency_ms: number | null;
       raw_text: string | null;
     }[];
 
     return rows.map((row) => {
-      const trace = JSON.parse(row.trace_json) as { eventId?: string; nickname?: string };
+      const trace = JSON.parse(row.trace_json) as {
+        eventId?: string;
+        nickname?: string;
+        audienceRef?: string;
+      };
+      const skill = row.skill_json === null ? null : JSON.parse(row.skill_json);
+      const parsed = skill === null ? null : skillCallSchema.safeParse(skill);
       return {
         id: row.id,
         eventId: trace.eventId ?? "",
@@ -466,7 +517,19 @@ export class DecisionStore {
         reason: row.reason,
         score: row.score,
         stage: row.stage,
-        skill: null,
+        skill: parsed?.success ? parsed.data : null,
+        speech: row.speech_text,
+        audienceRef: trace.audienceRef ?? "",
+        trace:
+          row.provider === null || row.model === null
+            ? null
+            : {
+                provider: row.provider,
+                model: row.model,
+                latencyMs: row.latency_ms ?? 0,
+                degraded: false,
+                detail: "",
+              },
         at: row.created_at_ms,
       };
     });

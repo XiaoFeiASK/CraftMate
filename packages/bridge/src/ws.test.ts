@@ -102,6 +102,30 @@ describe("bridge WebSocket transport", () => {
       assert.deepEqual(client.body.state().pressed, []);
     });
   });
+
+  test("a body can reconnect after a disconnect and own the bridge again", async () => {
+    await withBridge(async (url, health) => {
+      const first = connectBridgeClient({ url, token: TOKEN, ticksPerCommand: 1 });
+      await first.open;
+      await delay(80);
+      assert.equal(health().connected, true);
+      await first.close();
+      await delay(120);
+      assert.equal(health().connected, false);
+
+      const second = connectBridgeClient({ url, token: TOKEN, ticksPerCommand: 1 });
+      await second.open;
+      await delay(120);
+      try {
+        // Before the fix the coordinator reused a closed session, so a
+        // reconnect was accepted by the socket but could never take control.
+        assert.equal(health().connected, true);
+        assert.equal(health().owner, "agent");
+      } finally {
+        await second.close();
+      }
+    });
+  });
 });
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));

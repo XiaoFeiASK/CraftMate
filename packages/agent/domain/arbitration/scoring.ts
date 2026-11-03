@@ -12,10 +12,26 @@ export const SCORE_WEIGHTS = {
 } as const;
 
 export const SCORE_THRESHOLDS = {
-  execute: 0.7,
+  /**
+   * Reachability matters: with the strongest possible persona term the scoring
+   * formula tops out at 0.695, so a 0.7 gate made EXECUTE unreachable and the
+   * whole skill pipeline dead code. 0.62 is above every non-actionable intent
+   * and below a confident action intent at the default weights.
+   */
+  execute: 0.62,
   acknowledge: 0.45,
   queue: 0.3,
 } as const;
+
+/** Intents the body can actually carry out; chat is not one of them. */
+const ACTIONABLE: ReadonlySet<Intent> = new Set([
+  "move",
+  "mine",
+  "build",
+  "craft",
+  "eat",
+  "follow",
+]);
 
 interface ScoreInput {
   readonly intent: Intent;
@@ -30,7 +46,9 @@ interface ScoreInput {
  */
 export function scoreIntent(input: ScoreInput): number {
   const { intent, confidence, textLength, personaWeights } = input;
-  const feasibility = intent === "danger" ? 0.2 : 0.85;
+  // Chat has no world effect, so it must never clear the execute gate by
+  // accident just because the persona is obedient.
+  const feasibility = intent === "danger" ? 0.2 : ACTIONABLE.has(intent) ? 0.85 : 0.35;
   const personaFit = personaWeights.obedience * 0.8 + 0.2;
   const showValue = intent === "chat" ? 0.5 : 0.75;
   const cost = textLength > 24 ? 0.5 : 0.15;

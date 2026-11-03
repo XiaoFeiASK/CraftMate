@@ -202,3 +202,32 @@ BRIDGE_LONG_RUN_MS=60000 npm run bridge:long-run # 可选：虚拟时钟采样
 
 `bridge:smoke` 只连接 fake body，不连接 Minecraft。真实 Mod、mcpfabric 与长时验收
 仍未完成，详见 [Bridge 运行报告](bridge-run-report.md)。
+
+## 9. 模型与预算
+
+Stage C 只有一个 OpenAI 兼容 Provider，未配置凭据时按模板回应：
+
+| 变量 | 作用 |
+| --- | --- |
+| `CRAFTMATE_MODEL_KEY` | 模型 API Key；不设则不调用模型 |
+| `CRAFTMATE_MODEL` | 模型名，例如 `deepseek-chat` |
+| `CRAFTMATE_MODEL_URL` | 兼容端点，默认 `https://api.deepseek.com/v1` |
+| `CRAFTMATE_MODEL_PROVIDER` | 账本里的 provider 名，默认 `deepseek` |
+| `CRAFTMATE_MODEL_PRICE_IN` / `_OUT` | 每百万 token 单价，用于预算 |
+| `CRAFTMATE_MODEL_HOURLY_LIMIT` | 每小时成本上限，超过后改走模板 |
+| `CRAFTMATE_MODEL_KEY_LIMIT` | 单个 Key 的累计上限 |
+
+坏输出、超时和超预算都会写一条 `incident`，控制台在决策流里能看到 `Stage C` 与降级
+标记。模型收到的观众文本只作为 JSON 数据字段，不进入系统提示。
+
+## 10. Bridge
+
+`/bridge` 与 `/control`、`/ingress` 共用 4321 端口。Token 在
+`~/.craftmate/bridge.token`（`0600`），与 ingress/voice 的 token 不同。
+
+```bash
+BRIDGE_URL=ws://127.0.0.1:4321/bridge BRIDGE_TOKEN="$(cat ~/.craftmate/bridge.token)" \
+  npm run dev:bridge
+```
+
+没有身体连接时控制台显示「未连接任何身体」，`Decision.skill` 即使非空也不会下发。

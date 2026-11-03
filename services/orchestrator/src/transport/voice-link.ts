@@ -12,8 +12,15 @@ export interface VoiceLinkOptions {
   readonly reconnectMaxMs?: number;
 }
 
+export interface SpeakCommand {
+  readonly text: string;
+  readonly priority: import("@craftmate/contracts").Priority;
+  readonly decisionId: string | null;
+  readonly commitmentId: string | null;
+}
+
 export interface VoiceLink {
-  speak(text: string): void;
+  speak(command: SpeakCommand): void;
   stop(reason?: string): void;
   close(): void;
 }
@@ -80,15 +87,15 @@ export function connectVoice(options: VoiceLinkOptions): VoiceLink {
   open();
 
   return {
-    speak: (text) =>
+    speak: (command) =>
       send({
         type: "command",
         payload: {
           type: "speak",
-          text,
-          priority: "operator",
-          decisionId: null,
-          commitmentId: null,
+          text: command.text,
+          priority: command.priority,
+          decisionId: command.decisionId,
+          commitmentId: command.commitmentId,
         },
       }),
     stop: (reason = "operator stop") =>
@@ -110,6 +117,7 @@ function toSubtitle(event: VoiceEvent): VoiceSubtitle | null {
         text: event.utterance.text,
         state: "speaking",
         decisionId: event.utterance.decisionId,
+        commitmentId: event.utterance.commitmentId,
         at: event.startedAt,
       };
     case "spoken":
@@ -118,6 +126,7 @@ function toSubtitle(event: VoiceEvent): VoiceSubtitle | null {
         text: event.utterance.text,
         state: "spoken",
         decisionId: event.utterance.decisionId,
+        commitmentId: event.utterance.commitmentId,
         at: event.finishedAt,
       };
     case "failed":
@@ -126,6 +135,7 @@ function toSubtitle(event: VoiceEvent): VoiceSubtitle | null {
         text: event.utterance.text,
         state: "failed",
         decisionId: event.utterance.decisionId,
+        commitmentId: event.utterance.commitmentId,
         at: event.utterance.at,
       };
     case "cancelled":
@@ -134,6 +144,7 @@ function toSubtitle(event: VoiceEvent): VoiceSubtitle | null {
         text: event.utterance.text,
         state: "cancelled",
         decisionId: event.utterance.decisionId,
+        commitmentId: event.utterance.commitmentId,
         at: event.utterance.at,
       };
     default:

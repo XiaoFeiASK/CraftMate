@@ -1,5 +1,8 @@
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { defaultTokenPath, loadOrCreateToken } from "@craftmate/local-auth";
+import { SqliteCommitmentGate } from "@craftmate/storage";
 import { dafeiyu } from "@craftmate/agent";
 import { VoiceEngine } from "./engine.ts";
 import { createVoiceServer } from "./server.ts";
@@ -41,9 +44,16 @@ if (subtitleOnly) {
   providers.push(new SubtitleOnlyProvider());
 }
 
+// Fail closed: without a readable database a promised line cannot be proven,
+// so nothing is played rather than trusting the caller.
+const gate = new SqliteCommitmentGate(
+  process.env.CRAFTMATE_DB ?? join(homedir(), ".craftmate", "craftmate.db"),
+);
+
 const engine = new VoiceEngine({
   providers,
   subtitleOnly,
+  commitmentGate: gate,
   sink: subtitleOnly ? new NoopAudioSink() : new CommandAudioSink(process.env.AUDIO_PLAYER ?? "afplay"),
   onEvent: (event) => server.publish(event),
 });
@@ -62,6 +72,7 @@ console.log(`voice: ws://${host}:${port}/voice`);
 
 const shutdown = async (): Promise<void> => {
   engine.stop("shutdown");
+  gate.close();
   await server.close();
   process.exit(0);
 };

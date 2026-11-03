@@ -15,11 +15,19 @@ export function App(): React.JSX.Element {
     settings,
     lastError,
     subtitles,
+    ops,
+    timeline,
+    timelinePending,
     sendComment,
     sendOperator,
     saveSettings,
     simulateBurst,
     speak,
+    approveMemory,
+    rejectMemory,
+    forgetMemory,
+    activatePersona,
+    lookupTrace,
   } = useControlLink();
   const { preferences, update, reset } = usePreferences();
   const [drawer, setDrawer] = useState<DrawerMode | null>(null);
@@ -67,6 +75,14 @@ export function App(): React.JSX.Element {
           onSaveSettings={saveSettings}
           onPreferences={update}
           onResetPreferences={reset}
+          ops={ops}
+          timeline={timeline}
+          timelinePending={timelinePending}
+          onApproveMemory={approveMemory}
+          onRejectMemory={rejectMemory}
+          onForgetMemory={forgetMemory}
+          onActivatePersona={activatePersona}
+          onLookupTrace={lookupTrace}
         />
       ) : null}
     </div>

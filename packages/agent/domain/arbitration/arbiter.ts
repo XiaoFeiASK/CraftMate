@@ -173,6 +173,9 @@ export class Arbiter {
         score: Number(outcome.score.toFixed(2)),
         stage: outcome.stage,
         skill: outcome.skill ?? null,
+        speech: "",
+        audienceRef: "",
+        trace: null,
         at: this.clock.now(),
       },
     };

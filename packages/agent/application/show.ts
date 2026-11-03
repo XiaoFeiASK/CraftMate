@@ -13,6 +13,8 @@ import {
   type SourceHealth,
   type VoiceStatus,
 } from "@craftmate/contracts";
+import type { BridgeHealth } from "@craftmate/contracts";
+import { createHash } from "node:crypto";
 import {
   Arbiter,
   CommitmentLedger,
@@ -21,7 +23,9 @@ import {
 import type { AudienceStore } from "./ports/audience-store.ts";
 import type { Clock } from "./ports/clock.ts";
 import { systemClock } from "./ports/clock.ts";
+import type { MemoryPort } from "./ports/memory.ts";
 import type { ShowRecorder } from "./ports/recorder.ts";
+import { Planner } from "./planner.ts";
 
 const MAX_DECISIONS = 200;
 /** Fast-path dedupe only; SQLite remains the authority once a recorder exists. */
@@ -86,6 +90,12 @@ interface ShowOptions {
   readonly totals?: ShowStats;
   /** Fast-path dedupe capacity; storage remains the authority when it overflows. */
   readonly seenLimit?: number;
+  /** Stage C. Absent means the show stays deterministic and never calls a model. */
+  readonly planner?: Planner;
+  /** Approved-memory recall; absent means "no memory", never "all memory". */
+  readonly memory?: MemoryPort;
+  /** Recall budget per decision, in approximate tokens. */
+  readonly memoryBudgetTokens?: number;
 }
 
 export function defaultSettings(persona: Persona, goalText = "盖一间带床和箱子的海崖小屋"): ShowSettings {
@@ -133,6 +143,12 @@ export class Show {
   private operatorNotice: OperatorNotice | null = null;
   private sourceHealth: SourceHealth | null = null;
   private voiceStatus: VoiceStatus | null = null;
+  private bridge: BridgeHealth | null = null;
+  private readonly planner: Planner | null;
+  private readonly memory: MemoryPort | null;
+  private readonly memoryBudgetTokens: number;
+  /** Decisions waiting on Stage C. Only the newest one may still speak. */
+  private readonly pendingPlans = new Set<string>();
 
   constructor(options: ShowOptions) {
     this.personaId = options.persona.id;
@@ -147,6 +163,9 @@ export class Show {
     });
     this.recorder = options.recorder ?? null;
     this.seenLimit = options.seenLimit ?? MAX_SEEN_IDS;
+    this.planner = options.planner ?? null;
+    this.memory = options.memory ?? null;
+    this.memoryBudgetTokens = options.memoryBudgetTokens ?? 1_200;
     if (options.history) this.decisions.push(...options.history);
     this.received = options.totals?.received ?? 0;
     this.decided = options.totals?.decided ?? 0;
@@ -161,6 +180,7 @@ export class Show {
     if (!parsed.success || this.seen.has(parsed.data.id)) return null;
 
     const event = parsed.data;
+    const audienceRef = hashAudienceRef(event.userId);
     if (this.mode !== "agent") {
       this.rememberSeen(event.id);
       this.received += 1;
@@ -174,11 +194,64 @@ export class Show {
     this.rememberSeen(event.id);
     this.received += 1;
     const { decision } = this.arbiter.evaluate(event);
-    this.recorder?.recordDecision(decision);
-    this.remember(decision);
+    const withAudience = { ...decision, audienceRef };
+    this.recorder?.recordDecision(withAudience);
+    this.remember(withAudience);
     this.audience.recordCommand(event.userId, decision.intent, this.clock.now());
-    this.count(decision);
-    return decision;
+    this.count(withAudience);
+    return withAudience;
+  }
+
+  /**
+   * Stage C runs after arbitration so the 1-second template path is never
+   * blocked by a model. The returned decision replaces the scored one: the
+   * console keeps one row per audience event, not two.
+   */
+  async plan(decision: Decision): Promise<Decision> {
+    if (!this.planner) return decision;
+    if (decision.decision !== "EXECUTE" && decision.decision !== "ACK_ONLY" && decision.decision !== "REFUSE") {
+      return decision;
+    }
+
+    this.pendingPlans.add(decision.id);
+    const context = {
+      decision,
+      goal: this.settings.goal,
+      persona: this.personaSummary(),
+      ...(this.memory
+        ? {
+            memories: this.memory
+              .recall({
+                subjectRef: decision.audienceRef,
+                query: decision.text,
+                budgetTokens: this.memoryBudgetTokens,
+              })
+              .map((item) => item.memory.content),
+          }
+        : {}),
+    };
+    const planned = await this.planner.plan(context);
+    this.pendingPlans.delete(decision.id);
+
+    const next: Decision = {
+      ...decision,
+      stage: "planned",
+      speech: planned.speech,
+      skill: planned.skill,
+      trace: {
+        provider: planned.provider ?? "template",
+        model: planned.model ?? "template",
+        latencyMs: planned.latencyMs,
+        degraded: planned.degraded,
+        detail: planned.detail,
+      },
+    };
+    this.recorder?.updateDecision?.(next);
+    const index = this.decisions.findIndex((item) => item.id === decision.id);
+    // A missing index means the decision already aged out of the 200-row window;
+    // writing it back at the top would reorder the stream.
+    if (index >= 0) this.decisions[index] = next;
+    return next;
   }
 
   personaSummary(): PersonaSummary {
@@ -249,6 +322,34 @@ export class Show {
     return this.voiceStatus;
   }
 
+  /** Bridge health is a projection only; the body owns its own truth. */
+  setBridgeHealth(health: BridgeHealth | null): void {
+    this.bridge = health;
+  }
+
+  currentBridgeHealth(): BridgeHealth | null {
+    return this.bridge;
+  }
+
+  /**
+   * Reserves a commitment for speech the show is about to produce. The caller
+   * must persist first (`ledger.reserve`) and only then hand text to Voice:
+   * a spoken promise that cannot be read back from storage is a lie.
+   */
+  reserveCommitment(input: {
+    readonly decision: Decision;
+    readonly utterance: string;
+  }): ReturnType<CommitmentLedger["reserve"]> {
+    if (input.decision.audienceRef.length === 0) {
+      throw new Error(`decision ${input.decision.id} has no hashed audience reference`);
+    }
+    return this.ledger.reserve({
+      audienceRef: input.decision.audienceRef,
+      utterance: input.utterance,
+      planId: input.decision.id,
+    });
+  }
+
   recent(): readonly Decision[] {
     return [...this.decisions];
   }
@@ -268,6 +369,7 @@ export class Show {
       operatorNotice: this.operatorNotice,
       sourceHealth: this.sourceHealth,
       voiceStatus: this.voiceStatus,
+      bridge: this.bridge,
     };
   }
 
@@ -333,4 +435,13 @@ export class Show {
       voice: persona.voice,
     };
   }
+}
+
+/**
+ * Stable, non-reversible audience reference. Storage never sees a raw platform
+ * user id, and recall can still find the same viewer across sessions.
+ */
+function hashAudienceRef(userId: string): string {
+  const digest = createHash("sha256").update(userId).digest("hex");
+  return `viewer:${digest.slice(0, 32)}`;
 }

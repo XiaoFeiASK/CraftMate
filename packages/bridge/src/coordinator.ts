@@ -382,6 +382,7 @@ export class BodySession {
       v: 1,
       type: "cmd",
       id: next.command.id,
+      ...(next.command.decisionId === undefined ? {} : { decisionId: next.command.decisionId }),
       op: next.command.op,
       args: next.command.args,
       priority: next.command.priority,

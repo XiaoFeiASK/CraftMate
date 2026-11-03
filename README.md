@@ -117,7 +117,7 @@ craftmate/
 │  └─ voice/             分句、TTS 队列、字幕与播放
 ├─ packages/
 │  ├─ contracts/         观众、决策、控制面、Ingress、Voice 与 Bridge 契约
-│  ├─ agent/             Agent 领域、场次编排与端口
+│  ├─ agent/             Agent 领域、Stage C 规划、场次编排与端口
 │  ├─ storage/           SQLite 连接、迁移与 Store
 │  ├─ bridge/            Bridge 协调器、队列、模拟身体与 WS 适配
 │  ├─ bridge-mcpfabric/  MCPFabric 技能映射与安全握手

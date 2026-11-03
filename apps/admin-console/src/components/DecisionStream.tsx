@@ -52,8 +52,17 @@ export function DecisionStream({ decisions }: DecisionStreamProps): React.JSX.El
                 <span>{decision.intent}</span>
                 <span data-priority={decision.priority}>{PRIORITY_LABELS[decision.priority]}</span>
                 <span className="decided__score">分 {decision.score.toFixed(2)}</span>
+                {decision.stage === "planned" ? <span>Stage C</span> : null}
+                {decision.skill ? <span>{decision.skill.name}</span> : null}
               </div>
               <p className="decided__reason">{decision.reason}</p>
+              {decision.speech ? <p className="decided__speech">「{decision.speech}」</p> : null}
+              {decision.trace ? (
+                <p className="decided__trace">
+                  {decision.trace.provider} / {decision.trace.model} · {decision.trace.latencyMs}ms
+                  {decision.trace.degraded ? " · 模板降级" : ""}
+                </p>
+              ) : null}
             </li>
           ))}
         </ol>

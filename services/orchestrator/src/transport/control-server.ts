@@ -8,14 +8,21 @@ import {
   ingressClientFrameSchema,
   INGRESS_CLOSE_REMOTE,
   INGRESS_CLOSE_UNAUTHORIZED,
+  opsSnapshotSchema,
+  replayResponseSchema,
   sourceHealthSchema,
   showSettingsSchema,
   voiceStatusSchema,
+  type BridgeHealth,
+  type Decision,
   type IngressServerFrame,
+  type OpsRequest,
   type ServerMessage,
   type VoiceSubtitle,
 } from "@craftmate/contracts";
 import { isLoopbackAddress, tokenMatches } from "@craftmate/local-auth";
+import type { BridgeUpgrade } from "@craftmate/bridge";
+import { speakDecision as deliverSpeech, type SpeechHooks } from "./speech.ts";
 
 export interface SettingsWriter {
   /** Returns null when the payload failed validation and was not persisted. */
@@ -39,11 +46,31 @@ interface ControlServerOptions {
   readonly ingressFailureLimit?: number;
   /** Optional voice link. Without it, speak commands are rejected readably. */
   readonly voice?: VoiceHooks;
+  /** Planned speech path; omitted in tests that only exercise arbitration. */
+  readonly speech?: SpeechHooks;
+  /** Memory / persona / replay pages. */
+  readonly ops?: OpsHooks;
+  /** C-owned `/bridge` module, mounted here because B owns the HTTP server. */
+  readonly bridge?: BridgeUpgrade;
+  /** Turns a validated SkillCall into a bridge command. Throws are logged. */
+  readonly dispatchSkill?: (decision: Decision) => void;
 }
 
 export interface VoiceHooks {
-  speak(text: string): void;
+  speak(command: {
+    readonly text: string;
+    readonly priority: Decision["priority"];
+    readonly decisionId: string | null;
+    readonly commitmentId: string | null;
+  }): void;
   stop(reason?: string): void;
+}
+
+/** Operator pages read and write through the orchestrator, never through SQL. */
+export interface OpsHooks {
+  snapshot(): unknown;
+  apply(request: OpsRequest): void;
+  timeline(traceId: string): unknown;
 }
 
 export interface ControlServer {
@@ -53,6 +80,7 @@ export interface ControlServer {
   publishSourceHealth(health: unknown): void;
   publishVoiceStatus(status: unknown): void;
   publishSubtitle(subtitle: VoiceSubtitle): void;
+  publishBridgeHealth(health: BridgeHealth | null): void;
   close(): Promise<void>;
 }
 
@@ -74,6 +102,10 @@ export function createControlServer({
   allowRemoteIngress = false,
   ingressFailureLimit = 10,
   voice,
+  speech,
+  ops,
+  bridge,
+  dispatchSkill,
 }: ControlServerOptions): ControlServer {
   const http = createServer((request, response) => {
     if (request.url === "/health") {
@@ -91,6 +123,12 @@ export function createControlServer({
   const ingress = new WebSocketServer({ noServer: true });
   http.on("upgrade", (request, socket, head) => {
     const path = new URL(request.url ?? "/", "http://localhost").pathname;
+    if (path === "/bridge" && bridge) {
+      // C owns the protocol and the session; B only routes the upgrade, so
+      // adding a body can never steal `/control` or `/ingress`.
+      bridge.handleUpgrade(request, socket, head);
+      return;
+    }
     const target = path === "/control" ? wss : path === "/ingress" ? ingress : null;
     if (!target) {
       socket.destroy();
@@ -140,6 +178,58 @@ export function createControlServer({
     for (const connection of connections) send(connection.socket, message);
   };
 
+  /**
+   * Ingest → broadcast → plan. The scored decision reaches the console
+   * immediately; the planned rewrite replaces it in place once the model
+   * answers, so a slow provider never delays the visible decision stream.
+   */
+  const handleDecision = (raw: unknown): void => {
+    const decision = show.ingest(raw);
+    if (!decision) return;
+    broadcast({ type: "decision", payload: decision });
+    broadcast({ type: "snapshot", payload: show.snapshot() });
+    void planAndSpeak(decision);
+  };
+
+  const planAndSpeak = async (decision: Decision): Promise<void> => {
+    let planned: Decision;
+    try {
+      planned = await show.plan(decision);
+    } catch (error) {
+      console.warn(
+        `orchestrator: planning failed for ${decision.id} — ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return;
+    }
+    if (planned !== decision) {
+      broadcast({ type: "decision", payload: planned });
+      broadcast({ type: "snapshot", payload: show.snapshot() });
+    }
+    if (!speech) return;
+    if (planned.skill !== null && dispatchSkill) {
+      try {
+        dispatchSkill(planned);
+      } catch (error) {
+        console.warn(
+          `orchestrator: skill for ${planned.id} was not issued — ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+    try {
+      deliverSpeech(show, planned, speech);
+    } catch (error) {
+      console.warn(
+        `orchestrator: refusing to speak ${planned.id} — ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  };
+
   wss.on("connection", (socket) => {
     const connection: Connection = { socket, greeted: false };
     connections.add(connection);
@@ -154,6 +244,12 @@ export function createControlServer({
     });
     const voiceStatus = show.currentVoiceStatus();
     if (voiceStatus) send(socket, { type: "voice", payload: voiceStatus });
+    const bridgeHealth = show.currentBridgeHealth();
+    if (bridgeHealth) send(socket, { type: "bridge", payload: bridgeHealth });
+    if (ops) {
+      const snapshot = opsSnapshotSchema.safeParse(ops.snapshot());
+      if (snapshot.success) send(socket, { type: "ops", payload: snapshot.data });
+    }
 
     socket.on("message", (raw) => {
       const parsed = clientMessageSchema.safeParse(parseJson(raw.toString()));
@@ -214,15 +310,61 @@ export function createControlServer({
           });
           return;
         }
-        voice.speak(parsed.data.payload.text);
+        voice.speak({
+          text: parsed.data.payload.text,
+          priority: "operator",
+          decisionId: null,
+          commitmentId: null,
+        });
         return;
       }
 
-      const decision = show.ingest(parsed.data.payload);
-      if (!decision) return;
+      if (parsed.data.type === "ops") {
+        if (!ops) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_OPS", detail: "本次运行未启用运营数据接口" },
+          });
+          return;
+        }
+        try {
+          ops.apply(parsed.data.payload);
+        } catch (error) {
+          send(socket, {
+            type: "error",
+            payload: {
+              code: "E_OPS",
+              detail: error instanceof Error ? error.message : String(error),
+            },
+          });
+          return;
+        }
+        const snapshot = opsSnapshotSchema.safeParse(ops.snapshot());
+        if (snapshot.success) broadcast({ type: "ops", payload: snapshot.data });
+        return;
+      }
 
-      broadcast({ type: "decision", payload: decision });
-      broadcast({ type: "snapshot", payload: show.snapshot() });
+      if (parsed.data.type === "replay") {
+        if (!ops) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_OPS", detail: "本次运行未启用回放查询" },
+          });
+          return;
+        }
+        const entries = replayResponseSchema.safeParse({
+          traceId: parsed.data.payload.traceId,
+          entries: ops.timeline(parsed.data.payload.traceId),
+        });
+        if (!entries.success) {
+          send(socket, { type: "error", payload: { code: "E_OPS", detail: "回放数据格式不合法" } });
+          return;
+        }
+        send(socket, { type: "replay", payload: entries.data });
+        return;
+      }
+
+      handleDecision(parsed.data.payload);
     });
 
     socket.on("close", () => connections.delete(connection));
@@ -289,10 +431,7 @@ export function createControlServer({
         return;
       }
 
-      const decision = show.ingest(parsed.data.payload);
-      if (!decision) return;
-      broadcast({ type: "decision", payload: decision });
-      broadcast({ type: "snapshot", payload: show.snapshot() });
+      handleDecision(parsed.data.payload);
     });
   });
 
@@ -326,10 +465,15 @@ export function createControlServer({
     publishSubtitle: (subtitle) => {
       broadcast({ type: "subtitle", payload: subtitle });
     },
+    publishBridgeHealth: (health) => {
+      show.setBridgeHealth(health);
+      if (health !== null) broadcast({ type: "bridge", payload: health });
+    },
     close: async () => {
       for (const { socket } of connections) socket.close();
       await new Promise<void>((resolve) => wss.close(() => resolve()));
       await new Promise<void>((resolve) => ingress.close(() => resolve()));
+      await bridge?.close();
       await new Promise<void>((resolve) => http.close(() => resolve()));
     },
   };

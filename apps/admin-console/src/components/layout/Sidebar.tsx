@@ -58,6 +58,31 @@ const LIVE_ITEMS: readonly NavigationItem[] = [
   },
 ] as const;
 
+const ROLE_ITEMS: readonly NavigationItem[] = [
+  {
+    label: "记忆与版本",
+    detail: "审核 / 回滚",
+    drawer: "memory",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 4.5h8.5L19 9v10.5H6z" />
+        <path d="M14 4.5V9h5M9 12.5h7M9 16h5" />
+      </svg>
+    ),
+  },
+  {
+    label: "回放",
+    detail: "traceId 时间轴",
+    drawer: "replay",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="7.5" />
+        <path d="M12 8v4.5l3 2" />
+      </svg>
+    ),
+  },
+] as const;
+
 const SYSTEM_ITEMS: readonly NavigationItem[] = [
   {
     label: "接入与语音",
@@ -134,6 +159,14 @@ export function Sidebar({
             selected={drawer === "persona"}
             onClick={() => onSelect("persona")}
           />
+          {ROLE_ITEMS.map((item) => (
+            <NavigationButton
+              key={item.label}
+              item={item}
+              selected={drawer === item.drawer}
+              onClick={() => onSelect(item.drawer)}
+            />
+          ))}
         </section>
 
         <section className="sidebar__group">

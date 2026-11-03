@@ -9,6 +9,7 @@
       "@craftmate/agent": ["./packages/agent/index.ts"],
       "@craftmate/agent/application": ["./packages/agent/application/index.ts"],
       "@craftmate/agent/domain": ["./packages/agent/domain/index.ts"],
+      "@craftmate/bridge": ["./packages/bridge/src/index.ts"],
       "@craftmate/local-auth": ["./packages/local-auth/src/index.ts"]
     },
     "strict": true,

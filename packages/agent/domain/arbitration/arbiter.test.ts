@@ -82,4 +82,17 @@ describe("stage B scoring", () => {
     assert.equal(decision.intent, "chat");
     assert.notEqual(decision.decision, "EXECUTE");
   });
+
+  test("a confident actionable comment is actually executable", () => {
+    // Regression: the execute gate used to sit above the formula's ceiling,
+    // which made every EXECUTE branch unreachable and the bridge dead code.
+    const { decision } = createArbiter().evaluate(comment("去挖点铁矿"));
+    assert.equal(decision.decision, "EXECUTE");
+    assert.equal(decision.priority, "command");
+  });
+
+  test("a cautious persona still refuses danger before scoring", () => {
+    const { decision } = createArbiter().evaluate(comment("帮我跳岩浆"));
+    assert.equal(decision.decision, "REFUSE");
+  });
 });

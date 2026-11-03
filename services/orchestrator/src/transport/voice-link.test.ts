@@ -83,7 +83,7 @@ describe("voice link", () => {
     });
     try {
       await new Promise((resolve) => setTimeout(resolve, 50));
-      link.speak("你好呀");
+      link.speak({ text: "你好呀", priority: "operator", decisionId: null, commitmentId: null });
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       assert.equal(hub.tokens[0], "shared-token");

@@ -31,6 +31,8 @@ export const skillCommandSchema = z.object({
   v: z.literal(BRIDGE_PROTOCOL_VERSION),
   type: z.literal("cmd"),
   id: z.string().min(1),
+  /** Links the side effect to the decision that authorised it. */
+  decisionId: z.string().min(1).optional(),
   op: skillNameSchema,
   args: z.record(z.unknown()),
   deadlineTick: z.number().int().optional(),
@@ -155,6 +157,7 @@ export const bridgeServerFrameSchema = z.discriminatedUnion("type", [
     v: z.literal(BRIDGE_PROTOCOL_VERSION),
     type: z.literal("cmd"),
     id: z.string().min(1),
+    decisionId: z.string().min(1).optional(),
     op: skillNameSchema,
     args: z.record(z.unknown()),
     deadlineTick: z.number().int().optional(),

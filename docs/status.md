@@ -50,7 +50,9 @@ npm run db:check:file
 | 人格展示 | 已实现 | 展示身份、语气、价值观、边界、音色与权重条；权重修改会进入仲裁。 |
 | 接入与语音面板 | 已实现 | 展示来源健康、Voice 状态、排队/已说/失败计数与最近字幕。 |
 | 服务端错误提示 | 已实现 | `error` 消息显示在接入面板，不再静默丢弃。 |
-| 记忆 / 回放 | 未实现 | 只在设计里定义。 |
+| 记忆 / 回放 | 已实现 | 侧栏「记忆与版本」「回放」：审核/忘记记忆、人格版本回滚、按 traceId 查时间轴。 |
+| Stage C 展示 | 已实现 | 决策流显示 `speech`、技能名、provider/model/耗时与降级标记。 |
+| Bridge 状态 | 已实现 | 「接入与语音」显示身体、控制权与队列，数据来自 `/bridge` 健康快照。 |
 
 ### 2.2 桌面宿主 `apps/desktop-shell`
 
@@ -85,7 +87,8 @@ npm run db:check:file
 | Ingress 契约 | 已实现 | `hello` / `event` / `health`，服务端 `ready` / `error`，含关闭码。 |
 | Voice 契约 | 已实现 | 统一 `VoiceUtterance` / `VoiceEvent` / `VoiceStatus`，字幕与语音共用同一文本。 |
 | Bridge v1 完整帧 | 已实现 | `hello` / `welcome` / `cmd` / `ack` / `progress` / `result` / `cancel` / `event` / 心跳 / 所有权，含 schema 与往返测试。 |
-| 逐技能参数 schema | 未实现 | `args` 仍是 `record(unknown)`。 |
+| 逐技能参数 schema | 已实现 | `skillArgsSchema` 覆盖 19 个技能，`skillCallSchema` 在解析时校验 `args`。 |
+| 运营数据契约 | 已实现 | `opsSnapshotSchema` / `replayResponseSchema` / `bridgeHealthSchema`。 |
 | 来源健康状态 | 已实现 | `SourceHealth` 进入 `ShowSnapshot`，并有 `source` 消息。 |
 
 ### 2.5 Agent 内核 `packages/agent`
@@ -99,20 +102,24 @@ npm run db:check:file
 | 承诺账本 | 已实现 | 状态机禁止跳过「说出口」；写端口先落库再更新内存，启动时恢复未完成承诺。 |
 | 场次编排与运行模式 | 已实现 | `agent` / `operator` / `stopped` 三态。 |
 | 持久化写端口 | 已实现 | `ShowRecorder` 端口；先写 source，再仲裁，再写 decision。 |
-| Stage C 规划与模型 | 未实现 | 没有任何 Provider，也没有生成式回应。 |
-| 记忆召回 | 未实现 | 只有 200 条决策的内存环形缓冲。 |
+| Stage C 规划与模型 | 已实现 | `Planner` + `OpenAICompatibleProvider`；1 秒超时降级模板，坏输出记 incident 且不下发技能。 |
+| 记忆召回 | 已实现 | 仅召回已批准且 active 的记忆，按约 1200 token 预算裁剪，按哈希观众引用过滤。 |
+| 成本预算 | 已实现 | 按小时/Key 汇总实际调用成本，超限改走模板。 |
 
 ### 2.6 存储 `packages/storage` + `db/`
 
 | 能力 | 状态 | 说明 |
 | --- | --- | --- |
-| v1 schema | 已实现 | `0001`–`0004`，22 张表（含 FTS 主表、影子表与保留审计）+ 4 个视图，共 26 个对象。 |
+| v1 schema | 已实现 | `0001`–`0006`（含规划字段、成本账本），27 个对象 / 23 个索引。 |
 | 约束与视图校验 | 已实现 | `npm run db:check`，内存库与真实 WAL 文件库两种模式。 |
 | 连接与迁移执行器 | 已实现 | WAL、外键、`busy_timeout`；checksum 漂移直接失败。 |
 | `SessionStore` / `SourceStore` / `DecisionStore` / `ActionStore` / `SettingsStore` / `CommitmentStore` | 已实现 | 启动恢复、事件去重、决策落库、动作幂等、按场次保存配置、承诺状态迁移。 |
 | 存储层自动化测试 | 已实现 | 覆盖去重、重启恢复、承诺恢复与非法迁移、保留审计、空库/升级/checksum 漂移。 |
 | 承诺落库 | 已实现 | `reserve → spoken → …` 在同一事务写状态和事件；重启由 `commitment_open` 恢复。 |
-| 记忆与待审仓储 | 未实现 | 只有表结构。 |
+| 记忆与待审仓储 | 已实现 | `MemoryStore` 把草稿停在 `review_candidate`，批准后才写 `memory` 与证据。 |
+| 人格版本 | 已实现 | `PersonaVersionStore` 追加版本、激活旧版、不覆盖历史。 |
+| 回放查询 | 已实现 | `ReplayStore` 按 traceId 合并来源/决策/承诺/动作，不依赖内存缓冲。 |
+| 成本账本 | 已实现 | `0006_model_cost` + `CostStore`，滚动一小时查询。 |
 | 保留策略执行 | 已实现 | 启动时先清一轮，之后每小时按批清理；原文置空、哈希保留、逐条写审计。 |
 
 ### 2.7 接入端 `services/ingress`
@@ -140,7 +147,8 @@ npm run db:check:file
 | 鉴权与 loopback | 已实现 | 与 Orchestrator 共用 `~/.craftmate/ingress-token`，伪造 token 以 4401 关闭。 |
 | 真实 TTS 供应商 | 部分 | HTTP 适配器已就绪，但未用真实供应商凭据联调。 |
 | 音频路由 | 未实现 | BlackHole / OBS 侧链压缩需手工配置，未自动化。 |
-| 决策自动说话 | 未实现 | 需 Stage C 生成可播文本；当前只接操作员试听与显式 `speak`。 |
+| 决策自动说话 | 已实现 | Stage C 产出 `speech` 后，先落库承诺再交给 Voice；操作员接管/急停时不开口。 |
+| 承诺闸门 | 已实现 | Voice 进程以只读方式打开数据库校验承诺；库不存在或已关闭时拒绝播放。 |
 
 ### 2.9 Bridge `packages/bridge` + `packages/bridge-mcpfabric`
 
@@ -152,7 +160,7 @@ npm run db:check:file
 | 动作记账 | 已实现 | `MemoryActionPort` 与复用 `action_attempt` 的 `SqliteActionPort`。 |
 | WebSocket 适配 | 已实现 | `createBridgeUpgrade()` 挂到既有 HTTP server，不另开监听端口。 |
 | 模拟身体与工具 | 已实现 | `SimBody`、`npm run dev:bridge`、`bridge:smoke`、`bridge:long-run`。 |
-| 接入 Orchestrator | 未实现 | upgrade 路由尚未装配 `/bridge`；控制台仍显示「等待接入」。 |
+| 接入 Orchestrator | 已实现 | `/bridge` 已挂在控制面 HTTP upgrade 上，健康快照每 2 秒广播给控制台。 |
 | MCPFabric 适配清单 | 部分 | 技能映射与安全握手校验已具备，未连接真实 mcpfabric。 |
 | 真实 Fabric Mod | 未实现 | 没有 `mods/`、Gradle 工程或 Fabric 依赖。 |
 | 真机与长时验收 | 未实现 | 真实移动/挖掘、窗口失焦、tick 零 I/O、60 分钟与 4 小时均未验证。 |
@@ -161,25 +169,33 @@ npm run db:check:file
 
 按「会不会让下一步做错」排序，不按工作量。
 
-1. **真实抖音房间未校准**。断线、房间关闭、洪峰已有自动化测试，但真实字段映射仍需一次实机联调。
-2. **Orchestrator 尚未装配 `/bridge`**。协调器、协议与模拟身体都已验证，但产品入口还没接上，控制台也没有 Bridge 实时状态。
-3. **`Decision.skill` 恒为 `null`**。`EXECUTE` 目前只是标签，没有技能与参数，Bridge 无从下发。
-4. **决策自动说话未接通**。承诺账本已可持久化，但还没有 Stage C 生成可播文本；Voice 目前只接操作员试听/显式命令。
-5. **真实 TTS 与音频路由未联调**。只验证到 fake TTS / 仅字幕模式；BlackHole 与 OBS 仍需手工配置。
-6. **记忆与回放页面未实现**。记忆审核、人格版本对比/回滚、按场次/`traceId` 回放时间轴都未落地。
+1. **真实抖音房间未校准**。断线、房间关闭、洪峰已有自动化测试，但 `gift` 的
+   `repeatCount` / `groupCount` 仍需一次实机联调证伪。
+2. **真实模型未联调**。Provider 只按 OpenAI 兼容协议实现并用 fake 测试；没有用真实
+   Key 验证 DeepSeek 的 JSON 稳定性与价格配置。
+3. **真实 TTS 与音频路由未联调**。只验证到 fake TTS / 仅字幕模式；BlackHole 与 OBS
+   仍需手工配置，首字延迟 P95 没有实测样本。
+4. **没有真实游戏身体**。`/bridge` 已装配，但连上的是 `SimBody`；`mods/` 与 Fabric
+   依赖仍不存在，真机移动/挖掘、窗口失焦、tick 零 I/O 未验证。
+5. **长时与故障注入未做**。60 分钟彩排、4 小时稳定、镜头/切片都没有运行报告。
+6. **记忆目前靠人工提案**。没有从对话自动沉淀经验的技能，召回只有主体过滤，FTS 排序
+   尚未使用。
 
-M1 代码项已闭合：承诺恢复、去重收敛（内存 2000 条快速路径 + 数据库裁决）、
-有界观众历史（500 人 / 每意图 200 样本）、保留清理与审计、迁移升级测试。
-**M1 出口仍需环境验收**：真实 `~/.craftmate/craftmate.db` 的升级副本与桌面端重启联调。
+方向 A 的 M1 已闭合：承诺恢复、去重收敛（内存 2000 条快速路径 + 数据库裁决）、
+有界观众历史（500 人 / 每意图 200 样本）、保留清理与审计、迁移升级测试。2026-11-03
+另用 `~/.craftmate/craftmate.db` 的副本做了一次 v6 升级与进程重启：迁移数未增加、
+6 条旧决策仍在、新建的 `spoken` 承诺在第二次启动后仍可读回。
+M3/M4 的「开口前已落库」有自动化（`speech.test.ts`）与真实进程（Orchestrator +
+Voice 仅字幕模式）两条证据。
 
 ## 4. 明确不存在的东西
 
 避免接手的人误以为有代码可读：
 
 - 没有 `services/supervisord`。
-- 没有真实 TTS 供应商凭据，也没有自动配置 BlackHole / OBS。
+- 没有真实 TTS 供应商凭据，也没有自动配置 BlackHole / OBS；没有模型 API Key。
 - 没有 `mods/`，没有 Gradle 工程，没有 Fabric 依赖。
-- 没有模型 Provider，没有 embedding，没有向量库。
+- 没有 embedding，没有向量库；模型只有 OpenAI 兼容 Provider 一个实现。
 - 没有 OBS 集成，没有抖音开放平台 SDK。
 - 没有 CI 配置，没有发布流水线。
 

@@ -43,6 +43,14 @@ export class SqliteRecorder implements ShowRecorder {
   }
 
   /**
+   * Stage C rewrites the row it already created. Keeping the id stable means a
+   * replay shows one decision, not a template followed by a correction.
+   */
+  updateDecision(decision: Decision): void {
+    this.decisions.update(decision);
+  }
+
+  /**
    * Evicted cache entries are recovered from the database, which is also what
    * makes a decision traceable after a process restart.
    */

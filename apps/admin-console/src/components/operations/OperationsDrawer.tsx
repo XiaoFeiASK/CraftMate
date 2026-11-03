@@ -1,19 +1,29 @@
 import type {
+  OpsSnapshot,
   OperatorKind,
   ShowMode,
   ShowSettings,
   ShowSnapshot,
   VoiceStatus,
+  TimelineEntry,
   VoiceSubtitle,
 } from "@craftmate/contracts";
 import { useState } from "react";
 import { DecisionStream } from "../DecisionStream.tsx";
 import { OperatorBar } from "../OperatorBar.tsx";
 import { SettingsView } from "../settings/SettingsView.tsx";
+import { OpsView } from "../ops/OpsView.tsx";
+import { ReplayView } from "../ops/ReplayView.tsx";
 import type { WireState } from "../../lib/connection.ts";
 import type { Preferences } from "../../lib/preferences.ts";
 
-export type DrawerMode = "decisions" | "persona" | "connections" | "settings";
+export type DrawerMode =
+  | "decisions"
+  | "persona"
+  | "connections"
+  | "settings"
+  | "memory"
+  | "replay";
 
 interface OperationsDrawerProps {
   readonly mode: DrawerMode;
@@ -33,6 +43,14 @@ interface OperationsDrawerProps {
   readonly onSaveSettings: (next: ShowSettings) => void;
   readonly onPreferences: (patch: Partial<Preferences>) => void;
   readonly onResetPreferences: () => void;
+  readonly ops: OpsSnapshot | null;
+  readonly timeline: readonly TimelineEntry[];
+  readonly timelinePending: boolean;
+  readonly onApproveMemory: (candidateId: string) => void;
+  readonly onRejectMemory: (candidateId: string, reason: string) => void;
+  readonly onForgetMemory: (memoryId: string) => void;
+  readonly onActivatePersona: (versionId: string) => void;
+  readonly onLookupTrace: (traceId: string) => void;
 }
 
 const TITLES: Record<DrawerMode, { readonly title: string; readonly detail: string }> = {
@@ -40,6 +58,8 @@ const TITLES: Record<DrawerMode, { readonly title: string; readonly detail: stri
   persona: { title: "角色与人格", detail: "当前以单一人格运行，可在这里查看设定" },
   connections: { title: "接入与语音", detail: "抖音评论、模型与语音的连接状态" },
   settings: { title: "设置", detail: "直播资料、人格权重与界面偏好" },
+  memory: { title: "记忆与版本", detail: "审核经验、回滚人格版本、查看模型成本" },
+  replay: { title: "回放", detail: "按 traceId 查看来源、决策、承诺与动作" },
 };
 
 export function OperationsDrawer({
@@ -60,6 +80,14 @@ export function OperationsDrawer({
   onSaveSettings,
   onPreferences,
   onResetPreferences,
+  ops,
+  timeline,
+  timelinePending,
+  onApproveMemory,
+  onRejectMemory,
+  onForgetMemory,
+  onActivatePersona,
+  onLookupTrace,
 }: OperationsDrawerProps): React.JSX.Element {
   const title = TITLES[mode];
 
@@ -94,6 +122,20 @@ export function OperationsDrawer({
               subtitles={subtitles}
               onSpeak={onSpeak}
             />
+          ) : null}
+          {mode === "memory" ? (
+            <OpsView
+              ops={ops}
+              settings={settings}
+              disabled={state !== "open"}
+              onApprove={onApproveMemory}
+              onReject={onRejectMemory}
+              onForget={onForgetMemory}
+              onActivate={onActivatePersona}
+            />
+          ) : null}
+          {mode === "replay" ? (
+            <ReplayView entries={timeline} pending={timelinePending} onLookup={onLookupTrace} />
           ) : null}
           {mode === "settings" ? (
             <SettingsView
@@ -220,7 +262,11 @@ function ConnectionsView({
       ) : null}
       <ConnectionRow label="本地执行内核" value={state === "open" ? "已连接" : "未连接"} tone={state === "open" ? "good" : "bad"} />
       <ConnectionRow label="运行模式" value={modeLabel(mode)} tone={mode === "agent" ? "good" : "warn"} />
-      <ConnectionRow label="Fabric Bridge" value="等待接入" tone="quiet" />
+      <ConnectionRow
+        label="Fabric Bridge"
+        value={bridgeLabel(snapshot)}
+        tone={snapshot.bridge?.connected ? "good" : "quiet"}
+      />
       <ConnectionRow
         label="抖音直播"
         value={source ? `${source.detail}${room ? ` · 房间 ${room}` : ""}` : room ? `房间 ${room}（未联调）` : "待配置"}
@@ -287,6 +333,13 @@ function VoicePreview({
       </button>
     </form>
   );
+}
+
+function bridgeLabel(snapshot: ShowSnapshot): string {
+  const bridge = snapshot.bridge;
+  if (!bridge) return "等待接入";
+  if (!bridge.connected) return "未连接任何身体";
+  return `${bridge.client ?? "未知身体"} · ${bridge.owner} · 队列 ${bridge.queued}`;
 }
 
 function sourceTone(state: string | undefined): "good" | "warn" | "bad" | "quiet" {

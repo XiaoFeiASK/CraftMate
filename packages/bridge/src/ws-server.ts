@@ -48,7 +48,13 @@ export function createBridgeUpgrade(options: BridgeUpgradeOptions): BridgeUpgrad
     },
   };
 
-  const current = new BodySession({ ...options, transport });
+  /**
+   * A body must be usable again after a disconnect. `BodySession.close()` is
+   * terminal, so a reconnect gets a fresh session; reusing the old one left
+   * the bridge permanently unowned (`agent does not own the body (none)`).
+   */
+  const newSession = (): BodySession => new BodySession({ ...options, transport });
+  let current = newSession();
 
   wss.on("connection", (connected: WebSocket) => {
     if (session !== null) {
@@ -78,6 +84,7 @@ export function createBridgeUpgrade(options: BridgeUpgradeOptions): BridgeUpgrad
       current.close("socket closed");
       if (socket === connected) socket = null;
       session = null;
+      current = newSession();
     });
   });
 

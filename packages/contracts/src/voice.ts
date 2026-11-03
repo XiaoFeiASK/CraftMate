@@ -91,6 +91,8 @@ export const voiceSubtitleSchema = z.object({
   text: z.string().min(1),
   state: z.enum(["speaking", "spoken", "failed", "cancelled"]),
   decisionId: z.string().min(1).nullable(),
+  /** Links a playback failure back to the commitment it cannot satisfy. */
+  commitmentId: z.string().min(1).nullable().default(null),
   at: z.number().int().nonnegative(),
 });
 export type VoiceSubtitle = z.infer<typeof voiceSubtitleSchema>;

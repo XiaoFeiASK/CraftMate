@@ -771,6 +771,118 @@
 
 .decided__score { font-family: var(--font-mono); }
 
+.decided__speech {
+  margin: 5px 0 0;
+  color: var(--ink);
+  font-size: calc(12px * var(--ui-scale));
+  line-height: 1.55;
+}
+
+.decided__trace {
+  margin: 3px 0 0;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--ui-scale));
+}
+
+.ops-view,
+.memory-view,
+.replay-view {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.ops-view h3,
+.memory-view h3 {
+  margin: 0 0 10px;
+  font-size: calc(13px * var(--ui-scale));
+  color: var(--ink-soft);
+}
+
+.ops-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ops-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+
+.ops-item[data-active="true"] {
+  border-color: var(--accent);
+}
+
+.ops-item strong {
+  display: block;
+  font-size: calc(12px * var(--ui-scale));
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.ops-item small {
+  color: var(--ink-faint);
+  font-size: calc(10px * var(--ui-scale));
+}
+
+.ops-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline li {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.timeline__kind {
+  flex-shrink: 0;
+  min-width: 42px;
+  color: var(--ink-faint);
+  font-size: calc(10px * var(--ui-scale));
+}
+
+.timeline li[data-kind="decision"] .timeline__kind { color: var(--accent); }
+.timeline li[data-kind="commitment"] .timeline__kind { color: #b8860b; }
+
+.timeline strong {
+  display: block;
+  font-size: calc(12px * var(--ui-scale));
+  font-weight: 500;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.timeline small {
+  color: var(--ink-faint);
+  font-size: calc(10px * var(--ui-scale));
+}
+
+.action--ghost {
+  background: transparent;
+  border: 1px solid var(--rule);
+  color: var(--ink-soft);
+}
+
 .bar {
   display: flex;
   flex-direction: column;

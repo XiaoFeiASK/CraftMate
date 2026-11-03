@@ -15,21 +15,22 @@ interface ActionAttemptRow {
 export class SqliteActionPort implements ActionPort {
   private readonly db: DatabaseSync;
   private readonly sessionId: string;
-  private readonly decisionId: string;
-  private readonly priority: SkillCommand["priority"];
+  private readonly fallbackDecisionId: string | null;
+  private readonly fallbackPriority: SkillCommand["priority"];
 
   constructor(
     db: DatabaseSync,
     options: {
       readonly sessionId: string;
-      readonly decisionId: string;
-      readonly priority: SkillCommand["priority"];
+      /** Used only when the command itself carries no decisionId. */
+      readonly decisionId?: string;
+      readonly priority?: SkillCommand["priority"];
     },
   ) {
     this.db = db;
     this.sessionId = options.sessionId;
-    this.decisionId = options.decisionId;
-    this.priority = options.priority;
+    this.fallbackDecisionId = options.decisionId ?? null;
+    this.fallbackPriority = options.priority ?? "command";
   }
 
   begin(command: SkillCommand): { id: string; created: boolean } {
@@ -38,6 +39,10 @@ export class SqliteActionPort implements ActionPort {
       .get(command.idempotencyKey) as ActionAttemptRow | undefined;
     if (existing) return { id: existing.id, created: false };
 
+    const decisionId = command.decisionId ?? this.fallbackDecisionId;
+    if (decisionId === null) {
+      throw new Error(`action ${command.idempotencyKey} has no decision to attach to`);
+    }
     const id = crypto.randomUUID();
     this.db
       .prepare(
@@ -49,10 +54,10 @@ export class SqliteActionPort implements ActionPort {
       .run(
         id,
         this.sessionId,
-        this.decisionId,
+        decisionId,
         command.op,
         JSON.stringify(command.args),
-        this.priority,
+        this.fallbackPriority,
         command.idempotencyKey,
         command.deadlineTick ?? null,
         Date.now(),

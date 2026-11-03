@@ -15,6 +15,7 @@ const snapshot: ShowSnapshot = {
   operatorNotice: null,
   sourceHealth: null,
   voiceStatus: null,
+  bridge: null,
 };
 
 describe("control protocol", () => {

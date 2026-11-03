@@ -2,10 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   serverMessageSchema,
   type ClientMessage,
+  type OpsRequest,
+  type OpsSnapshot,
   type OperatorKind,
   type ShowSettings,
   type ShowMode,
   type ShowSnapshot,
+  type TimelineEntry,
   type VoiceSubtitle,
 } from "@craftmate/contracts";
 import { reconnectDelay, type WireState } from "./connection.ts";
@@ -20,6 +23,7 @@ const emptySnapshot: ShowSnapshot = {
   operatorNotice: null,
   sourceHealth: null,
   voiceStatus: null,
+  bridge: null,
 };
 
 export interface ControlLink {
@@ -30,11 +34,22 @@ export interface ControlLink {
   readonly settings: ShowSettings | null;
   readonly lastError: string | null;
   readonly subtitles: readonly VoiceSubtitle[];
+  readonly ops: OpsSnapshot | null;
+  readonly timeline: readonly TimelineEntry[];
+  readonly timelineTraceId: string | null;
+  readonly timelinePending: boolean;
   sendComment(nickname: string, text: string): void;
   sendOperator(kind: OperatorKind, text?: string): void;
   saveSettings(next: ShowSettings): void;
   speak(text: string): void;
   simulateBurst(): void;
+  refreshOps(): void;
+  approveMemory(candidateId: string): void;
+  rejectMemory(candidateId: string, reason: string): void;
+  forgetMemory(memoryId: string): void;
+  draftPersona(persona: ShowSettings["persona"]): void;
+  activatePersona(versionId: string): void;
+  lookupTrace(traceId: string): void;
 }
 
 export function useControlLink(): ControlLink {
@@ -46,6 +61,10 @@ export function useControlLink(): ControlLink {
   const [settings, setSettings] = useState<ShowSettings | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [subtitles, setSubtitles] = useState<readonly VoiceSubtitle[]>([]);
+  const [ops, setOps] = useState<OpsSnapshot | null>(null);
+  const [timeline, setTimeline] = useState<readonly TimelineEntry[]>([]);
+  const [timelineTraceId, setTimelineTraceId] = useState<string | null>(null);
+  const [timelinePending, setTimelinePending] = useState(false);
   const sequence = useRef(0);
 
   useEffect(() => {
@@ -62,9 +81,14 @@ export function useControlLink(): ControlLink {
           setSettings(message.payload.settings);
           break;
         case "decision":
+          // Stage C rewrites the same decision id in place; a blind prepend
+          // would show one comment twice with different reasons.
           setSnapshot((current) => ({
             ...current,
-            decisions: [message.payload, ...current.decisions].slice(0, 200),
+            decisions: [
+              message.payload,
+              ...current.decisions.filter((item) => item.id !== message.payload.id),
+            ].slice(0, 200),
           }));
           break;
         case "stats":
@@ -92,6 +116,17 @@ export function useControlLink(): ControlLink {
           break;
         case "subtitle":
           setSubtitles((current) => [message.payload, ...current].slice(0, 20));
+          break;
+        case "bridge":
+          setSnapshot((current) => ({ ...current, bridge: message.payload }));
+          break;
+        case "ops":
+          setOps(message.payload);
+          break;
+        case "replay":
+          setTimeline(message.payload.entries);
+          setTimelineTraceId(message.payload.traceId);
+          setTimelinePending(false);
           break;
         default:
           break;
@@ -202,6 +237,43 @@ export function useControlLink(): ControlLink {
     [send],
   );
 
+  const sendOps = useCallback(
+    (payload: OpsRequest) => {
+      send({ type: "ops", payload });
+      window.setTimeout(() => send({ type: "ops", payload: { kind: "refresh" } }), 150);
+    },
+    [send],
+  );
+
+  const refreshOps = useCallback(() => sendOps({ kind: "refresh" }), [sendOps]);
+  const approveMemory = useCallback(
+    (candidateId: string) => sendOps({ kind: "approveMemory", candidateId }),
+    [sendOps],
+  );
+  const rejectMemory = useCallback(
+    (candidateId: string, reason: string) => sendOps({ kind: "rejectMemory", candidateId, reason }),
+    [sendOps],
+  );
+  const forgetMemory = useCallback(
+    (memoryId: string) => sendOps({ kind: "forgetMemory", memoryId }),
+    [sendOps],
+  );
+  const draftPersona = useCallback(
+    (persona: ShowSettings["persona"]) => sendOps({ kind: "draftPersona", persona }),
+    [sendOps],
+  );
+  const activatePersona = useCallback(
+    (versionId: string) => sendOps({ kind: "activatePersona", versionId }),
+    [sendOps],
+  );
+  const lookupTrace = useCallback(
+    (traceId: string) => {
+      setTimelinePending(true);
+      send({ type: "replay", payload: { traceId } });
+    },
+    [send],
+  );
+
   return useMemo(
     () => ({
       state,
@@ -211,11 +283,22 @@ export function useControlLink(): ControlLink {
       settings,
       lastError,
       subtitles,
+      ops,
+      timeline,
+      timelineTraceId,
+      timelinePending,
       sendComment,
       sendOperator,
       saveSettings,
       speak,
       simulateBurst,
+      refreshOps,
+      approveMemory,
+      rejectMemory,
+      forgetMemory,
+      draftPersona,
+      activatePersona,
+      lookupTrace,
     }),
     [
       state,
@@ -225,11 +308,22 @@ export function useControlLink(): ControlLink {
       settings,
       lastError,
       subtitles,
+      ops,
+      timeline,
+      timelineTraceId,
+      timelinePending,
       sendComment,
       sendOperator,
       saveSettings,
       speak,
       simulateBurst,
+      refreshOps,
+      approveMemory,
+      rejectMemory,
+      forgetMemory,
+      draftPersona,
+      activatePersona,
+      lookupTrace,
     ],
   );
 }

@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { skillCallSchema, skillNameSchema, type SkillCall, type SkillName } from "./skills.ts";
+
+export { skillCallSchema, skillNameSchema };
+export type { SkillCall, SkillName };
 
 export const decisionKindSchema = z.enum([
   "IGNORE",
@@ -36,41 +40,19 @@ export const prioritySchema = z.enum([
 ]);
 export type Priority = z.infer<typeof prioritySchema>;
 
-export const skillNameSchema = z.enum([
-  "goto",
-  "follow",
-  "flee",
-  "look_at",
-  "mine_block",
-  "chop_tree",
-  "collect_items",
-  "craft",
-  "equip",
-  "eat",
-  "deposit",
-  "place_block",
-  "build_schematic",
-  "attack",
-  "use_block",
-  "sleep",
-  "say",
-  "emote",
-  "wait",
-]);
-export type SkillName = z.infer<typeof skillNameSchema>;
-
 /**
- * A concrete skill invocation. Only `EXECUTE` decisions carry one; the fields
- * map one-to-one onto `bridge.ts` `cmd`, so the orchestrator never invents a
- * second shape in between.
+ * Model provenance for a planned decision. Absent for rules and scored
+ * decisions, which never call a provider.
  */
-export const skillCallSchema = z.object({
-  name: skillNameSchema,
-  args: z.record(z.unknown()),
-  deadlineTicks: z.number().int().positive().optional(),
-  idempotencyKey: z.string().min(1),
+export const decisionTraceSchema = z.object({
+  provider: z.string().min(1),
+  model: z.string().min(1),
+  latencyMs: z.number().int().nonnegative(),
+  /** True when the model failed and the template was used instead. */
+  degraded: z.boolean(),
+  detail: z.string().default(""),
 });
-export type SkillCall = z.infer<typeof skillCallSchema>;
+export type DecisionTrace = z.infer<typeof decisionTraceSchema>;
 
 export const decisionSchema = z.object({
   id: z.string(),
@@ -84,6 +66,11 @@ export const decisionSchema = z.object({
   score: z.number(),
   stage: z.enum(["rules", "scored", "planned"]),
   skill: skillCallSchema.nullable().default(null),
+  /** What the agent intends to say out loud, before the voice splits it. */
+  speech: z.string().max(2_000).default(""),
+  /** Stable hashed audience reference; never the raw platform user id. */
+  audienceRef: z.string().default(""),
+  trace: decisionTraceSchema.nullable().default(null),
   at: z.number(),
 });
 export type Decision = z.infer<typeof decisionSchema>;

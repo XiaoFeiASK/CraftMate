@@ -241,6 +241,7 @@ describe("voice bridge", () => {
         text: "你好",
         state: "speaking",
         decisionId: null,
+        commitmentId: null,
         at: 1_000,
       });
       await new Promise((resolve) => setTimeout(resolve, 80));
