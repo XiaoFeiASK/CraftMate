@@ -1,5 +1,6 @@
 import { createControlServer } from "./transport/control-server.ts";
 import { createPersistentShow } from "./persistence.ts";
+import { createRetentionSweep } from "./retention.ts";
 import { loadOrCreateToken } from "@craftmate/local-auth";
 import { connectVoice } from "./transport/voice-link.ts";
 
@@ -9,6 +10,8 @@ const port = Number(process.env.CRAFTMATE_PORT ?? 4321);
 const host = process.env.CRAFTMATE_HOST ?? "127.0.0.1";
 const ingressToken = loadOrCreateToken();
 const persistent = createPersistentShow();
+const retention = createRetentionSweep({ expire: (now) => persistent.expireRawText(now) });
+retention.start();
 let voiceLink: ReturnType<typeof connectVoice> | null = null;
 const server = createControlServer({
   show: persistent.show,
@@ -32,6 +35,7 @@ voiceLink = connectVoice({
 });
 
 const shutdown = async (): Promise<void> => {
+  retention.stop();
   voiceLink?.close();
   await server.close();
   persistent.close();

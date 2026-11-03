@@ -7,6 +7,12 @@ import type {
   ShowSettings,
   SkillCall,
 } from "@craftmate/contracts";
+import type {
+  Commitment,
+  CommitmentJournal,
+  CommitmentStatus,
+  CommitmentTransition,
+} from "@craftmate/agent/domain";
 
 const RAW_RETENTION_MS = 24 * 60 * 60 * 1000;
 
@@ -101,50 +107,296 @@ export class SourceStore {
    */
   append(sessionId: string, event: AudienceEvent): AppendSourceResult {
     // The uniqueness guard is a partial index, which `ON CONFLICT` cannot
-    // target, so dedupe with an explicit lookup inside one immediate transaction.
-    const existing = this.db
-      .prepare("SELECT id FROM source WHERE session_id = ? AND kind = ? AND external_event_id = ?")
-      .get(sessionId, event.kind, event.id) as { id: string } | undefined;
-    if (existing) return { id: existing.id, inserted: false };
+    // target. The lookup and insert share one immediate transaction so two
+    // connections cannot both observe "absent" and race.
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = this.db
+        .prepare("SELECT id FROM source WHERE session_id = ? AND kind = ? AND external_event_id = ?")
+        .get(sessionId, event.kind, event.id) as { id: string } | undefined;
+      if (existing) {
+        this.db.exec("COMMIT");
+        return { id: existing.id, inserted: false };
+      }
 
-    const now = Date.now();
-    const id = crypto.randomUUID();
-    const text = event.text?.slice(0, 500) ?? null;
+      const now = Date.now();
+      const id = crypto.randomUUID();
+      const text = event.text?.slice(0, 500) ?? null;
+      this.db
+        .prepare(
+          `INSERT INTO source
+             (id, external_event_id, session_id, kind, actor_ref, raw_text,
+              payload_json, content_hash, received_at_ms, raw_expires_at_ms)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          event.id,
+          sessionId,
+          event.kind,
+          hashActor(event.userId),
+          text,
+          JSON.stringify({
+            nickname: event.nickname.slice(0, 40),
+            gift: event.gift ?? null,
+          }),
+          contentHash(event),
+          now,
+          text === null ? null : now + RAW_RETENTION_MS,
+        );
+      this.db.exec("COMMIT");
+      return { id, inserted: true };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
+   * Blank the raw text of expired rows, keeping the hash and metrics, and
+   * leave one audit row per purged source. Each batch is its own transaction,
+   * so a crash cannot produce a purge without its audit trail, and a long
+   * backlog cannot hold the write lock for the whole stream.
+   */
+  expireRawText(now = Date.now(), batchSize = 500): number {
+    if (!Number.isInteger(batchSize) || batchSize <= 0) {
+      throw new Error(`batchSize must be a positive integer, got ${batchSize}`);
+    }
+    let total = 0;
+    for (;;) {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        const expired = this.db
+          .prepare(
+            `SELECT id, session_id, content_hash FROM source
+             WHERE raw_text IS NOT NULL AND raw_expires_at_ms IS NOT NULL AND raw_expires_at_ms <= ?
+             ORDER BY raw_expires_at_ms LIMIT ?`,
+          )
+          .all(now, batchSize) as { id: string; session_id: string; content_hash: string }[];
+        if (expired.length === 0) {
+          this.db.exec("COMMIT");
+          return total;
+        }
+
+        const blank = this.db.prepare("UPDATE source SET raw_text = NULL WHERE id = ?");
+        const audit = this.db.prepare(
+          `INSERT INTO source_retention_audit
+             (id, session_id, source_id, action, content_hash, occurred_at_ms)
+           VALUES (?, ?, ?, 'raw_text_expired', ?, ?)
+           ON CONFLICT (source_id, action) DO NOTHING`,
+        );
+        for (const row of expired) {
+          blank.run(row.id);
+          audit.run(crypto.randomUUID(), row.session_id, row.id, row.content_hash, now);
+        }
+        this.db.exec("COMMIT");
+        total += expired.length;
+      } catch (error) {
+        this.db.exec("ROLLBACK");
+        throw error;
+      }
+    }
+  }
+}
+
+/**
+ * SQLite journal for the commitment ledger. Every method is safe to retry:
+ * state updates are guarded by the expected revision and event ids are
+ * derived from that revision.
+ */
+export class CommitmentStore implements CommitmentJournal {
+  private readonly db: DatabaseSync;
+  private readonly context: SessionContext;
+
+  constructor(db: DatabaseSync, context: SessionContext) {
+    this.db = db;
+    this.context = context;
+  }
+
+  reserve(commitment: Commitment): void {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = this.db
+        .prepare(
+          `SELECT session_id, status, revision, utterance, audience_ref, created_at_ms
+           FROM commitment WHERE id = ?`,
+        )
+        .get(commitment.id) as
+        | {
+            session_id: string;
+            status: CommitmentStatus;
+            revision: number;
+            utterance: string;
+            audience_ref: string;
+            created_at_ms: number;
+          }
+        | undefined;
+      if (existing) {
+        const identical =
+          existing.session_id === this.context.sessionId &&
+          existing.status === commitment.status &&
+          existing.revision === commitment.revision &&
+          existing.utterance === commitment.utterance &&
+          existing.audience_ref === commitment.audienceRef &&
+          existing.created_at_ms === commitment.createdAt;
+        if (!identical) throw new Error(`commitment ${commitment.id} already exists with a different state`);
+        this.db.exec("COMMIT");
+        return;
+      }
+
+      this.db
+        .prepare(
+          `INSERT INTO commitment
+             (id, session_id, source_id, persona_version_id, audience_ref, utterance,
+              status, revision, deadline_at_ms, plan_id, created_at_ms, spoken_at_ms, closed_at_ms)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          commitment.id,
+          this.context.sessionId,
+          commitment.sourceId,
+          this.context.personaVersionId,
+          commitment.audienceRef,
+          commitment.utterance,
+          commitment.status,
+          commitment.revision,
+          commitment.deadlineAt,
+          commitment.planId,
+          commitment.createdAt,
+          commitment.spokenAt,
+          commitment.closedAt,
+        );
+      this.insertEvent(commitment, null, "reserve before speak", commitment.createdAt);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  transit(change: CommitmentTransition): void {
+    const { from, to } = change;
+    if (from === null) throw new Error(`commitment ${to.id} cannot transition from null`);
+
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const previous = to.revision - 1;
+      const result = this.db
+        .prepare(
+          `UPDATE commitment
+           SET status = ?, revision = ?, spoken_at_ms = coalesce(spoken_at_ms, ?),
+               closed_at_ms = ?
+           WHERE id = ? AND revision = ? AND status = ?`,
+        )
+        .run(to.status, to.revision, to.spokenAt, to.closedAt, to.id, previous, from);
+      if (Number(result.changes) === 0) {
+        const existing = this.db
+          .prepare("SELECT status, revision FROM commitment WHERE id = ?")
+          .get(to.id) as { status: CommitmentStatus; revision: number } | undefined;
+        // A retried write whose event already landed is a no-op, not a conflict.
+        if (existing?.status === to.status && existing.revision === to.revision) {
+          this.db.exec("COMMIT");
+          return;
+        }
+        throw new Error(
+          `commitment ${to.id} is not at revision ${previous}/${from}; ` +
+            `stored ${existing?.revision ?? "missing"}/${existing?.status ?? "missing"}`,
+        );
+      }
+      this.insertEvent(to, from, change.reason, change.at);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /** Open commitments for the live session, ordered by creation time. */
+  open(sessionId = this.context.sessionId): Commitment[] {
+    return this.query(sessionId, "commitment_open");
+  }
+
+  /** Every commitment in the session, newest last, for replay and audit. */
+  list(sessionId = this.context.sessionId): Commitment[] {
+    return this.query(sessionId, "commitment");
+  }
+
+  private query(sessionId: string, table: "commitment" | "commitment_open"): Commitment[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, audience_ref, source_id, utterance, status, revision,
+                created_at_ms, deadline_at_ms, plan_id, spoken_at_ms, closed_at_ms
+         FROM ${table}
+         WHERE session_id = ?
+         ORDER BY created_at_ms, id`,
+      )
+      .all(sessionId) as unknown as CommitmentRow[];
+    return rows.map(toCommitment);
+  }
+
+  /**
+   * The console's open count. Counting in SQL keeps the projection correct
+   * even if the in-memory ledger was built before the store came online.
+   */
+  openCount(sessionId = this.context.sessionId): number {
+    const row = this.db
+      .prepare("SELECT count(*) AS n FROM commitment_open WHERE session_id = ?")
+      .get(sessionId) as { n: number };
+    return row.n;
+  }
+
+  private insertEvent(
+    commitment: Commitment,
+    from: CommitmentStatus | null,
+    reason: string,
+    at: number,
+  ): void {
     this.db
       .prepare(
-        `INSERT INTO source
-           (id, external_event_id, session_id, kind, actor_ref, raw_text,
-            payload_json, content_hash, received_at_ms, raw_expires_at_ms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO commitment_event
+           (id, commitment_id, from_status, to_status, reason, occurred_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (id) DO NOTHING`,
       )
       .run(
-        id,
-        event.id,
-        sessionId,
-        event.kind,
-        hashActor(event.userId),
-        text,
-        JSON.stringify({
-          nickname: event.nickname.slice(0, 40),
-          gift: event.gift ?? null,
-        }),
-        contentHash(event),
-        now,
-        text === null ? null : now + RAW_RETENTION_MS,
+        `${commitment.id}:${commitment.revision}`,
+        commitment.id,
+        from,
+        commitment.status,
+        reason,
+        at,
       );
-    return { id, inserted: true };
   }
+}
 
-  /** Blank the raw text of expired rows, keeping the hash and metrics. */
-  expireRawText(now = Date.now()): number {
-    const result = this.db
-      .prepare(
-        `UPDATE source SET raw_text = NULL
-         WHERE raw_text IS NOT NULL AND raw_expires_at_ms IS NOT NULL AND raw_expires_at_ms <= ?`,
-      )
-      .run(now);
-    return Number(result.changes);
-  }
+interface CommitmentRow {
+  id: string;
+  audience_ref: string;
+  source_id: string | null;
+  utterance: string;
+  status: CommitmentStatus;
+  revision: number;
+  created_at_ms: number;
+  deadline_at_ms: number | null;
+  plan_id: string | null;
+  spoken_at_ms: number | null;
+  closed_at_ms: number | null;
+}
+
+function toCommitment(row: CommitmentRow): Commitment {
+  return {
+    id: row.id,
+    audienceRef: row.audience_ref,
+    sourceId: row.source_id,
+    utterance: row.utterance,
+    status: row.status,
+    revision: row.revision,
+    createdAt: row.created_at_ms,
+    deadlineAt: row.deadline_at_ms,
+    planId: row.plan_id,
+    spokenAt: row.spoken_at_ms,
+    closedAt: row.closed_at_ms,
+  };
 }
 
 export class DecisionStore {
