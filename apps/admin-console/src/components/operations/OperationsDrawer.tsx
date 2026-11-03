@@ -1,4 +1,12 @@
-import type { OperatorKind, ShowMode, ShowSettings, ShowSnapshot } from "@craftmate/contracts";
+import type {
+  OperatorKind,
+  ShowMode,
+  ShowSettings,
+  ShowSnapshot,
+  VoiceStatus,
+  VoiceSubtitle,
+} from "@craftmate/contracts";
+import { useState } from "react";
 import { DecisionStream } from "../DecisionStream.tsx";
 import { OperatorBar } from "../OperatorBar.tsx";
 import { SettingsView } from "../settings/SettingsView.tsx";
@@ -13,12 +21,15 @@ interface OperationsDrawerProps {
   readonly showMode: ShowMode;
   readonly personaName: string;
   readonly snapshot: ShowSnapshot;
+  readonly lastError: string | null;
+  readonly subtitles: readonly VoiceSubtitle[];
   readonly settings: ShowSettings | null;
   readonly preferences: Preferences;
   readonly onClose: () => void;
   readonly onComment: (nickname: string, text: string) => void;
   readonly onOperator: (kind: OperatorKind, text?: string) => void;
   readonly onBurst: () => void;
+  readonly onSpeak: (text: string) => void;
   readonly onSaveSettings: (next: ShowSettings) => void;
   readonly onPreferences: (patch: Partial<Preferences>) => void;
   readonly onResetPreferences: () => void;
@@ -37,12 +48,15 @@ export function OperationsDrawer({
   showMode,
   personaName,
   snapshot,
+  lastError,
+  subtitles,
   settings,
   preferences,
   onClose,
   onComment,
   onOperator,
   onBurst,
+  onSpeak,
   onSaveSettings,
   onPreferences,
   onResetPreferences,
@@ -71,7 +85,15 @@ export function OperationsDrawer({
             <PersonaView personaName={personaName} settings={settings} />
           ) : null}
           {mode === "connections" ? (
-            <ConnectionsView state={state} mode={showMode} settings={settings} />
+            <ConnectionsView
+              state={state}
+              mode={showMode}
+              settings={settings}
+              snapshot={snapshot}
+              lastError={lastError}
+              subtitles={subtitles}
+              onSpeak={onSpeak}
+            />
           ) : null}
           {mode === "settings" ? (
             <SettingsView
@@ -171,29 +193,124 @@ function ConnectionsView({
   state,
   mode,
   settings,
+  snapshot,
+  lastError,
+  subtitles,
+  onSpeak,
 }: {
   readonly state: WireState;
   readonly mode: ShowMode;
   readonly settings: ShowSettings | null;
+  readonly snapshot: ShowSnapshot;
+  readonly lastError: string | null;
+  readonly subtitles: readonly VoiceSubtitle[];
+  readonly onSpeak: (text: string) => void;
 }): React.JSX.Element {
   const room = settings?.integrations.douyinRoomId;
   const model = settings?.integrations.deepseekModel;
+  const source = snapshot.sourceHealth;
+  const voice = snapshot.voiceStatus;
 
   return (
     <div className="connections-view">
+      {lastError ? (
+        <p className="connection-error" role="alert">
+          服务端错误：{lastError}
+        </p>
+      ) : null}
       <ConnectionRow label="本地执行内核" value={state === "open" ? "已连接" : "未连接"} tone={state === "open" ? "good" : "bad"} />
       <ConnectionRow label="运行模式" value={modeLabel(mode)} tone={mode === "agent" ? "good" : "warn"} />
       <ConnectionRow label="Fabric Bridge" value="等待接入" tone="quiet" />
-      <ConnectionRow label="抖音直播" value={room ? `房间 ${room}（未联调）` : "待配置"} tone="quiet" />
+      <ConnectionRow
+        label="抖音直播"
+        value={source ? `${source.detail}${room ? ` · 房间 ${room}` : ""}` : room ? `房间 ${room}（未联调）` : "待配置"}
+        tone={sourceTone(source?.state)}
+      />
       <ConnectionRow label="模型" value={model ? `${model}（未接 Key）` : "待配置 API Key"} tone="quiet" />
       <ConnectionRow
         label="语音合成"
-        value={settings ? `${settings.persona.voice.provider} / ${settings.persona.voice.voiceId}` : "待配置音色"}
-        tone="quiet"
+        value={voiceLabel(voice, settings)}
+        tone={voiceTone(voice)}
       />
-      <p className="panel-note">这些是下一阶段的接入点，没有连接时界面会明确显示，不会假装在线。</p>
+      {voice ? (
+        <dl className="decision-summary">
+          <div><dt>已说</dt><dd>{voice.spoken}</dd></div>
+          <div><dt>失败</dt><dd>{voice.failed}</dd></div>
+          <div><dt>排队</dt><dd>{voice.queued}</dd></div>
+        </dl>
+      ) : null}
+      <VoicePreview disabled={state !== "open"} onSpeak={onSpeak} />
+      {subtitles.length > 0 ? (
+        <section className="subtitle-log" aria-label="最近字幕">
+          <h3>字幕</h3>
+          {subtitles.slice(0, 5).map((subtitle) => (
+            <p key={`${subtitle.id}-${subtitle.state}`} data-state={subtitle.state}>
+              <span>{subtitle.state === "spoken" ? "已播" : subtitle.state === "speaking" ? "正在说" : "未播出"}</span>
+              {subtitle.text}
+            </p>
+          ))}
+        </section>
+      ) : null}
+      <p className="panel-note">
+        语音状态来自独立 Voice 服务；没有连接时界面会明确显示，不会假装在线。
+      </p>
     </div>
   );
+}
+
+function VoicePreview({
+  disabled,
+  onSpeak,
+}: {
+  readonly disabled: boolean;
+  readonly onSpeak: (text: string) => void;
+}): React.JSX.Element {
+  const [text, setText] = useState("唔，我是大肥鱼，今天也要好好吃饭。");
+
+  return (
+    <form
+      className="voice-preview"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSpeak(text);
+      }}
+    >
+      <input
+        className="input"
+        value={text}
+        maxLength={200}
+        aria-label="试听文本"
+        onChange={(event) => setText(event.target.value)}
+      />
+      <button type="submit" className="action" disabled={disabled || text.trim().length === 0}>
+        试听
+      </button>
+    </form>
+  );
+}
+
+function sourceTone(state: string | undefined): "good" | "warn" | "bad" | "quiet" {
+  if (state === "open") return "good";
+  if (state === "connecting") return "warn";
+  if (state === "error" || state === "closed") return "bad";
+  return "quiet";
+}
+
+function voiceLabel(status: VoiceStatus | null, settings: ShowSettings | null): string {
+  if (!status) {
+    return settings ? `${settings.persona.voice.provider} / ${settings.persona.voice.voiceId}（未连接）` : "待配置音色";
+  }
+  if (status.state === "speaking") return `正在说话 · 队列 ${status.queued}`;
+  if (status.state === "degraded") return `仅字幕 · ${status.detail}`;
+  if (status.state === "disabled") return "已停用";
+  return `待命 · 已说 ${status.spoken}`;
+}
+
+function voiceTone(status: VoiceStatus | null): "good" | "warn" | "bad" | "quiet" {
+  if (!status) return "quiet";
+  if (status.state === "idle") return "good";
+  if (status.state === "speaking") return "warn";
+  return "bad";
 }
 
 interface ConnectionRowProps {

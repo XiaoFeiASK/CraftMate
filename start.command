@@ -22,6 +22,7 @@ for arg in "$@"; do
 
 启动 CraftMate 本地桌面应用（默认），同时启动 Orchestrator：
   - Orchestrator: ws://127.0.0.1:4321/control
+  - Voice:        ws://127.0.0.1:4323/voice
   - 桌面窗口:     Tauri 原生窗口
 
 选项:
@@ -76,11 +77,16 @@ ORCHESTRATOR_PORT="${CRAFTMATE_PORT:-4321}"
 if port_in_use "$ORCHESTRATOR_PORT"; then
   fail "端口 ${ORCHESTRATOR_PORT} 已被占用。请停止占用进程，或运行 CRAFTMATE_PORT=4400 ./start.command"
 fi
+VOICE_PORT="${VOICE_PORT:-4323}"
+if port_in_use "$VOICE_PORT"; then
+  fail "端口 ${VOICE_PORT} 已被占用。请停止占用进程，或运行 VOICE_PORT=4402 ./start.command"
+fi
 if port_in_use 5173; then
   fail "端口 5173 已被占用。请先停止占用该端口的进程。"
 fi
 
 info "Orchestrator: ws://127.0.0.1:${ORCHESTRATOR_PORT}/control"
+info "Voice:        ws://127.0.0.1:${VOICE_PORT}/voice"
 info "健康检查:     http://127.0.0.1:${ORCHESTRATOR_PORT}/health"
 if [[ "$MODE" == "desktop" ]]; then
   info "桌面窗口:     启动后会弹出 CraftMate 窗口"

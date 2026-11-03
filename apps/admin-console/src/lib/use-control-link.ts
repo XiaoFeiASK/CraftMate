@@ -6,6 +6,7 @@ import {
   type ShowSettings,
   type ShowMode,
   type ShowSnapshot,
+  type VoiceSubtitle,
 } from "@craftmate/contracts";
 import { reconnectDelay, type WireState } from "./connection.ts";
 
@@ -18,6 +19,7 @@ const emptySnapshot: ShowSnapshot = {
   decisions: [],
   operatorNotice: null,
   sourceHealth: null,
+  voiceStatus: null,
 };
 
 export interface ControlLink {
@@ -26,9 +28,12 @@ export interface ControlLink {
   readonly mode: ShowMode;
   readonly personaName: string;
   readonly settings: ShowSettings | null;
+  readonly lastError: string | null;
+  readonly subtitles: readonly VoiceSubtitle[];
   sendComment(nickname: string, text: string): void;
   sendOperator(kind: OperatorKind, text?: string): void;
   saveSettings(next: ShowSettings): void;
+  speak(text: string): void;
   simulateBurst(): void;
 }
 
@@ -39,6 +44,8 @@ export function useControlLink(): ControlLink {
   const [mode, setMode] = useState<ShowMode>("agent");
   const [personaName, setPersonaName] = useState(EMPTY_PERSONA_NAME);
   const [settings, setSettings] = useState<ShowSettings | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [subtitles, setSubtitles] = useState<readonly VoiceSubtitle[]>([]);
   const sequence = useRef(0);
 
   useEffect(() => {
@@ -77,6 +84,15 @@ export function useControlLink(): ControlLink {
           setSettings(message.payload);
           setPersonaName(message.payload.persona.name);
           break;
+        case "voice":
+          setSnapshot((current) => ({ ...current, voiceStatus: message.payload }));
+          break;
+        case "error":
+          setLastError(message.payload.detail);
+          break;
+        case "subtitle":
+          setSubtitles((current) => [message.payload, ...current].slice(0, 20));
+          break;
         default:
           break;
       }
@@ -88,6 +104,7 @@ export function useControlLink(): ControlLink {
       const socket = new WebSocket(ENDPOINT);
       socketRef.current = socket;
       setState("connecting");
+      setLastError(null);
 
       socket.addEventListener("open", () => {
         if (disposed || socketRef.current !== socket) return;
@@ -177,6 +194,14 @@ export function useControlLink(): ControlLink {
     });
   }, [sendComment]);
 
+  const speak = useCallback(
+    (text: string) => {
+      if (text.trim().length === 0) return;
+      send({ type: "speak", payload: { text } });
+    },
+    [send],
+  );
+
   return useMemo(
     () => ({
       state,
@@ -184,12 +209,28 @@ export function useControlLink(): ControlLink {
       mode,
       personaName,
       settings,
+      lastError,
+      subtitles,
       sendComment,
       sendOperator,
       saveSettings,
+      speak,
       simulateBurst,
     }),
-    [state, snapshot, mode, personaName, settings, sendComment, sendOperator, saveSettings, simulateBurst],
+    [
+      state,
+      snapshot,
+      mode,
+      personaName,
+      settings,
+      lastError,
+      subtitles,
+      sendComment,
+      sendOperator,
+      saveSettings,
+      speak,
+      simulateBurst,
+    ],
   );
 }
 

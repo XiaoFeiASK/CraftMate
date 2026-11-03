@@ -16,6 +16,7 @@
     "dev:desktop": "npm run dev -w @craftmate/desktop-shell",
     "dev:orchestrator": "npm run dev -w @craftmate/orchestrator",
     "dev:ingress": "npm run dev -w @craftmate/ingress",
+    "dev:voice": "npm run dev -w @craftmate/voice",
     "start:ingress": "npm run start -w @craftmate/ingress",
     "dev:bridge": "node --experimental-strip-types tools/bridge/sim-body.mjs",
     "bridge:smoke": "node --experimental-strip-types tools/bridge/smoke.mjs",

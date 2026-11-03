@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@craftmate/contracts": "*",
+    "@craftmate/local-auth": "*",
     "ws": "^8.18.0",
     "zod": "^3.24.1"
   },
