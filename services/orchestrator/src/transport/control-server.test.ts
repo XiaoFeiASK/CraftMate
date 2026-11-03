@@ -1,6 +1,13 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { Show, dafeiyu } from "@craftmate/agent";
+import { Planner, Show, dafeiyu, type PlanRequest, type PlanResult } from "@craftmate/agent";
+import {
+  MemoryActionPort,
+  connectBridgeClient,
+  createBridgeUpgrade,
+  type BridgeUpgrade,
+} from "@craftmate/bridge";
+import type { BridgeHealth, Decision } from "@craftmate/contracts";
 import { WebSocket } from "ws";
 import { createControlServer } from "./control-server.ts";
 
@@ -95,6 +102,17 @@ function closeCode(socket: WebSocket): Promise<number> {
       clearTimeout(timer);
       resolve(code);
     });
+  });
+}
+
+function openControl(port: number): Promise<WebSocket> {
+  const socket = new WebSocket(`ws://127.0.0.1:${port}/control`);
+  return new Promise((resolve, reject) => {
+    socket.once("open", () => {
+      socket.send(JSON.stringify({ type: "hello" }));
+      resolve(socket);
+    });
+    socket.once("error", reject);
   });
 }
 
@@ -208,6 +226,175 @@ describe("ingress authentication", () => {
   });
 });
 
+describe("operator control to the game body", () => {
+  const bridgeToken = "bridge-test-token-0123456789";
+
+  async function withBridge(
+    run: (context: {
+      readonly port: number;
+      readonly bridge: BridgeUpgrade;
+      readonly control: WebSocket;
+      readonly body: ReturnType<typeof connectBridgeClient>["body"];
+      readonly actions: MemoryActionPort;
+    }) => Promise<void>,
+    options: {
+      readonly show?: Show;
+      readonly dispatchSkill?: (decision: Decision) => void;
+      readonly speech?: { speak(input: { commitmentId: string }): void };
+      readonly voice?: { speak(): void; stop(reason?: string): void };
+    } = {},
+  ): Promise<void> {
+    const show = options.show ?? new Show({ persona: dafeiyu });
+    const actions = new MemoryActionPort();
+    const bridge = createBridgeUpgrade({
+      token: bridgeToken,
+      sessionId: "control-test",
+      actions,
+    });
+    const server = createControlServer({
+      show,
+      port: 0,
+      ingressToken: TEST_TOKEN,
+      bridge,
+      ...(options.dispatchSkill === undefined ? {} : { dispatchSkill: options.dispatchSkill }),
+      ...(options.speech === undefined ? {} : { speech: options.speech }),
+      ...(options.voice === undefined ? {} : { voice: options.voice }),
+    });
+    const port = await server.listening;
+    const client = connectBridgeClient({
+      url: `ws://127.0.0.1:${port}/bridge`,
+      token: bridgeToken,
+      ticksPerCommand: 20,
+    });
+    await client.open;
+    await delay(80);
+    const control = await openControl(port);
+    try {
+      await run({ port, bridge, control, body: client.body, actions });
+    } finally {
+      control.close();
+      await client.close();
+      await server.close();
+    }
+  }
+
+  test("takeover, release and stop reach the connected body", async () => {
+    await withBridge(async ({ bridge, control, body }) => {
+      const owners: string[] = [];
+      control.on("message", (raw) => {
+        const frame = JSON.parse(raw.toString()) as { type: string; payload?: BridgeHealth };
+        if (frame.type === "bridge" && frame.payload) owners.push(frame.payload.owner);
+      });
+      assert.equal(bridge.health().owner, "agent");
+
+      control.send(JSON.stringify({ type: "operator", payload: { kind: "takeover", text: "接管" } }));
+      await delay(60);
+      assert.equal(bridge.health().owner, "operator");
+      assert.equal(body.state().owner, "operator");
+      assert.ok(owners.includes("operator"));
+
+      control.send(JSON.stringify({ type: "operator", payload: { kind: "release", text: "交还" } }));
+      await delay(60);
+      assert.equal(bridge.health().owner, "agent");
+      assert.equal(body.state().owner, "agent");
+      assert.ok(owners.includes("agent"));
+
+      control.send(JSON.stringify({ type: "operator", payload: { kind: "stop", text: "急停" } }));
+      await delay(60);
+      assert.equal(bridge.health().owner, "none");
+      assert.equal(body.state().owner, "none");
+      assert.ok(owners.includes("none"));
+    });
+  });
+
+  test("takeover cancels the running action and releases held keys", async () => {
+    await withBridge(async ({ bridge, control, body, actions }) => {
+      bridge.session.issue({
+        v: 1,
+        type: "cmd",
+        id: "running-1",
+        op: "mine_block",
+        args: { block: "minecraft:iron_ore" },
+        priority: "command",
+        idempotencyKey: "running-key-1",
+      });
+      await delay(80);
+      assert.equal(body.state().pressed.length > 0, true);
+
+      control.send(JSON.stringify({ type: "operator", payload: { kind: "takeover", text: "接管" } }));
+      await delay(60);
+
+      assert.deepEqual(body.state().pressed, []);
+      assert.equal(body.state().task, null);
+      assert.equal(actions.snapshot()[0]?.status, "cancelled");
+    });
+  });
+
+  test("takeover and stop both silence voice", async () => {
+    const stopped: string[] = [];
+    await withBridge(
+      async ({ control }) => {
+        control.send(JSON.stringify({ type: "operator", payload: { kind: "takeover", text: "接管" } }));
+        await delay(40);
+        control.send(JSON.stringify({ type: "operator", payload: { kind: "stop", text: "急停" } }));
+        await delay(40);
+        assert.deepEqual(stopped, ["操作员接管", "急停"]);
+      },
+      { voice: { speak: () => undefined, stop: (reason) => stopped.push(reason ?? "") } },
+    );
+  });
+
+  test("a plan that finishes after takeover and release is discarded", async () => {
+    let releasePlan: ((result: PlanResult) => void) | null = null;
+    const provider = {
+      id: "fake",
+      model: "fake-1",
+      plan: (request: PlanRequest): Promise<PlanResult> =>
+        new Promise((resolve) => {
+          releasePlan = resolve;
+          void request;
+        }),
+    };
+    const show = new Show({
+      persona: dafeiyu,
+      planner: new Planner({ provider, deadlineMs: 2_000 }),
+    });
+    const dispatched: string[] = [];
+    const spoken: string[] = [];
+
+    await withBridge(
+      async ({ control }) => {
+        control.send(JSON.stringify({ type: "comment", payload: commentEvent("late-plan") }));
+        await delay(60);
+        assert.notEqual(releasePlan, null);
+
+        control.send(JSON.stringify({ type: "operator", payload: { kind: "takeover", text: "接管" } }));
+        await delay(20);
+        control.send(JSON.stringify({ type: "operator", payload: { kind: "release", text: "交还" } }));
+        await delay(20);
+
+        releasePlan?.({
+          speech: "好，我去挖矿。",
+          skill: { name: "mine_block", args: { block: "minecraft:iron_ore", count: 1 }, idempotencyKey: "late-key" },
+          reason: "model",
+          provider: "fake",
+          model: "fake-1",
+        });
+        await delay(80);
+
+        assert.deepEqual(dispatched, []);
+        assert.deepEqual(spoken, []);
+        assert.equal(show.snapshot().mode, "agent");
+      },
+      {
+        show,
+        dispatchSkill: (decision) => dispatched.push(decision.id),
+        speech: { speak: ({ commitmentId }) => spoken.push(commitmentId) },
+      },
+    );
+  });
+});
+
 describe("voice bridge", () => {
   test("publishes voice status and subtitles to the console", async () => {
     const server = createControlServer({
@@ -295,4 +482,8 @@ function commentEvent(id: string): unknown {
     text: "去挖矿",
     ts: 1_000,
   };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
