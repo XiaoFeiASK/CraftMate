@@ -31,6 +31,7 @@ npm install
 脚本会检查 Node.js 版本、在需要时安装依赖，然后同时启动：
 
 - Orchestrator：`ws://127.0.0.1:4321/control`，健康检查 `http://127.0.0.1:4321/health`
+- Voice：`ws://127.0.0.1:4323/voice`，健康检查 `http://127.0.0.1:4323/health`
 - 桌面窗口：Tauri 原生应用，自动弹出 CraftMate 窗口
 
 在 Finder 里双击也会打开终端并运行它。也可以跳过脚本直接运行 `npm run dev`。
@@ -55,8 +56,26 @@ npx tsx tools/mock.ts
 
 ```bash
 npm run dev:orchestrator
+npm run dev:voice
 npm run dev:console
 ```
+
+控制面和 Voice 共用一个本机 token，默认保存在 `~/.craftmate/ingress-token`
+（权限 `0600`）。设 `CRAFTMATE_TOKEN` 可覆盖；设 `CRAFTMATE_TOKEN_FILE` 可改路径。
+不要把 token 写进 URL 或提交到仓库。
+
+没有配置真实 TTS 时，Voice 以「仅字幕」模式运行：合成器返回空音频，
+控制台仍能看到 `speaking / spoken / failed` 事件。接真实供应商：
+
+```bash
+TTS_PRIMARY_URL=http://127.0.0.1:9000/tts \
+TTS_PRIMARY_KEY=... \
+TTS_BACKUP_URL=http://127.0.0.1:9001/tts \
+npm run dev:voice
+```
+
+播放默认调用 macOS `afplay`；可用 `AUDIO_PLAYER` 换命令。音频路由
+（BlackHole → OBS）尚未自动配置，需要在本机音频设置里手动完成。
 
 接入真实抖音评论（需要先在本机跑起 dyhub）：
 
@@ -65,7 +84,11 @@ DOUYIN_ROOM_ID=<直播间号> npx tsx services/ingress/src/main.ts
 ```
 
 `DYHUB_URL` 默认 `ws://127.0.0.1:8757`，`CRAFTMATE_INGRESS` 默认
-`ws://127.0.0.1:4321/ingress`。仓库还没有 `dev:ingress` 脚本。
+`ws://127.0.0.1:4321/ingress`。Orchestrator 只接受本机来源且 token 正确的
+ingress；伪造 token、未 `hello` 或非 loopback 连接会被直接关闭。
+
+Ingress 健康检查 `http://127.0.0.1:4322/health` 会同时返回丢弃原因计数，
+例如 `rate limited` / `queue full`。
 
 ## 3. 验证
 
