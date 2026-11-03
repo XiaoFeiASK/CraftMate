@@ -2,6 +2,7 @@ export { openDatabase, loadMigrations, type Migration, type OpenOptions } from "
 export { SqliteRecorder } from "./recorder.ts";
 export {
   ActionStore,
+  CommitmentStore,
   DecisionStore,
   SettingsStore,
   SessionStore,

@@ -22,7 +22,8 @@ SQLite 是单机运行时的持久层。迁移文件在这里，连接、迁移�
 
 `0001_initial.sql` 覆盖 12 组实体、15 张表（含 FTS 主表）与 4 个视图；
 `0002_show_settings.sql` 增加按场次保存的可变配置，`0003` 清掉初版误建的
-`app_preference`（界面偏好存在浏览器本机，服务端不读）：
+`app_preference`（界面偏好存在浏览器本机，服务端不读），`0004` 增加原文
+过期审计（每个 source 每种动作只记一次）：
 
 - `persona` / `persona_version`
 - `show_session`
@@ -36,6 +37,7 @@ SQLite 是单机运行时的持久层。迁移文件在这里，连接、迁移�
 - `incident`
 - `schema_migration`
 - `show_settings`（`0002`，一场一行，JSON 内容由契约校验）
+- `source_retention_audit`（`0004`，原文清理证据：source、动作、哈希、时间）
 
 运行时由 `openDatabase()` 在启动时自动建库并跑迁移；`db:check` 只做独立校验，
 不写任何真实数据库。
@@ -58,6 +60,7 @@ node tools/check-schema.mjs /path/to/dir   # 任意目录，用完即删
 - 承诺和动作终态必须有结束时间。
 - 每条决策必须记录优先级，不在仓储层猜默认值。
 - 非法决策、记忆状态被拒绝。
+- 同一 source 的原文清理审计不能重复，未知动作被拒绝。
 - 当前决策、开放承诺、当前记忆视图返回正确结果。
 - FTS5 trigram 索引可检索中文片段。
 - FTS 命中不会被误当成有效记忆（必须连 `memory_active`）。
@@ -69,4 +72,17 @@ tokenizer，不在 v1 里同时维护两套索引。
 
 FTS 表包含所有记忆版本。召回查询必须连接 `memory_active`（或
 `memory_current` 并显式检查 state），不能直接拿 FTS 命中当可用记忆。
+
+## 保留策略
+
+`source.raw_expires_at_ms = received_at_ms + 24h`。Orchestrator 启动时先清一轮，
+之后每小时执行一次 `SourceStore.expireRawText()`，每批 500 行、每批独立事务：
+
+- 只清 `raw_text`，保留 `content_hash`、`payload_json`、`external_event_id`、
+  `received_at_ms`，所以去重和统计不受影响。
+- 每个被清理的 source 写入一行 `source_retention_audit`
+  （`action = 'raw_text_expired'`）。唯一索引保证重跑不会产生第二条。
+- 清理失败只记录错误并等下一轮，不阻塞直播；审计和原文清空在同一事务内，
+  不会出现「清了原文但没有证据」。
+- 决定、承诺和动作记录不随原文过期删除；它们的可解释性只依赖 ID 与哈希。
 

@@ -938,12 +938,64 @@
 
 .connection-row strong { margin-left: auto; color: var(--ink); font-weight: 520; }
 
+.connection-error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--coral) 35%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--coral) 8%, transparent);
+  color: var(--coral);
+  font-size: calc(11px * var(--ui-scale));
+  line-height: 1.6;
+}
+
 .panel-note {
   margin: 23px 0 0;
   color: var(--ink-faint);
   font-size: calc(11px * var(--ui-scale));
   line-height: 1.7;
 }
+
+.voice-preview {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.voice-preview .input { flex: 1; }
+
+.subtitle-log {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+
+.subtitle-log h3 {
+  margin: 0 0 10px;
+  color: var(--ink-faint);
+  font-size: calc(10px * var(--ui-scale));
+  font-weight: 560;
+}
+
+.subtitle-log p {
+  display: flex;
+  gap: 9px;
+  margin: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink);
+  font-size: calc(12px * var(--ui-scale));
+  line-height: 1.6;
+}
+
+.subtitle-log p span {
+  flex: 0 0 auto;
+  color: var(--ink-faint);
+  font-size: calc(10px * var(--ui-scale));
+}
+
+.subtitle-log p[data-state="failed"] { color: var(--coral); }
+.subtitle-log p[data-state="cancelled"] { color: var(--ink-faint); }
 
 /* ---------- persona weights ---------- */
 

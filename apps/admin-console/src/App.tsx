@@ -13,10 +13,13 @@ export function App(): React.JSX.Element {
     mode,
     personaName,
     settings,
+    lastError,
+    subtitles,
     sendComment,
     sendOperator,
     saveSettings,
     simulateBurst,
+    speak,
   } = useControlLink();
   const { preferences, update, reset } = usePreferences();
   const [drawer, setDrawer] = useState<DrawerMode | null>(null);
@@ -39,6 +42,7 @@ export function App(): React.JSX.Element {
           settings={settings}
           sourceHealth={snapshot.sourceHealth}
           stats={snapshot.stats}
+          voiceStatus={snapshot.voiceStatus}
           onSelect={setDrawer}
         />
         <LiveHero reduceMotion={preferences.reduceMotion} />
@@ -51,12 +55,15 @@ export function App(): React.JSX.Element {
           showMode={mode}
           personaName={personaName}
           snapshot={snapshot}
+          lastError={lastError}
+          subtitles={subtitles}
           settings={settings}
           preferences={preferences}
           onClose={() => setDrawer(null)}
           onComment={sendComment}
           onOperator={sendOperator}
           onBurst={simulateBurst}
+          onSpeak={speak}
           onSaveSettings={saveSettings}
           onPreferences={update}
           onResetPreferences={reset}

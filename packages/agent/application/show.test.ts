@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import { dafeiyu } from "../domain/index.ts";
 import type { AudienceEvent } from "@craftmate/contracts";
 import type { Clock } from "./ports/clock.ts";
-import { Show } from "./show.ts";
+import { MemoryAudienceStore, Show } from "./show.ts";
 
 const comment = (id: string, at: number): AudienceEvent => ({
   id,
@@ -97,5 +97,26 @@ describe("show settings", () => {
     assert.equal(show.personaSummary().weights.obedience, 0.1);
     assert.notEqual(before, show.personaSummary().weights.obedience);
     assert.equal(show.currentSettings().goal, "去钓鱼");
+  });
+});
+
+describe("show memory bounds", () => {
+  test("the fast-path dedupe set does not grow without limit", () => {
+    const { show } = createShow();
+    for (let index = 0; index < 2_500; index += 1) {
+      show.ingest(comment(`c${index}`, 1_000));
+    }
+    const seen = (show as unknown as { seen: Set<string> }).seen;
+    assert.ok(seen.size <= 2_000);
+  });
+
+  test("the audience store evicts the oldest viewer", () => {
+    const store = new MemoryAudienceStore({ now: () => 1_000, newId: () => "id" }, 2);
+    store.recordCommand("viewer-1", "mine", 1);
+    store.recordCommand("viewer-2", "mine", 2);
+    store.recordCommand("viewer-3", "mine", 3);
+
+    assert.equal(store.lastCommandAt("viewer-1"), null);
+    assert.equal(store.lastCommandAt("viewer-3"), 3);
   });
 });

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { audienceEventSchema, sourceHealthSchema } from "./audience.ts";
 import { decisionSchema } from "./decision.ts";
 import { showSettingsSchema } from "./settings.ts";
+import { voiceStatusSchema, voiceSubtitleSchema } from "./voice.ts";
 
 export const showModeSchema = z.enum(["agent", "operator", "stopped"]);
 export type ShowMode = z.infer<typeof showModeSchema>;
@@ -40,6 +41,7 @@ export const showSnapshotSchema = z.object({
   decisions: z.array(decisionSchema).readonly(),
   operatorNotice: operatorNoticeSchema.nullable(),
   sourceHealth: sourceHealthSchema.nullable().default(null),
+  voiceStatus: voiceStatusSchema.nullable().default(null),
 });
 export type ShowSnapshot = z.infer<typeof showSnapshotSchema>;
 
@@ -60,6 +62,10 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("comment"), payload: audienceEventSchema }),
   z.object({ type: z.literal("operator"), payload: operatorCommandSchema }),
   z.object({ type: z.literal("settings"), payload: showSettingsSchema }),
+  z.object({
+    type: z.literal("speak"),
+    payload: z.object({ text: z.string().trim().min(1).max(2_000) }),
+  }),
 ]);
 export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
@@ -78,6 +84,8 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("operator"), payload: operatorCommandSchema }),
   z.object({ type: z.literal("source"), payload: sourceHealthSchema }),
   z.object({ type: z.literal("settings"), payload: showSettingsSchema }),
+  z.object({ type: z.literal("voice"), payload: voiceStatusSchema }),
+  z.object({ type: z.literal("subtitle"), payload: voiceSubtitleSchema }),
   z.object({
     type: z.literal("error"),
     payload: z.object({ code: z.string(), detail: z.string() }),
