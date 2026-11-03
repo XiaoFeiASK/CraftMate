@@ -82,6 +82,7 @@
 npm install
 ./start.command          # 桌面窗口 + Orchestrator + Voice
 ./start.command --web    # 浏览器预览 + Orchestrator + Voice
+./stop.command           # 结束本项目的全部本地开发进程
 npm run dev              # 跳过环境检查，直接启动
 ```
 
@@ -125,7 +126,8 @@ craftmate/
 ├─ tools/                开发、模拟弹幕与 Bridge 验证脚本
 ├─ docs/                 架构、技术细节、计划与状态
 ├─ licenses/             MIT 与 Apache-2.0 全文
-└─ start.command         一键启动本机开发环境
+├─ start.command         一键启动本机开发环境
+└─ stop.command          一键停止本机开发环境
 ```
 
 `services/supervisord/` 与 `mods/` 属于目标态，当前不存在。目录树不为未实现的部分预埋空壳。

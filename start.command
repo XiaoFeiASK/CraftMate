@@ -75,14 +75,14 @@ port_in_use() {
 
 ORCHESTRATOR_PORT="${CRAFTMATE_PORT:-4321}"
 if port_in_use "$ORCHESTRATOR_PORT"; then
-  fail "端口 ${ORCHESTRATOR_PORT} 已被占用。请停止占用进程，或运行 CRAFTMATE_PORT=4400 ./start.command"
+  fail "端口 ${ORCHESTRATOR_PORT} 已被占用。请先运行 ./stop.command 清理本项目残留进程；若被其他程序占用，请停止它或运行 CRAFTMATE_PORT=4400 ./start.command"
 fi
 VOICE_PORT="${VOICE_PORT:-4323}"
 if port_in_use "$VOICE_PORT"; then
-  fail "端口 ${VOICE_PORT} 已被占用。请停止占用进程，或运行 VOICE_PORT=4402 ./start.command"
+  fail "端口 ${VOICE_PORT} 已被占用。请先运行 ./stop.command 清理本项目残留进程；若被其他程序占用，请停止它或运行 VOICE_PORT=4402 ./start.command"
 fi
 if port_in_use 5173; then
-  fail "端口 5173 已被占用。请先停止占用该端口的进程。"
+  fail "端口 5173 已被占用。请先运行 ./stop.command 清理本项目残留进程；若被其他程序占用，请停止它。"
 fi
 
 info "Orchestrator: ws://127.0.0.1:${ORCHESTRATOR_PORT}/control"

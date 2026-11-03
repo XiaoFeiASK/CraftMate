@@ -36,6 +36,17 @@ npm install
 
 在 Finder 里双击也会打开终端并运行它。也可以跳过脚本直接运行 `npm run dev`。
 
+停止全部本地开发进程：
+
+```bash
+./stop.command
+```
+
+脚本只结束工作目录属于本仓库的 Orchestrator、Voice、Vite、Tauri 与相关子进程，
+并检查 `4321`、`4322`、`4323`、`5173`、`4391` 是否释放。使用 `--dry-run` 可以
+先查看将要停止的进程；占用端口的其他程序不会被结束，脚本会打印其 PID 和
+工作目录供确认。
+
 只在浏览器里预览界面（不打开桌面窗口）：
 
 ```bash
@@ -146,7 +157,7 @@ SQLite 是嵌入式库，**不需要也不应该**单独跑数据库进程。`np
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | `ERR_UNKNOWN_FILE_EXTENSION` | Node 版本低于 22.5 | 升级 Node |
-| `EADDRINUSE :4321` | 已有实例在跑 | 停掉旧进程，或设 `CRAFTMATE_PORT` |
+| `EADDRINUSE :4321` | 已有实例或残留进程在跑 | 运行 `./stop.command`；被其他程序占用时手动停止或设 `CRAFTMATE_PORT` |
 | 启动即报 `migration ... changed after being applied` | 改过已应用的迁移文件 | 恢复文件内容，新增迁移而不是改旧的 |
 | `db:check` 报 not empty | 指向了已有数据库 | 换一个新路径，或传目录让它建临时库 |
 | 桌面窗口打不开 | 缺 Rust / Cargo | 安装 Rust，或先用 `./start.command --web` |
