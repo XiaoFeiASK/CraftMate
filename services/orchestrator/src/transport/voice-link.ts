@@ -34,7 +34,12 @@ export function connectVoice(options: VoiceLinkOptions): VoiceLink {
   let attempt = 0;
   let disposed = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  const pending: unknown[] = [];
+  /**
+   * Commands queued while the link is down. A stop invalidates everything
+   * already waiting, so a reconnect cannot replay promises the operator
+   * silenced while Voice was unreachable.
+   */
+  let pending: unknown[] = [];
 
   const send = (frame: unknown): void => {
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame));
@@ -98,8 +103,12 @@ export function connectVoice(options: VoiceLinkOptions): VoiceLink {
           commitmentId: command.commitmentId,
         },
       }),
-    stop: (reason = "operator stop") =>
-      send({ type: "command", payload: { type: "stop", reason } }),
+    stop: (reason = "operator stop") => {
+      // A stop is a control fact, not a queued line: drop anything the outage
+      // buffered before it so reconnecting cannot replay stale promises.
+      pending = [];
+      send({ type: "command", payload: { type: "stop", reason } });
+    },
     close: () => {
       disposed = true;
       if (timer) clearTimeout(timer);

@@ -150,6 +150,12 @@ export function createControlServer({
   });
   const connections = new Set<Connection>();
   let ingressFailures: number[] = [];
+  /**
+   * Increments whenever an operator changes control. A plan that was already
+   * in flight belongs to the old generation and may not produce speech or a
+   * bridge command after the operator took over, released, or stopped.
+   */
+  let controlGeneration = 0;
 
   const pruneIngressFailures = (): void => {
     const now = Date.now();
@@ -178,20 +184,50 @@ export function createControlServer({
     for (const connection of connections) send(connection.socket, message);
   };
 
+  const publishBridgeHealth = (health: BridgeHealth | null): void => {
+    show.setBridgeHealth(health);
+    if (health !== null) broadcast({ type: "bridge", payload: health });
+  };
+
+  const controlBridge = (kind: "takeover" | "release" | "stop"): void => {
+    if (!bridge) return;
+    try {
+      switch (kind) {
+        case "takeover":
+          bridge.session.takeOver("operator takeover");
+          break;
+        case "release":
+          bridge.session.release();
+          break;
+        case "stop":
+          bridge.session.emergencyStop("operator emergency stop");
+          break;
+      }
+    } catch (error) {
+      console.warn(
+        `orchestrator: bridge ${kind} failed — ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  };
+
   /**
    * Ingest → broadcast → plan. The scored decision reaches the console
    * immediately; the planned rewrite replaces it in place once the model
    * answers, so a slow provider never delays the visible decision stream.
    */
   const handleDecision = (raw: unknown): void => {
+    const generation = controlGeneration;
     const decision = show.ingest(raw);
     if (!decision) return;
     broadcast({ type: "decision", payload: decision });
     broadcast({ type: "snapshot", payload: show.snapshot() });
-    void planAndSpeak(decision);
+    void planAndSpeak(decision, generation);
   };
 
-  const planAndSpeak = async (decision: Decision): Promise<void> => {
+  const planAndSpeak = async (decision: Decision, generation: number): Promise<void> => {
+    if (generation !== controlGeneration || show.snapshot().mode !== "agent") return;
     let planned: Decision;
     try {
       planned = await show.plan(decision);
@@ -203,6 +239,9 @@ export function createControlServer({
       );
       return;
     }
+    // The operator may have acted while the model was answering. Releasing
+    // control does not revive this plan: only a new decision may act.
+    if (generation !== controlGeneration || show.snapshot().mode !== "agent") return;
     if (planned !== decision) {
       broadcast({ type: "decision", payload: planned });
       broadcast({ type: "snapshot", payload: show.snapshot() });
@@ -269,9 +308,16 @@ export function createControlServer({
       }
 
       if (parsed.data.type === "operator") {
-        show.applyOperator(parsed.data.payload);
-        if (parsed.data.payload.kind === "stop") voice?.stop("急停");
-        broadcast({ type: "operator", payload: parsed.data.payload });
+        const command = parsed.data.payload;
+        if (command.kind !== "whisper") controlGeneration += 1;
+        if (command.kind === "takeover") voice?.stop("操作员接管");
+        if (command.kind === "stop") voice?.stop("急停");
+        if (command.kind === "takeover" || command.kind === "release" || command.kind === "stop") {
+          controlBridge(command.kind);
+        }
+        show.applyOperator(command);
+        if (bridge) publishBridgeHealth(bridge.health());
+        broadcast({ type: "operator", payload: command });
         broadcast({ type: "snapshot", payload: show.snapshot() });
         return;
       }
@@ -465,10 +511,7 @@ export function createControlServer({
     publishSubtitle: (subtitle) => {
       broadcast({ type: "subtitle", payload: subtitle });
     },
-    publishBridgeHealth: (health) => {
-      show.setBridgeHealth(health);
-      if (health !== null) broadcast({ type: "bridge", payload: health });
-    },
+    publishBridgeHealth,
     close: async () => {
       for (const { socket } of connections) socket.close();
       await new Promise<void>((resolve) => wss.close(() => resolve()));
