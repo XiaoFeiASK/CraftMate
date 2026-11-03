@@ -80,15 +80,21 @@ Orchestrator、Ingress 与 Voice 共用一个本机 token，默认保存在 `~/.
 DeepSeek 使用 OpenAI 兼容接口；可在 `CRAFTMATE_MODEL` 设置 YYAPI 已开通的模型名。仓库示例采用 `deepseek-v4.1-flash`；可用 `CRAFTMATE_MODEL_TIMEOUT_MS`
 设置模型等待上限，超时后会降级模板。接入面板会显示模型 Provider 与模型名，不会显示 Key。
 
-没有配置真实 TTS URL 时，Voice 以「仅字幕」模式运行：合成器返回空音频，
-控制台仍能看到 `speaking / spoken / failed` 事件。接真实供应商：
+Voice 必须配置端到端实时语音；缺少 Provider、Key 或音色时启动会失败：
 
 ```bash
-TTS_PRIMARY_URL=http://127.0.0.1:9000/tts \
+TTS_PRIMARY_PROVIDER=volcengine-realtime \
 TTS_PRIMARY_KEY=... \
-TTS_BACKUP_URL=http://127.0.0.1:9001/tts \
+TTS_PRIMARY_VOICE_ID=zh_female_vv_uranus_bigtts \
 npm run dev:voice
 ```
+
+当前语音使用豆包「端到端实时语音（Seeduplex）」：
+`wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue`。
+Voice 为每句已决定好的字幕建立会话，发送 `session.create` 与
+`speech_text_buffer.commit`，再把流式返回的 24kHz PCM 封装为 WAV 播放。
+模型只负责发声，不接收观众评论，也不参与 CraftMate 的决策与工具调用。
+`TTS_PRIMARY_INSTRUCTIONS` 用于设定「大肥鱼」的音色与说话方式。
 
 播放默认调用 macOS `afplay`；可用 `AUDIO_PLAYER` 换命令。音频路由
 （BlackHole → OBS）尚未自动配置，需要在本机音频设置里手动完成。
@@ -99,13 +105,12 @@ Voice 的配置变量：
 | --- | --- | --- |
 | `VOICE_PORT` | `4323` | Voice WebSocket 与健康检查端口 |
 | `VOICE_HOST` | `127.0.0.1` | 监听地址 |
-| `TTS_PRIMARY_URL` | 空 | 主 TTS HTTP 端点；未配置时进入仅字幕模式 |
-| `TTS_PRIMARY_KEY` | 空 | 主 TTS 的 Bearer token |
-| `TTS_PRIMARY_PROVIDER` | 空 | 设置为 `volcengine` 时使用豆包语音 V3 SSE 接口 |
-| `TTS_PRIMARY_RESOURCE_ID` | `seed-tts-2.0` | 火山引擎资源 ID，按账号开通的模型填写 |
-| `TTS_PRIMARY_VOICE_ID` | `zh_female_vv_uranus_bigtts` | 豆包语音发音人 ID；改成账号已开通的音色 |
-| `TTS_BACKUP_URL` | 空 | 备用 TTS HTTP 端点 |
-| `TTS_BACKUP_KEY` | 空 | 备用 TTS 的 Bearer token |
+| `TTS_PRIMARY_URL` | Seeduplex 官方端点 | 端到端实时语音 WebSocket 地址 |
+| `TTS_PRIMARY_KEY` | 空 | 主 TTS 的 API Key 或 Bearer token |
+| `TTS_PRIMARY_PROVIDER` | `volcengine-realtime` | 使用豆包端到端实时语音 |
+| `TTS_PRIMARY_VOICE_ID` | `zh_female_vv_uranus_bigtts` | 端到端实时语音的发声人 |
+| `TTS_PRIMARY_INSTRUCTIONS` | 大肥鱼提示词 | 固定人格、音色和朗读方式 |
+| `TTS_SYNTHESIS_TIMEOUT_MS` | `300000` | 单句实时语音会话的等待上限 |
 | `AUDIO_PLAYER` | `afplay` | 播放命令 |
 | `CRAFTMATE_VOICE` | `ws://127.0.0.1:4323/voice` | Orchestrator 连接的 Voice 地址 |
 

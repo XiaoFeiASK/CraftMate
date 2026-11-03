@@ -1,69 +1,93 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { test } from "node:test";
-import { HttpTtsProvider, VolcengineTtsProvider } from "./providers.ts";
+import { DAFEIYU_REALTIME_INSTRUCTIONS, VolcengineRealtimeTtsProvider } from "./providers.ts";
 
-test("HTTP TTS sends the configured bearer key and returns provider audio bytes", async () => {
-  let requestBody: unknown;
-  const provider = new HttpTtsProvider({
-    id: "test-tts",
-    url: "https://tts.example.test/synthesize",
-    headers: { authorization: "Bearer test-only-key" },
-    body: (request) => ({ text: request.text, voice_id: "configured-voice", speed: request.voice.speed }),
-    fetchImpl: async (input, init) => {
-      assert.equal(input, "https://tts.example.test/synthesize");
-      assert.equal(new Headers(init?.headers).get("authorization"), "Bearer test-only-key");
-      requestBody = JSON.parse(String(init?.body));
-      return new Response(new Uint8Array([1, 2, 3]), {
-        headers: { "content-type": "audio/mpeg" },
-      });
+class FakeRealtimeSocket extends EventEmitter {
+  readonly sent: string[] = [];
+  readyState = 0;
+  send(data: string): void {
+    this.sent.push(data);
+  }
+  close(): void {
+    this.readyState = 3;
+    this.emit("close", 1000, Buffer.alloc(0));
+  }
+}
+
+test("Volcengine realtime provider creates a session and emits committed text", async () => {
+  const socket = new FakeRealtimeSocket();
+  let requestUrl = "";
+  let requestHeaders: Record<string, string> = {};
+  const provider = new VolcengineRealtimeTtsProvider({
+    apiKey: "realtime-test-key",
+    socketFactory: (url, headers) => {
+      requestUrl = url;
+      requestHeaders = headers;
+      return socket;
     },
   });
-
-  const audio = await provider.synthesize({
-    text: "你好呀。",
-    voice: { provider: "test", voiceId: "dafeiyu", speed: 1.05 },
+  const pending = provider.synthesize({
+    text: "唔，肥鱼来啦。",
+    voice: { provider: "volcengine-realtime", voiceId: "zh_female_vv_uranus_bigtts", speed: 1.05 },
     signal: new AbortController().signal,
   });
+  socket.emit("open");
+  const create = JSON.parse(socket.sent[0] ?? "{}");
+  assert.equal(requestUrl, "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue");
+  assert.equal(requestHeaders["X-Api-Key"], "realtime-test-key");
+  assert.equal(create.type, "session.create");
+  assert.equal(create.session.model, "1.2.6.1");
+  assert.equal(create.session.instructions, DAFEIYU_REALTIME_INSTRUCTIONS);
+  assert.equal(create.session.audio.output.voice, "zh_female_vv_uranus_bigtts");
+  assert.equal(create.session.audio.output.speed, 5);
+  assert.equal(create.session.audio.output.format.rate, 24_000);
 
-  assert.deepEqual(requestBody, { text: "你好呀。", voice_id: "configured-voice", speed: 1.05 });
-  assert.deepEqual([...audio.bytes], [1, 2, 3]);
-  assert.equal(audio.mediaType, "audio/mpeg");
+  socket.emit("message", JSON.stringify({ type: "session.created", session: { id: "dialog-1" } }));
+  assert.deepEqual(JSON.parse(socket.sent[1] ?? "{}"), {
+    event_id: JSON.parse(socket.sent[1] ?? "{}").event_id,
+    type: "speech_text_buffer.commit",
+    text: "唔，肥鱼来啦。",
+  });
+  socket.emit("message", JSON.stringify({ type: "response.output_audio.delta", delta: Buffer.from([1, 2]).toString("base64") }));
+  socket.emit("message", JSON.stringify({ type: "response.output_audio.delta", delta: Buffer.from([3, 4]).toString("base64") }));
+  socket.emit("message", JSON.stringify({ type: "response.output_audio.done" }));
+
+  const audio = await pending;
+  assert.equal(audio.mediaType, "audio/wav");
+  assert.equal(Buffer.from(audio.bytes).subarray(0, 4).toString(), "RIFF");
+  assert.deepEqual([...Buffer.from(audio.bytes).subarray(44)], [1, 2, 3, 4]);
 });
 
-test("Volcengine V3 SSE provider decodes audio events", async () => {
-  let requestBody: unknown;
-  const provider = new VolcengineTtsProvider({
-    apiKey: "volc-test-key",
-    resourceId: "seed-tts-2.0",
-    speaker: "zh_female_cancan_mars_bigtts",
-    fetchImpl: async (_input, init) => {
-      assert.equal(new Headers(init?.headers).get("X-Api-Key"), "volc-test-key");
-      assert.equal(new Headers(init?.headers).get("X-Api-Resource-Id"), "seed-tts-2.0");
-      requestBody = JSON.parse(String(init?.body));
-      return new Response(
-        [
-          'event: 352\ndata: {"code":0,"message":"","data":"AQI="}\n\n',
-          'event: 152\ndata: {"code":20000000,"message":"ok","data":null}\n\n',
-        ].join(""),
-        { headers: { "content-type": "text/event-stream" } },
-      );
-    },
+test("Volcengine realtime provider surfaces server errors", async () => {
+  const socket = new FakeRealtimeSocket();
+  const provider = new VolcengineRealtimeTtsProvider({
+    apiKey: "realtime-test-key",
+    socketFactory: () => socket,
   });
-
-  const audio = await provider.synthesize({
+  const pending = provider.synthesize({
     text: "你好。",
-    voice: { provider: "volcengine", voiceId: "", speed: 1.05 },
+    voice: { provider: "volcengine-realtime", voiceId: "dafeiyu", speed: 1 },
     signal: new AbortController().signal,
   });
+  socket.emit("open");
+  socket.emit("message", JSON.stringify({ type: "error", error: { code: "invalid_api_key", message: "bad key" } }));
+  await assert.rejects(pending, /invalid_api_key.*bad key/);
+});
 
-  assert.deepEqual(requestBody, {
-    user: { uid: "craftmate" },
-    req_params: {
-      text: "你好。",
-      speaker: "zh_female_cancan_mars_bigtts",
-      audio_params: { format: "mp3", sample_rate: 24_000, speech_rate: 5 },
-    },
+test("Volcengine realtime provider rejects a stream that closes without audio", async () => {
+  const socket = new FakeRealtimeSocket();
+  const provider = new VolcengineRealtimeTtsProvider({
+    apiKey: "realtime-test-key",
+    socketFactory: () => socket,
   });
-  assert.deepEqual([...audio.bytes], [1, 2]);
-  assert.equal(audio.mediaType, "audio/mpeg");
+  const pending = provider.synthesize({
+    text: "你好。",
+    voice: { provider: "volcengine-realtime", voiceId: "dafeiyu", speed: 1 },
+    signal: new AbortController().signal,
+  });
+  socket.emit("open");
+  socket.emit("message", JSON.stringify({ type: "session.created", session: { id: "dialog-1" } }));
+  socket.emit("close", 1000, "");
+  await assert.rejects(pending, /closed before audio completed/);
 });

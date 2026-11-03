@@ -1,5 +1,9 @@
 import { spawn } from "node:child_process";
+import { WebSocket } from "ws";
 import type { AudioSink, TtsAudio, TtsProvider, TtsRequest } from "./provider.ts";
+
+export const DAFEIYU_REALTIME_INSTRUCTIONS =
+  "你是软萌爱撒娇的蓝色鲸鱼娘「大肥鱼」。用清亮少女音、自然口语和一点嘴硬撒娇的语气，忠实朗读提供给你的台词，不添加、不改写台词。";
 
 /**
  * macOS playback through `afplay`. The bytes are passed over stdin so no
@@ -45,153 +49,179 @@ export class CommandAudioSink implements AudioSink {
   }
 }
 
-/**
- * HTTP TTS adapter for providers that accept `{ text, voice, speed }` and
- * answer with audio bytes. Provider-specific auth stays in headers, never in
- * logs or URLs.
- */
-export class HttpTtsProvider implements TtsProvider {
-  readonly id: string;
-  private readonly url: string;
-  private readonly headers: Record<string, string>;
-  private readonly timeoutMs: number;
-  private readonly body: (request: TtsRequest) => unknown;
-  private readonly fetchImpl: typeof fetch;
-
-  constructor(options: {
-    readonly id: string;
-    readonly url: string;
-    readonly headers?: Record<string, string>;
-    readonly timeoutMs?: number;
-    readonly body?: (request: TtsRequest) => unknown;
-    readonly fetchImpl?: typeof fetch;
-  }) {
-    this.id = options.id;
-    this.url = options.url;
-    this.headers = options.headers ?? {};
-    this.timeoutMs = options.timeoutMs ?? 6_000;
-    this.fetchImpl = options.fetchImpl ?? fetch;
-    this.body =
-      options.body ??
-      ((request) => ({
-        text: request.text,
-        voice_id: request.voice.voiceId,
-        speed: request.voice.speed,
-      }));
-  }
-
-  async synthesize(request: TtsRequest): Promise<TtsAudio> {
-    const response = await this.fetchImpl(this.url, {
-      method: "POST",
-      headers: { "content-type": "application/json", ...this.headers },
-      body: JSON.stringify(this.body(request)),
-      signal: AbortSignal.any([request.signal, AbortSignal.timeout(this.timeoutMs)]),
-    });
-    if (!response.ok) {
-      throw new Error(`${this.id} returned HTTP ${response.status}`);
-    }
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength === 0) throw new Error(`${this.id} returned empty audio`);
-    return {
-      bytes,
-      firstByteAt: Date.now(),
-      mediaType: response.headers.get("content-type") ?? "audio/mpeg",
-    };
-  }
+interface RealtimeSocket {
+  readonly readyState: number;
+  send(data: string): void;
+  close(): void;
+  on(event: "open", listener: () => void): this;
+  on(event: "message", listener: (data: unknown) => void): this;
+  on(event: "error", listener: (error: Error) => void): this;
+  on(event: "close", listener: (code: number, reason: unknown) => void): this;
+  once(event: "open", listener: () => void): this;
+  once(event: "message", listener: (data: unknown) => void): this;
+  once(event: "error", listener: (error: Error) => void): this;
+  once(event: "close", listener: (code: number, reason: unknown) => void): this;
 }
 
+type RealtimeSocketFactory = (url: string, headers: Record<string, string>) => RealtimeSocket;
+
 /**
- * Doubao/Volcengine V3 HTTP SSE adapter. The API key and resource selection
- * travel in headers; the response is a sequence of JSON events whose audio
- * chunks are base64 encoded.
+ * Doubao Seeduplex real-time speech adapter. It creates a socket per spoken
+ * segment, commits the already-decided line, and collects the streamed PCM.
+ * The model never owns conversation or tool decisions here; it only voices the
+ * text selected by CraftMate.
  */
-export class VolcengineTtsProvider implements TtsProvider {
-  readonly id = "volcengine";
+export class VolcengineRealtimeTtsProvider implements TtsProvider {
+  readonly id = "volcengine-realtime";
   private readonly apiKey: string;
-  private readonly resourceId: string;
-  private readonly defaultSpeaker: string;
+  private readonly url: string;
+  private readonly model: string;
+  private readonly voice: string;
+  private readonly instructions: string;
+  private readonly sampleRate: number;
   private readonly timeoutMs: number;
-  private readonly fetchImpl: typeof fetch;
+  private readonly socketFactory: RealtimeSocketFactory;
 
   constructor(options: {
     readonly apiKey: string;
-    readonly resourceId?: string;
-    readonly speaker: string;
+    readonly url?: string;
+    readonly model?: string;
+    readonly voice?: string;
+    readonly instructions?: string;
+    readonly sampleRate?: number;
     readonly timeoutMs?: number;
-    readonly fetchImpl?: typeof fetch;
+    readonly socketFactory?: RealtimeSocketFactory;
   }) {
     this.apiKey = options.apiKey;
-    this.resourceId = options.resourceId ?? "seed-tts-2.0";
-    this.defaultSpeaker = options.speaker;
-    this.timeoutMs = options.timeoutMs ?? 12_000;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.url = options.url ?? "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue";
+    this.model = options.model ?? "1.2.6.1";
+    this.voice = options.voice ?? "zh_female_vv_uranus_bigtts";
+    this.instructions = options.instructions ?? DAFEIYU_REALTIME_INSTRUCTIONS;
+    this.sampleRate = options.sampleRate ?? 24_000;
+    this.timeoutMs = options.timeoutMs ?? 300_000;
+    this.socketFactory =
+      options.socketFactory ??
+      ((url, headers) => new WebSocket(url, { headers }) as unknown as RealtimeSocket);
   }
 
   async synthesize(request: TtsRequest): Promise<TtsAudio> {
-    const response = await this.fetchImpl("https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "text/event-stream",
-        "X-Api-Key": this.apiKey,
-        "X-Api-Resource-Id": this.resourceId,
-        "X-Api-Request-Id": crypto.randomUUID(),
-      },
-      body: JSON.stringify({
-        user: { uid: "craftmate" },
-        req_params: {
-          text: request.text,
-          speaker: request.voice.voiceId || this.defaultSpeaker,
-          audio_params: {
-            format: "mp3",
-            sample_rate: 24_000,
-            speech_rate: Math.round((request.voice.speed - 1) * 100),
-          },
-        },
-      }),
-      signal: AbortSignal.any([request.signal, AbortSignal.timeout(this.timeoutMs)]),
-    });
-    if (!response.ok) throw new Error(`volcengine returned HTTP ${response.status}`);
-
-    const body = await response.text();
-    const chunks: Uint8Array[] = [];
+    const socket = this.socketFactory(this.url, { "X-Api-Key": this.apiKey });
+    const chunks: Buffer[] = [];
     let firstByteAt: number | null = null;
-    for (const block of body.split(/\r?\n\r?\n/)) {
-      if (!block.trim()) continue;
-      const event = block.match(/^event:\s*(\d+)/m)?.[1];
-      const data = block.match(/^data:\s*(.+)$/m)?.[1];
-      if (!data) continue;
+    let settled = false;
 
-      let payload: unknown;
-      try {
-        payload = JSON.parse(data);
-      } catch {
-        throw new Error("volcengine returned an invalid SSE event");
-      }
-      if (typeof payload !== "object" || payload === null) {
-        throw new Error("volcengine returned an invalid SSE payload");
-      }
-      const record = payload as { code?: unknown; message?: unknown; data?: unknown };
-      if (event === "153" || (typeof record.code === "number" && record.code !== 0 && record.code !== 20000000)) {
-        throw new Error(`volcengine TTS failed (${String(record.code ?? event)}): ${String(record.message ?? "")}`);
-      }
-      if (event === "352" && typeof record.data === "string" && record.data.length > 0) {
-        const audio = Buffer.from(record.data, "base64");
-        if (audio.byteLength > 0) {
-          firstByteAt ??= Date.now();
-          chunks.push(audio);
+    return await new Promise<TtsAudio>((resolve, reject) => {
+      const finish = (error?: Error): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        request.signal.removeEventListener("abort", abort);
+        socket.close();
+        if (error) {
+          reject(error);
+          return;
         }
-      }
-    }
-
-    const bytes = Buffer.concat(chunks);
-    if (bytes.byteLength === 0) throw new Error("volcengine returned no audio");
-    return {
-      bytes: new Uint8Array(bytes),
-      firstByteAt: firstByteAt ?? Date.now(),
-      mediaType: "audio/mpeg",
-    };
+        const pcm = Buffer.concat(chunks);
+        if (pcm.byteLength === 0) {
+          reject(new Error(`${this.id} returned no audio`));
+          return;
+        }
+        resolve({
+          bytes: new Uint8Array(toWave(pcm, this.sampleRate)),
+          firstByteAt: firstByteAt ?? Date.now(),
+          mediaType: "audio/wav",
+        });
+      };
+      const abort = (): void => finish(request.signal.reason instanceof Error ? request.signal.reason : new Error("aborted"));
+      const timer = setTimeout(() => finish(new Error(`${this.id} timed out`)), this.timeoutMs);
+      request.signal.addEventListener("abort", abort, { once: true });
+      socket.once("open", () => {
+        socket.send(
+          JSON.stringify({
+            event_id: `session_${crypto.randomUUID()}`,
+            type: "session.create",
+            session: {
+              model: this.model,
+              instructions: this.instructions,
+              audio: {
+                input: { format: { type: "pcm", rate: 16_000 } },
+                output: {
+                  format: { type: "pcm", rate: this.sampleRate },
+                  speed: Math.round((request.voice.speed - 1) * 100),
+                  loudness: 0,
+                  voice: this.voice,
+                },
+              },
+              tools: [],
+            },
+            extension: { asr: {}, tts: {}, dialog: {} },
+          }),
+        );
+      });
+      socket.on("message", (raw) => {
+        let payload: unknown;
+        try {
+          payload = JSON.parse(String(raw));
+        } catch {
+          finish(new Error(`${this.id} returned invalid JSON`));
+          return;
+        }
+        if (typeof payload !== "object" || payload === null) {
+          finish(new Error(`${this.id} returned an invalid event`));
+          return;
+        }
+        const event = payload as { type?: unknown; delta?: unknown; error?: unknown };
+        if (event.type === "session.created") {
+          socket.send(
+            JSON.stringify({
+              event_id: `speech_${crypto.randomUUID()}`,
+              type: "speech_text_buffer.commit",
+              text: request.text,
+            }),
+          );
+          return;
+        }
+        if (event.type === "response.output_audio.delta" && typeof event.delta === "string") {
+          const chunk = Buffer.from(event.delta, "base64");
+          if (chunk.byteLength > 0) {
+            firstByteAt ??= Date.now();
+            chunks.push(chunk);
+          }
+          return;
+        }
+        if (event.type === "response.output_audio.done") {
+          finish();
+          return;
+        }
+        if (event.type === "error") {
+          const error = event.error as { code?: unknown; message?: unknown } | undefined;
+          finish(new Error(`${this.id} failed (${String(error?.code ?? "unknown")}): ${String(error?.message ?? "")}`));
+        }
+      });
+      socket.once("error", (error) => finish(error));
+      socket.once("close", (code) => {
+        if (!settled) finish(new Error(`${this.id} closed before audio completed (${code})`));
+      });
+    });
   }
+}
+
+function toWave(pcm: Buffer, sampleRate: number): Buffer {
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcm.byteLength, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(pcm.byteLength, 40);
+  return Buffer.concat([header, pcm]);
 }
 
 /** Deterministic provider used by tests and UI previews. */
@@ -219,18 +249,6 @@ export class SilentTtsProvider implements TtsProvider {
       });
     }
     return { bytes: new Uint8Array(0), firstByteAt: Date.now(), mediaType: "audio/wav" };
-  }
-}
-
-/**
- * Subtitle-only mode. It is not a failure: the utterance is delivered to the
- * console, and no audio device is touched.
- */
-export class SubtitleOnlyProvider implements TtsProvider {
-  readonly id = "subtitle-only";
-
-  async synthesize(): Promise<TtsAudio> {
-    return { bytes: new Uint8Array(0), firstByteAt: Date.now(), mediaType: "audio/none" };
   }
 }
 
