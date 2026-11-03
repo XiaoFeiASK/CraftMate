@@ -129,6 +129,10 @@ npm run db:check:file
 `npm test` 覆盖 `packages`、`apps`、`services` 三个目录。新增测试文件放在对应包的
 `src/` 下，命名 `*.test.ts` 即可被收集。
 
+GitHub Actions 会在 Pull Request、推送到 `main` 和手动触发时运行以上检查。CI 使用
+Node.js 22，并执行锁文件安装、类型检查、测试、控制台构建及内存/WAL 数据库校验；
+Tauri 多平台打包、Minecraft/Fabric 集成和真实外部服务联调尚未纳入自动化。
+
 ## 4. 桌面窗口（默认）
 
 `./start.command` 默认就启动桌面窗口，需要 Rust / Cargo。只启动窗口、不启

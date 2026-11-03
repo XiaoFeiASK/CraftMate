@@ -198,6 +198,6 @@ Voice 仅字幕模式）两条证据。
 - 没有 `mods/`，没有 Gradle 工程，没有 Fabric 依赖。
 - 没有 embedding，没有向量库；模型只有 OpenAI 兼容 Provider 一个实现。
 - 没有 OBS 集成，没有抖音开放平台 SDK。
-- 没有 CI 配置，没有发布流水线。
+- GitHub Actions CI 已覆盖 Node 类型检查、测试、控制台构建和数据库 schema 校验；没有桌面端多平台打包、Fabric Mod 集成测试或发布流水线。
 
 这些东西出现时，本文对应行必须同步改成「已实现」或「部分」，否则就是文档落后于代码。
