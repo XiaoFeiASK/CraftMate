@@ -8,7 +8,8 @@
       "@craftmate/contracts": ["./packages/contracts/src/index.ts"],
       "@craftmate/agent": ["./packages/agent/index.ts"],
       "@craftmate/agent/application": ["./packages/agent/application/index.ts"],
-      "@craftmate/agent/domain": ["./packages/agent/domain/index.ts"]
+      "@craftmate/agent/domain": ["./packages/agent/domain/index.ts"],
+      "@craftmate/local-auth": ["./packages/local-auth/src/index.ts"]
     },
     "strict": true,
     "noUncheckedIndexedAccess": true,

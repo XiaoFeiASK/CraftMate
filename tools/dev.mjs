@@ -15,10 +15,12 @@ const children =
   mode === "desktop"
     ? [
         run("orchestrator", "npm", ["run", "dev:orchestrator"]),
+        run("voice", "npm", ["run", "dev:voice"]),
         run("desktop", "npm", ["run", "dev:desktop"]),
       ]
     : [
         run("orchestrator", "npm", ["run", "dev:orchestrator"]),
+        run("voice", "npm", ["run", "dev:voice"]),
         run("admin-console", "npm", ["run", "dev:console"]),
       ];
 

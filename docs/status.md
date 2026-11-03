@@ -22,9 +22,13 @@ npm run build
 npm run db:check
 ```
 
-2026-11-03 实测：`npm run typecheck`、`npm test`（本分支 50 项）、`npm run build`、
-`db:check` / `db:check:file`（26 个对象 / 19 个索引）通过。桌面窗口需 Rust / Cargo，
-已在本机实际启动验证。
+2026-11-03 实测：`npm run typecheck`、`npm test`、`npm run build`、
+`db:check` / `db:check:file`（合并 A 的保留审计后为 26 个对象 / 19 个索引）通过。
+桌面窗口需 Rust / Cargo，已在本机实际启动验证。
+
+方向 B 补充：Orchestrator + Voice 已用真实进程联调（fake TTS / 仅字幕模式），
+控制台能看到说话状态、字幕与急停取消；真实 TTS 供应商与 BlackHole / OBS 路由
+尚未联调。
 
 ## 2. 当前状态
 
@@ -59,8 +63,8 @@ npm run db:check
 | 监听地址与端口 | 已实现 | 默认 `127.0.0.1:4321`，`CRAFTMATE_HOST` / `CRAFTMATE_PORT` 可覆盖。 |
 | 启动时接入 SQLite | 已实现 | `createPersistentShow()` 建库、跑迁移、恢复最近决策。 |
 | 模拟弹幕 | 已实现 | `tools/mock.ts`，脚本化样本，不是真实平台。 |
-| `/ingress` 通道 | 已实现 | 接受 `hello` / `event` / `health`，并把 `source` 广播给控制台。 |
-| 真实抖音接入 | 部分 | `services/ingress` 已有 dyhub 适配、归一化、限流与重连；未接真实房间，无自动化测试。 |
+| `/ingress` 通道 | 已实现 | 只接受 loopback + 共享 token；`hello` 后才收 `event` / `health`，失败会明确关闭并记日志。 |
+| 真实抖音接入 | 部分 | `services/ingress` 已有 dyhub 适配、归一化、限流与重连；用 fake dyhub 覆盖断线、房间关闭、坏输入与洪峰，尚未接真实房间。 |
 | `/bridge` 通道 | 未实现 | 只有 schema，设计见 [技术设计](technical-design.md)。 |
 
 ### 2.4 契约 `packages/contracts`
@@ -74,6 +78,7 @@ npm run db:check
 | Bridge 指令与错误码 | 部分 | `cmd` / `event` / 错误码 / 动作状态有 schema；`hello` / `ack` / `progress` / `result` / `cancel` 未定义，无实现。 |
 | 逐技能参数 schema | 未实现 | `args` 仍是 `record(unknown)`。 |
 | 来源健康状态 | 已实现 | `SourceHealth` 进入 `ShowSnapshot`，并有 `source` 消息，契约测试已覆盖。 |
+| Voice 契约 | 已实现 | 统一 `VoiceUtterance` / `VoiceEvent` / `VoiceStatus`，字幕与语音共用同一文本。 |
 
 ### 2.5 Agent 内核 `packages/agent`
 
@@ -117,7 +122,8 @@ npm run db:check
 
 | 目标 | 状态 | 说明 |
 | --- | --- | --- |
-| 语音 `services/voice` | 未实现 | 没有 TTS、分句、音频路由、字幕。设计见 [技术设计](technical-design.md) §6。 |
+| 语音 `services/voice` | 部分 | 有分句、有界优先级队列、短句边界抢占、急停、主备 TTS、熔断、字幕与状态上报；真实 TTS 供应商和音频路由尚未联调。 |
+| 决策自动说话 | 未实现 | 需要方向 A 的 Stage C 生成可播文本；当前 Voice 只接操作员试听与显式命令，不自行编造回复。 |
 | Bridge 服务 | 未实现 | 只有 `packages/contracts/src/bridge.ts` 的 schema。 |
 | Fabric Mod | 未实现 | 没有 `mods/`、没有 Gradle 工程、没有 Fabric 依赖。 |
 | OBS / 抖音 SDK | 未实现 | 没有推流集成，没有平台 SDK。 |
@@ -126,14 +132,10 @@ npm run db:check
 
 按「会不会让下一步做错」排序，不按工作量。
 
-1. **`/ingress` 不校验 token**。ingress 会发 `hello.token`，Orchestrator 收下就不再看，
-   本机任何进程都能往决策流里灌事件。
-2. **Ingress 没有自动化测试**。断线、房间关闭、洪峰只靠手工联调，未进 `npm test`。
-3. **Bridge 只有一半契约**。缺 `hello` / `ack` / `progress` / `result` / `cancel`，无法表达「已接受 / 执行中 / 已完成 / 超时」。
-4. **`Decision.skill` 恒为 `null`**。`EXECUTE` 目前只是标签，没有技能与参数，Bridge 无从下发。
-5. **管理端没有服务端错误提示**。`error` 消息在连接层被忽略，设置保存失败目前只会停
-   在「未保存」，没有可读的错误原因。
-6. **没有 Stage C 与记忆召回**。承诺账本已可持久化，但还没有任何发声/模型链路会创建它。
+1. **Ingress 只对 fake dyhub 验证过**。断线、房间关闭、洪峰已有自动化测试，但真实房间的字段映射仍未校准。
+2. **Bridge 只有一半契约**。缺 `hello` / `ack` / `progress` / `result` / `cancel`，无法表达「已接受 / 执行中 / 已完成 / 超时」。
+3. **`Decision.skill` 恒为 `null`**。`EXECUTE` 目前只是标签，没有技能与参数，Bridge 无从下发。
+4. **决策自动说话未接通**。承诺账本已可持久化，但还没有 Stage C 生成可播文本；Voice 目前只接操作员试听/显式命令。
 
 方向 A 的 M1 代码项已闭合：承诺恢复、去重收敛（内存 2000 条快速路径 + 数据库裁决）、
 有界观众历史（500 人 / 每意图 200 样本）、保留清理与审计、迁移升级测试。**M1 出口
@@ -144,7 +146,8 @@ npm run db:check
 
 避免接手的人误以为有代码可读：
 
-- 没有 `services/supervisord`、`services/voice`。
+- 没有 `services/supervisord`。
+- 没有真实 TTS 供应商凭据，也没有自动配置 BlackHole / OBS。
 - 没有 `mods/`，没有 Gradle 工程，没有 Fabric 依赖。
 - 没有模型 Provider，没有 embedding，没有向量库。
 - 没有 OBS 集成，没有抖音开放平台 SDK。

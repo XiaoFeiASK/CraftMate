@@ -11,6 +11,7 @@ import {
   type ShowSnapshot,
   type ShowStats,
   type SourceHealth,
+  type VoiceStatus,
 } from "@craftmate/contracts";
 import {
   Arbiter,
@@ -131,6 +132,7 @@ export class Show {
   private mode: ShowMode = "agent";
   private operatorNotice: OperatorNotice | null = null;
   private sourceHealth: SourceHealth | null = null;
+  private voiceStatus: VoiceStatus | null = null;
 
   constructor(options: ShowOptions) {
     this.personaId = options.persona.id;
@@ -238,6 +240,15 @@ export class Show {
     this.sourceHealth = health;
   }
 
+  /** Voice is reported by its own service; it never mutates show business state. */
+  setVoiceStatus(status: VoiceStatus): void {
+    this.voiceStatus = status;
+  }
+
+  currentVoiceStatus(): VoiceStatus | null {
+    return this.voiceStatus;
+  }
+
   recent(): readonly Decision[] {
     return [...this.decisions];
   }
@@ -256,6 +267,7 @@ export class Show {
       decisions: this.recent(),
       operatorNotice: this.operatorNotice,
       sourceHealth: this.sourceHealth,
+      voiceStatus: this.voiceStatus,
     };
   }
 

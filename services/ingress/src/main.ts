@@ -1,13 +1,21 @@
 import { createServer } from "node:http";
+import { existsSync } from "node:fs";
 import { WebSocket, WebSocketServer } from "ws";
-import type { AudienceEvent, SourceHealth } from "@craftmate/contracts";
+import { ingressServerFrameSchema, type AudienceEvent, type SourceHealth } from "@craftmate/contracts";
+import { defaultTokenPath, loadOrCreateToken } from "@craftmate/local-auth";
 import { DyhubSource } from "./dyhub-source.ts";
 import { EventGate } from "./gate.ts";
 
 const roomId = process.env.DOUYIN_ROOM_ID ?? "";
 const dyhubUrl = process.env.DYHUB_URL ?? "ws://127.0.0.1:8757";
 const orchestratorUrl = process.env.CRAFTMATE_INGRESS ?? "ws://127.0.0.1:4321/ingress";
-const token = process.env.CRAFTMATE_TOKEN ?? "";
+// Do not silently mint a different token: the orchestrator may deliberately
+// run with `CRAFTMATE_TOKEN` while this process is launched separately.
+if (!process.env.CRAFTMATE_TOKEN?.trim() && !existsSync(defaultTokenPath())) {
+  console.error("ingress: no shared token found; start the orchestrator first or set CRAFTMATE_TOKEN");
+  process.exit(1);
+}
+const token = loadOrCreateToken();
 const healthPort = Number(process.env.INGRESS_HEALTH_PORT ?? 4322);
 const healthHost = process.env.INGRESS_HEALTH_HOST ?? "127.0.0.1";
 
@@ -53,6 +61,24 @@ function connectOrchestrator(): void {
     sendHealth(health);
     for (const frame of pending.splice(0)) socket.send(frame);
     console.log("ingress: orchestrator connected");
+  });
+
+  socket.on("message", (raw) => {
+    let payload: unknown;
+    try {
+      payload = JSON.parse(raw.toString());
+    } catch {
+      console.warn("ingress: orchestrator sent invalid JSON");
+      return;
+    }
+    const parsed = ingressServerFrameSchema.safeParse(payload);
+    if (!parsed.success) {
+      console.warn("ingress: orchestrator sent an unreadable frame");
+      return;
+    }
+    if (parsed.data.type === "error") {
+      console.error(`ingress: orchestrator rejected frame — ${parsed.data.payload.code}: ${parsed.data.payload.detail}`);
+    }
   });
 
   socket.on("close", () => {
@@ -103,6 +129,7 @@ const healthServer = createServer((request, response) => {
       source: health,
       counters,
       gate: gate.stats(),
+      dropReasons: gate.dropCounts(),
       upstream: upstream?.readyState === WebSocket.OPEN,
     }),
   );
