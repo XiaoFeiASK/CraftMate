@@ -6,7 +6,13 @@ import { SqliteCommitmentGate } from "@craftmate/storage";
 import { dafeiyu } from "@craftmate/agent";
 import { VoiceEngine } from "./engine.ts";
 import { createVoiceServer } from "./server.ts";
-import { CommandAudioSink, HttpTtsProvider, NoopAudioSink, SubtitleOnlyProvider } from "./providers.ts";
+import {
+  CommandAudioSink,
+  HttpTtsProvider,
+  NoopAudioSink,
+  SubtitleOnlyProvider,
+  VolcengineTtsProvider,
+} from "./providers.ts";
 
 const port = Number(process.env.VOICE_PORT ?? 4323);
 const host = process.env.VOICE_HOST ?? "127.0.0.1";
@@ -15,16 +21,42 @@ if (!process.env.CRAFTMATE_TOKEN?.trim() && !existsSync(defaultTokenPath())) {
   process.exit(1);
 }
 const token = loadOrCreateToken();
-const voice = dafeiyu.voice;
+const voice = {
+  ...dafeiyu.voice,
+  ...(process.env.TTS_PRIMARY_PROVIDER?.trim()
+    ? { provider: process.env.TTS_PRIMARY_PROVIDER.trim() }
+    : {}),
+  ...(process.env.TTS_PRIMARY_VOICE_ID?.trim()
+    ? { voiceId: process.env.TTS_PRIMARY_VOICE_ID.trim() }
+    : {}),
+};
 
 const providers = [];
+const primaryProvider = process.env.TTS_PRIMARY_PROVIDER?.trim().toLowerCase();
 const primaryUrl = process.env.TTS_PRIMARY_URL;
-if (primaryUrl) {
+if (primaryProvider === "volcengine" && process.env.TTS_PRIMARY_KEY?.trim() && process.env.TTS_PRIMARY_VOICE_ID?.trim()) {
+  providers.push(
+    new VolcengineTtsProvider({
+      apiKey: process.env.TTS_PRIMARY_KEY.trim(),
+      resourceId: process.env.TTS_PRIMARY_RESOURCE_ID?.trim() || "seed-tts-2.0",
+      speaker: process.env.TTS_PRIMARY_VOICE_ID.trim(),
+    }),
+  );
+} else if (primaryUrl) {
   providers.push(
     new HttpTtsProvider({
       id: process.env.TTS_PRIMARY_ID ?? "primary",
       url: primaryUrl,
       ...(process.env.TTS_PRIMARY_KEY ? { headers: { authorization: `Bearer ${process.env.TTS_PRIMARY_KEY}` } } : {}),
+      ...(process.env.TTS_PRIMARY_VOICE_ID?.trim()
+        ? {
+            body: (request) => ({
+              text: request.text,
+              voice_id: process.env.TTS_PRIMARY_VOICE_ID?.trim(),
+              speed: request.voice.speed,
+            }),
+          }
+        : {}),
     }),
   );
 }

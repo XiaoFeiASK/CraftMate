@@ -1,5 +1,15 @@
 import { spawn } from "node:child_process";
 
+// Load the ignored, machine-local configuration before spawning any service.
+// Values already supplied by the shell keep precedence over .env.
+try {
+  process.loadEnvFile(".env");
+} catch (error) {
+  if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") {
+    throw error;
+  }
+}
+
 const mode = process.argv[2] === "desktop" ? "desktop" : "web";
 const detach = process.platform !== "win32";
 
@@ -11,17 +21,23 @@ const run = (name, command, args) => {
   return child;
 };
 
+const ingress = process.env.DOUYIN_ROOM_ID?.trim()
+  ? [run("ingress", "npm", ["run", "dev:ingress"])]
+  : [];
+
 const children =
   mode === "desktop"
     ? [
         run("orchestrator", "npm", ["run", "dev:orchestrator"]),
         run("voice", "npm", ["run", "dev:voice"]),
         run("desktop", "npm", ["run", "dev:desktop"]),
+        ...ingress,
       ]
     : [
         run("orchestrator", "npm", ["run", "dev:orchestrator"]),
         run("voice", "npm", ["run", "dev:voice"]),
         run("admin-console", "npm", ["run", "dev:console"]),
+        ...ingress,
       ];
 
 const stop = () => {

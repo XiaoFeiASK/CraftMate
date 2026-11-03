@@ -7,8 +7,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "dev": "tsx watch src/main.ts",
-    "start": "tsx src/main.ts"
+    "dev": "node --import tsx --import ../../tools/load-env.mjs --watch src/main.ts",
+    "start": "node --import tsx --import ../../tools/load-env.mjs src/main.ts"
   },
   "dependencies": {
     "@craftmate/contracts": "*",

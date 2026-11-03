@@ -87,6 +87,9 @@ fi
 
 info "Orchestrator: ws://127.0.0.1:${ORCHESTRATOR_PORT}/control"
 info "Voice:        ws://127.0.0.1:${VOICE_PORT}/voice"
+if [[ -n "${DOUYIN_ROOM_ID:-}" ]]; then
+  info "Ingress:      已配置直播间，将随服务启动"
+fi
 info "健康检查:     http://127.0.0.1:${ORCHESTRATOR_PORT}/health"
 if [[ "$MODE" == "desktop" ]]; then
   info "桌面窗口:     启动后会弹出 CraftMate 窗口"

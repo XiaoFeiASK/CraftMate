@@ -374,6 +374,12 @@ export class Show {
       sourceHealth: this.sourceHealth,
       voiceStatus: this.voiceStatus,
       bridge: this.bridge,
+      model: this.planner?.status ?? {
+        state: "disabled",
+        provider: null,
+        model: null,
+        detail: "未配置模型",
+      },
     };
   }
 

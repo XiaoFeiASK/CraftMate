@@ -28,6 +28,40 @@ test("an open commitment survives an orchestrator restart", () => {
   }
 });
 
+test("the live snapshot reports model configuration without exposing its key", () => {
+  const configured = createPersistentShow({
+    dbPath: temporaryDatabase(),
+    env: {
+      CRAFTMATE_MODEL_KEY: "test-secret-do-not-return",
+      CRAFTMATE_MODEL: "deepseek-chat",
+      CRAFTMATE_MODEL_PROVIDER: "deepseek",
+    },
+  });
+  try {
+    assert.deepEqual(configured.show.snapshot().model, {
+      state: "unverified",
+      provider: "deepseek",
+      model: "deepseek-chat",
+      detail: "已配置，等待首次模型请求",
+    });
+    assert.equal(JSON.stringify(configured.show.snapshot()).includes("test-secret-do-not-return"), false);
+  } finally {
+    configured.close();
+  }
+
+  const disabled = createPersistentShow({ dbPath: temporaryDatabase(), env: {} });
+  try {
+    assert.deepEqual(disabled.show.snapshot().model, {
+      state: "disabled",
+      provider: null,
+      model: null,
+      detail: "未配置模型",
+    });
+  } finally {
+    disabled.close();
+  }
+});
+
 test("the bootstrap retention sweep purges raw text but keeps the decision", () => {
   const dbPath = temporaryDatabase();
   const first = createPersistentShow({ dbPath });

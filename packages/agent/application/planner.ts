@@ -62,6 +62,8 @@ export class Planner {
   private readonly onUsage: PlannerOptions["onUsage"];
   private readonly overBudget: PlannerOptions["overBudget"];
   private readonly onDegraded: PlannerOptions["onDegraded"];
+  private lastError: string | null = null;
+  private verified = false;
 
   constructor(options: PlannerOptions) {
     this.provider = options.provider;
@@ -74,6 +76,31 @@ export class Planner {
 
   get enabled(): boolean {
     return this.provider !== null;
+  }
+
+  get providerInfo(): { readonly id: string; readonly model: string } | null {
+    return this.provider === null
+      ? null
+      : { id: this.provider.id, model: this.provider.model };
+  }
+
+  get status(): {
+    readonly state: "unverified" | "ready" | "error" | "disabled";
+    readonly provider: string | null;
+    readonly model: string | null;
+    readonly detail: string;
+  } {
+    const info = this.providerInfo;
+    if (info === null) return { state: "disabled", provider: null, model: null, detail: "未配置模型" };
+    if (this.lastError !== null) {
+      return { state: "error", provider: info.id, model: info.model, detail: this.lastError };
+    }
+    return {
+      state: this.verified ? "ready" : "unverified",
+      provider: info.id,
+      model: info.model,
+      detail: this.verified ? "最近一次模型请求成功" : "已配置，等待首次模型请求",
+    };
   }
 
   /**
@@ -122,6 +149,8 @@ export class Planner {
         controller,
       );
       const validated = this.validate(result, context);
+      this.lastError = null;
+      this.verified = true;
       if (result.usage) {
         this.onUsage?.({
           provider: this.provider.id,
@@ -141,6 +170,8 @@ export class Planner {
     } catch (error) {
       const timeout = error instanceof ModelTimeoutError;
       const code = timeout ? "MODEL_TIMEOUT" : "MODEL_INVALID";
+      this.lastError = error instanceof Error ? error.message : "模型请求失败";
+      this.verified = false;
       this.onIncident?.({
         code,
         severity: "warn",

@@ -80,6 +80,7 @@ export function createPersistentShow(options: {
     memory,
     planner: new Planner({
       provider,
+      deadlineMs: positiveInteger(env.CRAFTMATE_MODEL_TIMEOUT_MS, 1_000),
       overBudget: () => {
         if (provider === null) return false;
         const budget = costs.budget({
@@ -141,6 +142,12 @@ export function createPersistentShow(options: {
     },
     close: () => db.close(),
   };
+}
+
+function positiveInteger(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim().length === 0) return fallback;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 /**

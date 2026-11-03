@@ -16,6 +16,12 @@ const snapshot: ShowSnapshot = {
   sourceHealth: null,
   voiceStatus: null,
   bridge: null,
+  model: {
+    state: "disabled",
+    provider: null,
+    model: null,
+    detail: "未配置模型",
+  },
 };
 
 describe("control protocol", () => {

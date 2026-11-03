@@ -58,6 +58,12 @@ describe("stage C planner", () => {
     assert.ok(request);
     assert.equal(request.instructions.includes("去挖点铁矿"), false);
     assert.equal(request.audienceText, "去挖点铁矿");
+    assert.deepEqual(planner.status, {
+      state: "ready",
+      provider: "fake",
+      model: "fake-1",
+      detail: "最近一次模型请求成功",
+    });
   });
 
   test("a slow provider degrades to a template inside the deadline", async () => {
@@ -75,6 +81,7 @@ describe("stage C planner", () => {
     assert.equal(planned.skill, null);
     assert.equal(planned.speech.length > 0, true);
     assert.deepEqual(incidents, ["MODEL_TIMEOUT"]);
+    assert.equal(planner.status.state, "error");
   });
 
   test("invalid skill args are rejected instead of reaching the bridge", async () => {

@@ -29,6 +29,14 @@ export const showStatsSchema = z.object({
 });
 export type ShowStats = z.infer<typeof showStatsSchema>;
 
+export const modelConnectionSchema = z.object({
+  state: z.enum(["unverified", "ready", "error", "disabled"]),
+  provider: z.string().nullable(),
+  model: z.string().nullable(),
+  detail: z.string().default(""),
+});
+export type ModelConnection = z.infer<typeof modelConnectionSchema>;
+
 export const operatorNoticeSchema = z.object({
   kind: operatorKindSchema,
   text: z.string(),
@@ -45,6 +53,7 @@ export const showSnapshotSchema = z.object({
   sourceHealth: sourceHealthSchema.nullable().default(null),
   voiceStatus: voiceStatusSchema.nullable().default(null),
   bridge: bridgeHealthSchema.nullable().default(null),
+  model: modelConnectionSchema.nullable().default(null),
 });
 export type ShowSnapshot = z.infer<typeof showSnapshotSchema>;
 

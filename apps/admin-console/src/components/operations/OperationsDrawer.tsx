@@ -272,7 +272,26 @@ function ConnectionsView({
         value={source ? `${source.detail}${room ? ` · 房间 ${room}` : ""}` : room ? `房间 ${room}（未联调）` : "待配置"}
         tone={sourceTone(source?.state)}
       />
-      <ConnectionRow label="模型" value={model ? `${model}（未接 Key）` : "待配置 API Key"} tone="quiet" />
+      <ConnectionRow
+        label="模型"
+        value={snapshot.model?.state === "ready"
+          ? `${snapshot.model.provider} / ${snapshot.model.model} · 正常`
+          : snapshot.model?.state === "error"
+            ? `${snapshot.model.provider} / ${snapshot.model.model} · 最近请求失败`
+            : snapshot.model?.state === "unverified"
+              ? `${snapshot.model.provider} / ${snapshot.model.model} · 已配置，等待请求`
+              : model ? `${model}（未配置 API Key）` : "待配置 API Key"}
+        tone={snapshot.model?.state === "ready"
+          ? "good"
+          : snapshot.model?.state === "error"
+            ? "bad"
+            : snapshot.model?.state === "unverified"
+              ? "warn"
+              : "quiet"}
+      />
+      {snapshot.model?.state === "error" && snapshot.model.detail
+        ? <p className="connection-error" role="status">模型错误：{snapshot.model.detail}</p>
+        : null}
       <ConnectionRow
         label="语音合成"
         value={voiceLabel(voice, settings)}

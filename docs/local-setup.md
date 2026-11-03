@@ -75,7 +75,12 @@ Orchestrator、Ingress 与 Voice 共用一个本机 token，默认保存在 `~/.
 （权限 `0600`）。设 `CRAFTMATE_TOKEN` 可覆盖；设 `CRAFTMATE_TOKEN_FILE` 可改路径。
 不要把 token 写进 URL 或提交到仓库。
 
-没有配置真实 TTS 时，Voice 以「仅字幕」模式运行：合成器返回空音频，
+仓库根目录的 `.env` 会由标准启动脚本自动加载，且已加入 `.gitignore`；shell 环境变量优先级更高。
+从 `.env.example` 复制并填写模型 Key、TTS 服务 URL、TTS Key、音色 ID 和（需要真实弹幕时）直播间号。
+DeepSeek 使用 OpenAI 兼容接口；可在 `CRAFTMATE_MODEL` 设置 YYAPI 已开通的模型名。仓库示例采用 `deepseek-v4.1-flash`；可用 `CRAFTMATE_MODEL_TIMEOUT_MS`
+设置模型等待上限，超时后会降级模板。接入面板会显示模型 Provider 与模型名，不会显示 Key。
+
+没有配置真实 TTS URL 时，Voice 以「仅字幕」模式运行：合成器返回空音频，
 控制台仍能看到 `speaking / spoken / failed` 事件。接真实供应商：
 
 ```bash
@@ -96,6 +101,9 @@ Voice 的配置变量：
 | `VOICE_HOST` | `127.0.0.1` | 监听地址 |
 | `TTS_PRIMARY_URL` | 空 | 主 TTS HTTP 端点；未配置时进入仅字幕模式 |
 | `TTS_PRIMARY_KEY` | 空 | 主 TTS 的 Bearer token |
+| `TTS_PRIMARY_PROVIDER` | 空 | 设置为 `volcengine` 时使用豆包语音 V3 SSE 接口 |
+| `TTS_PRIMARY_RESOURCE_ID` | `seed-tts-2.0` | 火山引擎资源 ID，按账号开通的模型填写 |
+| `TTS_PRIMARY_VOICE_ID` | `zh_female_vv_uranus_bigtts` | 豆包语音发音人 ID；改成账号已开通的音色 |
 | `TTS_BACKUP_URL` | 空 | 备用 TTS HTTP 端点 |
 | `TTS_BACKUP_KEY` | 空 | 备用 TTS 的 Bearer token |
 | `AUDIO_PLAYER` | `afplay` | 播放命令 |
@@ -115,6 +123,8 @@ Ingress 健康检查 `http://127.0.0.1:4322/health` 会同时返回丢弃原因�
 例如 `rate limited` / `queue full`。
 
 `npm run start:ingress` 与上面的 `npx tsx` 等价，可任选一种。
+若 `.env` 里的 `DOUYIN_ROOM_ID` 非空，`./start.command` 会同时启动 Ingress；dyhub 仍需单独启动，
+并监听默认地址 `ws://127.0.0.1:8757`。
 
 ## 3. 验证
 

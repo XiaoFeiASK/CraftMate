@@ -56,6 +56,7 @@ export class HttpTtsProvider implements TtsProvider {
   private readonly headers: Record<string, string>;
   private readonly timeoutMs: number;
   private readonly body: (request: TtsRequest) => unknown;
+  private readonly fetchImpl: typeof fetch;
 
   constructor(options: {
     readonly id: string;
@@ -63,11 +64,13 @@ export class HttpTtsProvider implements TtsProvider {
     readonly headers?: Record<string, string>;
     readonly timeoutMs?: number;
     readonly body?: (request: TtsRequest) => unknown;
+    readonly fetchImpl?: typeof fetch;
   }) {
     this.id = options.id;
     this.url = options.url;
     this.headers = options.headers ?? {};
     this.timeoutMs = options.timeoutMs ?? 6_000;
+    this.fetchImpl = options.fetchImpl ?? fetch;
     this.body =
       options.body ??
       ((request) => ({
@@ -78,7 +81,7 @@ export class HttpTtsProvider implements TtsProvider {
   }
 
   async synthesize(request: TtsRequest): Promise<TtsAudio> {
-    const response = await fetch(this.url, {
+    const response = await this.fetchImpl(this.url, {
       method: "POST",
       headers: { "content-type": "application/json", ...this.headers },
       body: JSON.stringify(this.body(request)),
@@ -93,6 +96,100 @@ export class HttpTtsProvider implements TtsProvider {
       bytes,
       firstByteAt: Date.now(),
       mediaType: response.headers.get("content-type") ?? "audio/mpeg",
+    };
+  }
+}
+
+/**
+ * Doubao/Volcengine V3 HTTP SSE adapter. The API key and resource selection
+ * travel in headers; the response is a sequence of JSON events whose audio
+ * chunks are base64 encoded.
+ */
+export class VolcengineTtsProvider implements TtsProvider {
+  readonly id = "volcengine";
+  private readonly apiKey: string;
+  private readonly resourceId: string;
+  private readonly defaultSpeaker: string;
+  private readonly timeoutMs: number;
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(options: {
+    readonly apiKey: string;
+    readonly resourceId?: string;
+    readonly speaker: string;
+    readonly timeoutMs?: number;
+    readonly fetchImpl?: typeof fetch;
+  }) {
+    this.apiKey = options.apiKey;
+    this.resourceId = options.resourceId ?? "seed-tts-2.0";
+    this.defaultSpeaker = options.speaker;
+    this.timeoutMs = options.timeoutMs ?? 12_000;
+    this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+
+  async synthesize(request: TtsRequest): Promise<TtsAudio> {
+    const response = await this.fetchImpl("https://openspeech.bytedance.com/api/v3/tts/unidirectional/sse", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "text/event-stream",
+        "X-Api-Key": this.apiKey,
+        "X-Api-Resource-Id": this.resourceId,
+        "X-Api-Request-Id": crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        user: { uid: "craftmate" },
+        req_params: {
+          text: request.text,
+          speaker: request.voice.voiceId || this.defaultSpeaker,
+          audio_params: {
+            format: "mp3",
+            sample_rate: 24_000,
+            speech_rate: Math.round((request.voice.speed - 1) * 100),
+          },
+        },
+      }),
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(this.timeoutMs)]),
+    });
+    if (!response.ok) throw new Error(`volcengine returned HTTP ${response.status}`);
+
+    const body = await response.text();
+    const chunks: Uint8Array[] = [];
+    let firstByteAt: number | null = null;
+    for (const block of body.split(/\r?\n\r?\n/)) {
+      if (!block.trim()) continue;
+      const event = block.match(/^event:\s*(\d+)/m)?.[1];
+      const data = block.match(/^data:\s*(.+)$/m)?.[1];
+      if (!data) continue;
+
+      let payload: unknown;
+      try {
+        payload = JSON.parse(data);
+      } catch {
+        throw new Error("volcengine returned an invalid SSE event");
+      }
+      if (typeof payload !== "object" || payload === null) {
+        throw new Error("volcengine returned an invalid SSE payload");
+      }
+      const record = payload as { code?: unknown; message?: unknown; data?: unknown };
+      if (event === "153" || (typeof record.code === "number" && record.code !== 0 && record.code !== 20000000)) {
+        throw new Error(`volcengine TTS failed (${String(record.code ?? event)}): ${String(record.message ?? "")}`);
+      }
+      if (event === "352" && typeof record.data === "string" && record.data.length > 0) {
+        const audio = Buffer.from(record.data, "base64");
+        if (audio.byteLength > 0) {
+          firstByteAt ??= Date.now();
+          chunks.push(audio);
+        }
+      }
+    }
+
+    const bytes = Buffer.concat(chunks);
+    if (bytes.byteLength === 0) throw new Error("volcengine returned no audio");
+    return {
+      bytes: new Uint8Array(bytes),
+      firstByteAt: firstByteAt ?? Date.now(),
+      mediaType: "audio/mpeg",
     };
   }
 }
