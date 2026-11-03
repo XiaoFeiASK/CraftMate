@@ -101,7 +101,7 @@
 
 ### 3.1 MCP Fabric 的定位
 
-`denfry/mcpfabric`（MIT，2026-11-01 更新，Fabric + NeoForge，支持 1.21.1–1.21.11，JDK 21）技术质量高，恰好验证了 [D-03](decisions.md#d-03) 的前提。
+以下 MCPFabric 信息和映射是接入候选，尚未在本项目的真实环境中验证；工具、版本、权限和取消能力需以实际探测为准。
 
 **它能提供**：`127.0.0.1:25599` + bearer token；所有游戏访问走主线程 executor；`get_self` / `get_inventory` / `get_block` / `poll_events` / `screenshot`；`navigate_to` 自带 A*；`break_block` / `place_block` / `attack_entity` / `use_item`；`open_container` / `container_transfer`；`enableSupervisedControl` 的单动作模式。
 
@@ -195,7 +195,7 @@ dyhub :8757                          mcpfabric :25599
 当前状态：
 
 - `/ingress` 已实现 token 校验、loopback 限制、失败握手限流、事件与健康上报。
-- `/bridge` 的协议与 `createBridgeUpgrade()` 已实现，但 Orchestrator 的 upgrade 路由尚未装配。
+- `/bridge` 已装配到 Orchestrator；目前只在模拟身体上验证。
 - Voice 是独立进程 `:4323`，Orchestrator 启动时会连接它；TTS 未配置时进入仅字幕模式。
 
 启动 ingress 需要 `DOUYIN_ROOM_ID`，可选 `DYHUB_URL`、`CRAFTMATE_INGRESS`、

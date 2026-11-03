@@ -53,8 +53,7 @@ export class MemoryStore implements MemoryPort {
     readonly query: string;
     readonly budgetTokens: number;
   }): readonly RecalledMemory[] {
-    // Subject match first: a viewer's own history matters more than a global
-    // fact that merely shares a keyword. FTS only ranks inside that set.
+    // Recall currently uses subject and recency; query-based FTS ranking is not wired up.
     const rows = this.db
       .prepare(
         `SELECT id, lineage_id, session_id, subject_ref, family, content, disclosure,

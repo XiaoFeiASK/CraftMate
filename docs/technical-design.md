@@ -73,7 +73,7 @@ Orchestrator 在升级握手阶段拒绝非 loopback 来源；连接建立后，
 token 必须匹配，否则以 `4401` 关闭。失败握手按分钟限流。`/ingress` 与 `/control`
 共用同一个 HTTP server 和端口，但使用独立的 WebSocketServer 与权限模型。
 
-### 2.4 Bridge 消息（已实现，尚未装配到 Orchestrator）
+### 2.4 Bridge 消息（已装配，真实身体待接入）
 
 ```json
 { "v": 1, "type": "hello", "token": "...", "client": "sim",

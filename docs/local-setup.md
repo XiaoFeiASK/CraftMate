@@ -195,7 +195,7 @@ DOUYIN_ROOM_ID=<live.douyin.com 后面的数字> npm run start:ingress
 
 ## 8. Bridge 模拟身体
 
-Bridge 尚未装配进 Orchestrator，当前只能独立验证协议与协调器。`npm run dev:bridge`
+Bridge 已装配进 Orchestrator，当前使用模拟身体验证。`npm run dev:bridge`
 默认监听 `4323`，与 Voice 冲突，所以同时运行时必须显式指定端口：
 
 ```bash

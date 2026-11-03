@@ -9,8 +9,7 @@
 - **部分**：主路径存在，但关键环节仍是模拟、占位或未经真实环境验证。
 - **未实现**：没有代码占位。
 
-最后核对：2026-11-03。基线为 `main`（`27de9e7`），包含方向 A / B / C 的 M1–M2 切片。
-本文只描述已提交的 `main` 基线；当前工作区里尚未提交的 M3 / M7 草稿不计入本表。
+最后核对：2026-11-03，代码基线 `main@c0c0562`。真实服务和游戏的验收与自动化测试分开记录。
 
 ## 1. 验证基线
 
@@ -23,16 +22,15 @@ npm run db:check
 npm run db:check:file
 ```
 
-2026-11-03 实测：
+2026-11-03 的 [CI](https://github.com/XiaoFeiASK/CraftMate/actions/runs/41637021532) 在 `c0c0562` 上通过类型检查、测试、控制台构建及两种数据库检查：
 
 | 命令 | 结果 |
 | --- | --- |
-| `npm test` | 113 项通过，0 失败 |
-| `npm run db:check` | 26 个对象 / 19 个索引，内存库校验通过 |
-| `npm run db:check:file` | 同上，真实 WAL 文件库校验通过 |
+| `npm test` | 157 项通过 |
+| `npm run db:check` | 内存库校验通过 |
+| `npm run db:check:file` | 文件库校验通过 |
 
-`npm run typecheck` 与 `npm run build` 未在本轮改动中重新执行；本轮改动只涉及 Markdown。
-桌面窗口需 Rust / Cargo，此前已在本机实际启动验证。
+该 CI 不包含真实直播间、模型、音频、Minecraft 或桌面安装包验收。
 
 ## 2. 当前状态
 
@@ -72,7 +70,7 @@ npm run db:check:file
 | 启动时接入 SQLite | 已实现 | `createPersistentShow()` 建库、跑迁移、恢复最近决策与未完成承诺。 |
 | 模拟弹幕 | 已实现 | `tools/mock.ts`，脚本化样本，不是真实平台。 |
 | `/ingress` 通道 | 已实现 | 只接受 loopback + 共享 token；`hello` 后才收 `event` / `health`，失败会明确关闭并记日志。 |
-| `/bridge` 装配 | 未实现 | `packages/bridge` 已提供 `createBridgeUpgrade()`，但 Orchestrator 的 upgrade 路由尚未挂载它。 |
+| `/bridge` 装配 | 已实现 | 已挂载至 Orchestrator 的 HTTP upgrade；目前用模拟身体验证。 |
 | Voice 链接 | 已实现 | 启动时连接 `ws://127.0.0.1:4323/voice`，转发 `speak` / 急停并广播状态与字幕。 |
 | 真实抖音接入 | 部分 | Ingress 适配与自动化测试已具备，尚未接真实房间校准字段。 |
 
@@ -104,7 +102,7 @@ npm run db:check:file
 | 持久化写端口 | 已实现 | `ShowRecorder` 端口；先写 source，再仲裁，再写 decision。 |
 | Stage C 规划与模型 | 已实现 | `Planner` + `OpenAICompatibleProvider`；1 秒超时降级模板，坏输出记 incident 且不下发技能。 |
 | 记忆召回 | 已实现 | 仅召回已批准且 active 的记忆，按约 1200 token 预算裁剪，按哈希观众引用过滤。 |
-| 成本预算 | 已实现 | 按小时/Key 汇总实际调用成本，超限改走模板。 |
+| 成本预算 | 部分 | 按小时和 provider 汇总已记录成本，超限改走模板；“Key”尚未区分实际 API Key。 |
 
 ### 2.6 存储 `packages/storage` + `db/`
 
@@ -142,7 +140,7 @@ npm run db:check:file
 | 有界优先级队列 | 已实现 | 队列满时淘汰最低优先级的排队项；高优先级可在短句边界抢占。 |
 | 急停与取消 | 已实现 | `stop` 清空队列并中止当前合成/播放，状态如实上报 `cancelled`。 |
 | 主备 TTS 与熔断 | 已实现 | `HttpTtsProvider` 主备切换、超时与 per-provider 熔断。 |
-| 字幕与状态 | 已实现 | `speaking` 先于合成发出，失败仍保留字幕；状态推送到 Orchestrator 与控制台。 |
+| 字幕与状态 | 部分 | `speaking` 先于合成发出并用于更新承诺状态，不代表真实播放开始；失败仍保留字幕。 |
 | 仅字幕模式 | 已实现 | 未配置 TTS 时用 `SubtitleOnlyProvider` + `NoopAudioSink`，不假装有声音。 |
 | 鉴权与 loopback | 已实现 | 与 Orchestrator 共用 `~/.craftmate/ingress-token`，伪造 token 以 4401 关闭。 |
 | 真实 TTS 供应商 | 部分 | HTTP 适配器已就绪，但未用真实供应商凭据联调。 |
@@ -162,7 +160,7 @@ npm run db:check:file
 | WebSocket 适配 | 已实现 | `createBridgeUpgrade()` 挂到既有 HTTP server，不另开监听端口。 |
 | 模拟身体与工具 | 已实现 | `SimBody`、`npm run dev:bridge`、`bridge:smoke`、`bridge:long-run`。 |
 | 接入 Orchestrator | 已实现 | `/bridge` 已挂在控制面 HTTP upgrade 上，健康快照每 2 秒广播给控制台。 |
-| MCPFabric 适配清单 | 部分 | 技能映射与安全握手校验已具备，未连接真实 mcpfabric。 |
+| MCPFabric 适配清单 | 部分 | 静态候选映射与声明校验尚未接入运行时，也未验证真实 MCPFabric 的工具和安全能力。 |
 | 真实 Fabric Mod | 未实现 | 没有 `mods/`、Gradle 工程或 Fabric 依赖。 |
 | 真机与长时验收 | 未实现 | 真实移动/挖掘、窗口失焦、tick 零 I/O、60 分钟与 4 小时均未验证。 |
 

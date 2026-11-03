@@ -74,7 +74,7 @@
 
 当前已落地：启动器式管理端、Tauri 桌面宿主、本机 WebSocket 控制面、确定性的 Stage A/B 仲裁、人格与承诺状态机、SQLite 持久化、可编辑的直播资料与界面偏好、抖音评论 Ingress、带鉴权的 Voice 服务，以及 Bridge 协议、协调器、有界队列与模拟身体。
 
-还没有：真实抖音房间联调、模型调用、真实 TTS 供应商与音频路由、Orchestrator 的 `/bridge` 装配、Fabric Mod。逐项事实以 [实现状态](docs/status.md) 为准。
+模型 Provider 和 `/bridge` 已接入本机主流程，但尚未完成真实模型、抖音房间、TTS 与音频路由的联调；真实 Minecraft 身体也尚未实现。逐项事实以 [实现状态](docs/status.md) 为准。
 
 ## 快速开始
 
@@ -143,7 +143,7 @@ craftmate/
 | [外部接入](docs/integration.md) | 抖音评论与游戏身体怎么接，为什么选 dyhub / mcpfabric |
 | [Bridge 执行通道](docs/bridge.md) | `/bridge` 协议、队列、安全边界与真机约束 |
 | [Bridge 运行报告](docs/bridge-run-report.md) | Bridge 的验证范围、阻塞项与验收结论 |
-| [功能更新计划](docs/delivery-plan.md) | M0–M8 里程碑、每个里程碑的剩余工作与出口条件 |
+| [功能更新计划](docs/delivery-plan.md) | 核心互动流程与近期工作 |
 | [实现状态](docs/status.md) | 现在能跑什么、哪些是部分实现、还缺什么 |
 | [本地开发](docs/local-setup.md) | 怎么启动、怎么验证、常见问题 |
 | [技术选型](docs/tech-stack.md) | 为什么用 TS / Tauri / Java，而不是 Python / Go / Electron |

@@ -22,7 +22,7 @@
 ## 三条阅读路径
 
 1. **第一次接触**：architecture → technical-design §1 → status。
-2. **准备动手**：local-setup → status → delivery-plan 的当前里程碑。
+2. **准备动手**：local-setup → status → delivery-plan 的核心流程。
 3. **接外部系统**：integration → technical-design §2「本机协议」→ decisions。
 
 ## 文档职责
@@ -36,7 +36,7 @@
 | `integration.md` | 外部组件选型与映射 | 分阶段排期（放交付计划） |
 | `bridge.md` | `/bridge` 协议、队列、安全与线程约束 | 真机验收记录（放运行报告） |
 | `bridge-run-report.md` | 一次具体环境下的 Bridge 验证结果与阻塞 | 长期现状（放 status） |
-| `delivery-plan.md` | M0–M8 里程碑、剩余工作、出口条件、PR 规则 | 现状事实（放 status） |
+| `delivery-plan.md` | 核心目标、近期功能与完成标准 | 现状事实（放 status） |
 | `status.md` | 已实现 / 部分 / 未实现 | 计划与设计 |
 | `tech-stack.md` | 语言与框架的取舍论证 | 具体实现细节 |
 | `decisions.md` | 不可轻易回退的决定 | 实现细节 |

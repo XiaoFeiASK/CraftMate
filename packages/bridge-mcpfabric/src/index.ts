@@ -1,9 +1,9 @@
 import type { SkillName } from "@craftmate/contracts";
 
 /**
- * MCPFabric is an adapter, not the contract. These mappings are intentionally
- * partial: anything marked `weak` must be composed by the body or rejected,
- * never passed through as if it were a validated skill.
+ * Candidate mappings for a future adapter, not verified MCPFabric capabilities.
+ * They are not connected to the runtime. Probe the installed upstream before
+ * using them; weak mappings must be composed by the body or rejected.
  */
 export type AdapterStrength = "strong" | "composed" | "weak" | "missing";
 
@@ -74,6 +74,7 @@ export function assertSafeMcpFabricHandshake(handshake: McpFabricHandshake): voi
   }
 }
 
+/** Returns candidate skills from the mapping, not verified upstream capabilities. */
 export function availableSkills(mappings: readonly McpFabricMapping[] = MCPFABRIC_MAPPINGS): SkillName[] {
   return mappings
     .filter((mapping) => mapping.strength === "strong" || mapping.strength === "composed")
