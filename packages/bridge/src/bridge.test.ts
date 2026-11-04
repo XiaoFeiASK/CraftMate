@@ -390,6 +390,51 @@ test("a liveness-only heartbeat does not erase the last world snapshot", () => {
 });
 
 describe("bridge control ownership", () => {
+  test("a reflex event cancels running work, is visible, and keeps its reason", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    first.coordinator.issue(sessionsCommand("r-1"));
+    sessions.advance(50);
+    assert.equal(first.coordinator.health().running, 1);
+
+    first.coordinator.handle({
+      v: 1,
+      type: "event",
+      seq: 1,
+      tick: 1,
+      name: "reflex",
+      data: { kind: "lava", detail: "站在岩浆里", health: 4 },
+    });
+
+    assert.equal(first.coordinator.health().running, 0);
+    const attempt = sessions.actions.snapshot()[0];
+    assert.equal(attempt?.status, "failed");
+    assert.equal(attempt?.result?.detail, "safety: 站在岩浆里");
+    assert.deepEqual(
+      first.coordinator.health().incidents.map((incident) => incident.kind),
+      ["lava"],
+    );
+  });
+
+  test("a body cannot use reflex events to cancel an operator's work", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    first.coordinator.takeOver();
+
+    first.coordinator.handle({
+      v: 1,
+      type: "event",
+      seq: 1,
+      tick: 1,
+      name: "reflex",
+      data: { kind: "lava", detail: "站在岩浆里" },
+    });
+
+    assert.equal(first.coordinator.health().incidents.length, 0);
+  });
+
   function createSessions(control: ControlAuthority) {
     let now = 1_000;
     const scheduler = createVirtualScheduler(() => now);
@@ -488,7 +533,7 @@ describe("bridge control ownership", () => {
     assert.equal(sessions.actions.snapshot().length, 0);
   });
 
-  test("a heartbeat watchdog stop is sticky across reconnect too", () => {
+  test("a heartbeat safety stop survives reconnect and resumes on the next heartbeat", () => {
     const control = new ControlAuthority();
     const sessions = createSessions(control);
     const first = sessions.open();
@@ -499,14 +544,67 @@ describe("bridge control ownership", () => {
       owner: "agent",
       world: { inWorld: true },
     });
-    first.coordinator.issue(sessionsCommand("c-1"));
-    sessions.advance(2_000);
+    first.coordinator.poll(3_001);
     assert.equal(first.coordinator.health().permission, "stopped");
     first.coordinator.close("socket closed");
 
     const second = sessions.open();
     assert.equal(second.coordinator.health().owner, "none");
     assert.throws(() => second.coordinator.issue(sessionsCommand("c-2")), /not permitted/);
+
+    second.coordinator.handle({
+      v: 1,
+      type: "heartbeat",
+      tick: 2,
+      owner: "none",
+      world: { inWorld: true },
+    });
+    assert.equal(second.coordinator.health().permission, "agent");
+    assert.equal(second.coordinator.health().owner, "agent");
+    assert.doesNotThrow(() => second.coordinator.issue(sessionsCommand("c-3")));
+  });
+
+  test("a missed heartbeat resumes agent control once the body is alive again", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    first.coordinator.handle({
+      v: 1,
+      type: "heartbeat",
+      tick: 1,
+      owner: "agent",
+      world: { inWorld: true },
+    });
+    first.coordinator.poll(3_001);
+    assert.equal(first.coordinator.health().permission, "stopped");
+
+    first.coordinator.handle({
+      v: 1,
+      type: "heartbeat",
+      tick: 2,
+      owner: "agent",
+      world: { inWorld: true },
+    });
+    assert.equal(first.coordinator.health().permission, "agent");
+    assert.equal(first.coordinator.health().owner, "agent");
+    assert.doesNotThrow(() => first.coordinator.issue(sessionsCommand("c-2")));
+  });
+
+  test("an explicit emergency stop is not cleared by a later heartbeat", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    first.coordinator.emergencyStop("operator pressed stop");
+
+    first.coordinator.handle({
+      v: 1,
+      type: "heartbeat",
+      tick: 2,
+      owner: "none",
+      world: { inWorld: true },
+    });
+    assert.equal(first.coordinator.health().permission, "stopped");
+    assert.throws(() => first.coordinator.issue(sessionsCommand("c-3")), /not permitted/);
   });
 
   test("late ACK and result frames cannot revive work cancelled by takeover", () => {
@@ -578,6 +676,28 @@ describe("bridge queue", () => {
     queue.settle(accepted.record.taskId, "completed");
 
     assert.throws(() => queue.settle(accepted.record.taskId, "failed"), /already completed/);
+  });
+
+  test("progress extends only an orchestrator default deadline", () => {
+    const queue = new CommandQueue({ capacity: 2 });
+    const automatic = queue.accept(
+      { ...command("c-auto", "command"), deadlineTick: 100 },
+      "a-auto",
+      1,
+      true,
+    );
+    const explicit = queue.accept(
+      { ...command("c-explicit", "command"), deadlineTick: 100 },
+      "a-explicit",
+      1,
+      false,
+    );
+
+    queue.extend(automatic.record.taskId, 200);
+    queue.extend(explicit.record.taskId, 200);
+
+    assert.equal(automatic.record.command.deadlineTick, 200);
+    assert.equal(explicit.record.command.deadlineTick, 100);
   });
 
   test("retained history stays bounded without losing recent terminal checks", () => {

@@ -17,6 +17,31 @@ export const bridgeHealthSchema = z.object({
   tick: z.number().int().nonnegative(),
   lastSeenAt: z.number().int().nonnegative(),
   watchdogMs: z.number().int().nonnegative(),
+  /**
+   * Reflex and safety facts the body observed, oldest first. They are facts,
+   * not commands: the console shows them so an operator can reconstruct why
+   * the agent stopped or fled without reading the game log.
+   */
+  incidents: z
+    .array(
+      z.object({
+        kind: z.enum([
+          "lava",
+          "low_health",
+          "falling",
+          "drowning",
+          "on_fire",
+          "starving",
+          "creeper",
+          "retreat",
+          "blocked",
+        ]),
+        detail: z.string(),
+        at: z.number().int().nonnegative(),
+      }),
+    )
+    .readonly()
+    .default([]),
 });
 export type BridgeHealth = z.infer<typeof bridgeHealthSchema>;
 

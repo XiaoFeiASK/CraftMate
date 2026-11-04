@@ -9,9 +9,11 @@ import type {
   VoiceStatus,
   TimelineEntry,
   VoiceSubtitle,
+  BodyEvent,
 } from "@craftmate/contracts";
 import { useState } from "react";
 import { DecisionStream } from "../DecisionStream.tsx";
+import { WorldEventStream } from "../WorldEventStream.tsx";
 import { OperatorBar } from "../OperatorBar.tsx";
 import { SettingsView } from "../settings/SettingsView.tsx";
 import { OpsView } from "../ops/OpsView.tsx";
@@ -52,6 +54,7 @@ interface OperationsDrawerProps {
   readonly ops: OpsSnapshot | null;
   readonly timeline: readonly TimelineEntry[];
   readonly timelinePending: boolean;
+  readonly worldEvents: readonly BodyEvent[];
   readonly onApproveMemory: (candidateId: string) => void;
   readonly onRejectMemory: (candidateId: string, reason: string) => void;
   readonly onForgetMemory: (memoryId: string) => void;
@@ -90,6 +93,7 @@ export function OperationsDrawer({
   ops,
   timeline,
   timelinePending,
+  worldEvents,
   onApproveMemory,
   onRejectMemory,
   onForgetMemory,
@@ -115,7 +119,9 @@ export function OperationsDrawer({
         </header>
 
         <div className="drawer__body">
-          {mode === "decisions" ? <DecisionsView snapshot={snapshot} /> : null}
+          {mode === "decisions" ? (
+            <DecisionsView snapshot={snapshot} worldEvents={worldEvents} />
+          ) : null}
           {mode === "persona" ? (
             <PersonaView personaName={personaName} settings={settings} />
           ) : null}
@@ -172,7 +178,13 @@ export function OperationsDrawer({
   );
 }
 
-function DecisionsView({ snapshot }: { readonly snapshot: ShowSnapshot }): React.JSX.Element {
+function DecisionsView({
+  snapshot,
+  worldEvents,
+}: {
+  readonly snapshot: ShowSnapshot;
+  readonly worldEvents: readonly BodyEvent[];
+}): React.JSX.Element {
   return (
     <div className="drawer__decisions">
       {snapshot.operatorNotice ? (
@@ -186,6 +198,7 @@ function DecisionsView({ snapshot }: { readonly snapshot: ShowSnapshot }): React
         <div><dt>执行</dt><dd>{snapshot.stats.executed}</dd></div>
         <div><dt>拒绝</dt><dd>{snapshot.stats.refused}</dd></div>
       </dl>
+      <WorldEventStream events={worldEvents} />
       <DecisionStream decisions={snapshot.decisions} />
     </div>
   );
@@ -296,6 +309,7 @@ function ConnectionsView({
           <div><dt>快捷栏</dt><dd>{snapshot.bridge.world.hotbar?.length ?? 0}</dd></div>
         </dl>
       ) : null}
+      <ReflexLog incidents={snapshot.bridge?.incidents ?? []} />
       <ConnectionRow
         label="抖音直播"
         value={source ? `${source.detail}${room ? ` · 房间 ${room}` : ""}` : room ? `房间 ${room}（等待 Ingress）` : "待配置"}
@@ -418,6 +432,50 @@ function worldLabel(snapshot: ShowSnapshot): string {
 function formatStat(value: number | null | undefined): string {
   if (value == null) return "—";
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+const INCIDENT_LABELS: Record<string, string> = {
+  lava: "岩浆",
+  low_health: "低血",
+  falling: "坠落",
+  drowning: "溺水",
+  on_fire: "着火",
+  starving: "饥饿",
+  creeper: "苦力怕",
+  retreat: "撤退",
+  blocked: "受阻",
+};
+
+/**
+ * Reflexes are the moments that changed the plan without a comment asking
+ * for it. Showing them next to health makes "why did it stop mining" answerable
+ * without replaying the decision stream.
+ */
+function ReflexLog({
+  incidents,
+}: {
+  readonly incidents: NonNullable<ShowSnapshot["bridge"]>["incidents"];
+}): React.JSX.Element | null {
+  if (incidents.length === 0) return null;
+  const recent = incidents.slice(-4);
+  return (
+    <section aria-labelledby="reflex-title">
+      <h3 id="reflex-title">身体避险 · {incidents.length}</h3>
+      <ul className="ops-list">
+        {recent.map((incident, index) => (
+          <li key={`${incident.at}-${index}`} className="ops-item">
+            <div>
+              <strong>{INCIDENT_LABELS[incident.kind] ?? incident.kind}</strong>
+              <small>{incident.detail}</small>
+            </div>
+            <time dateTime={new Date(incident.at).toISOString()}>
+              {new Date(incident.at).toLocaleTimeString("zh-CN", { hour12: false })}
+            </time>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 function sourceTone(state: string | undefined): "good" | "warn" | "bad" | "quiet" {

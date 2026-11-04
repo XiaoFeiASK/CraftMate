@@ -70,8 +70,15 @@ export interface NegotiatedBody {
 export interface CommandOutcome {
   readonly commandId: string;
   readonly taskId: string;
+  /** Present when the command carried a decision, so callers can join them. */
+  readonly decisionId?: string;
   readonly status: BridgeTerminalStatus;
+  readonly errorCode?: string;
   readonly at: number;
+  /** The body's own reason for a failure or safety cancel, when it gave one. */
+  readonly detail?: string;
+  /** Confirmed changes and unconfirmed submissions from the body. */
+  readonly outcome?: Readonly<Record<string, unknown>>;
 }
 
 export interface OwnershipState {

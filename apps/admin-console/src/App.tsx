@@ -19,6 +19,7 @@ export function App(): React.JSX.Element {
     ops,
     timeline,
     timelinePending,
+    worldEvents,
     sendComment,
     sendOperator,
     saveSettings,
@@ -84,6 +85,7 @@ export function App(): React.JSX.Element {
           ops={ops}
           timeline={timeline}
           timelinePending={timelinePending}
+          worldEvents={worldEvents}
           onApproveMemory={approveMemory}
           onRejectMemory={rejectMemory}
           onForgetMemory={forgetMemory}

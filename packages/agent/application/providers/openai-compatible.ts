@@ -98,6 +98,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
               audience: { nickname: request.nickname, text: request.audienceText },
               intent: request.intent,
               world: request.world ?? null,
+              incidents: request.incidents ?? [],
               availableSkills: request.availableSkills ?? null,
             }),
           },

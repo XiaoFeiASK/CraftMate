@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { skillCallSchema, skillNameSchema, type SkillCall, type SkillName } from "./skills.ts";
+import { skillOutcomeSchema, type SkillOutcome } from "./outcome.ts";
 
 export { skillCallSchema, skillNameSchema };
 export type { SkillCall, SkillName };
+export { skillOutcomeSchema };
+export type { SkillOutcome };
 
 export const decisionKindSchema = z.enum([
   "IGNORE",
@@ -54,6 +57,20 @@ export const decisionTraceSchema = z.object({
 });
 export type DecisionTrace = z.infer<typeof decisionTraceSchema>;
 
+/**
+ * The skill's own ending, attached to the decision that authorised it. Until
+ * this is set, "the agent decided to act" is all the console can honestly say;
+ * after it is set, success and evidence can be told apart from a bare ack.
+ */
+export const decisionOutcomeSchema = z.object({
+  status: z.enum(["completed", "failed", "timeout", "cancelled", "preempted"]),
+  errorCode: z.string().min(1).max(64).optional(),
+  detail: z.string().max(600).optional(),
+  outcome: skillOutcomeSchema.nullable().default(null),
+  at: z.number().int().nonnegative(),
+});
+export type DecisionOutcome = z.infer<typeof decisionOutcomeSchema>;
+
 export const decisionSchema = z.object({
   id: z.string(),
   eventId: z.string(),
@@ -71,6 +88,12 @@ export const decisionSchema = z.object({
   /** Stable hashed audience reference; never the raw platform user id. */
   audienceRef: z.string().default(""),
   trace: decisionTraceSchema.nullable().default(null),
+  /**
+   * Filled by the bridge when the body settles the skill. Optional on input
+   * so a scored decision produced before any skill exists stays constructible
+   * without inventing an outcome.
+   */
+  outcome: decisionOutcomeSchema.nullable().optional(),
   at: z.number(),
 });
 export type Decision = z.infer<typeof decisionSchema>;

@@ -13,6 +13,7 @@ import {
   SessionStore,
   SettingsStore,
   SourceStore,
+  WorldEventStore,
 } from "./stores.ts";
 import { defaultSettings } from "@craftmate/agent/application";
 
@@ -77,6 +78,42 @@ describe("storage", () => {
     // A build request is actionable, so it survives as an EXECUTE decision.
     assert.equal(history[0]?.decision, "EXECUTE");
     assert.equal(history[0]?.priority, "command");
+    second.close();
+  });
+
+  test("world events keep their order across a restart and sequence per session", () => {
+    const file = temporaryDatabase();
+    const first = openDatabase({ file });
+    const context = new SessionStore(first).bootstrap(dafeiyu, "盖房");
+    const store = new WorldEventStore(first);
+    store.append(context.sessionId, {
+      name: "reflex",
+      tick: 10,
+      data: { kind: "lava", detail: "岩浆就在脚边", health: 8 },
+      at: 1_000,
+    });
+    store.append(context.sessionId, {
+      name: "reflex",
+      tick: 11,
+      data: { kind: "low_health", detail: "血量只剩 3", health: 3 },
+      at: 2_000,
+    });
+    first.close();
+
+    const second = openDatabase({ file });
+    const reopened = new WorldEventStore(second);
+    reopened.append(context.sessionId, {
+      name: "reflex",
+      tick: 12,
+      data: { kind: "falling", detail: "正在坠落", health: 9 },
+      at: 3_000,
+    });
+    const events = reopened.recent(context.sessionId, 10);
+    // `recent` returns chronological order so a console can append without
+    // reversing the timeline it just rendered.
+    assert.deepEqual(events.map((event) => event.seq), [0, 1, 2]);
+    assert.deepEqual(events.map((event) => event.name), ["reflex", "reflex", "reflex"]);
+    assert.equal((events[2]?.data as { kind: string }).kind, "falling");
     second.close();
   });
 

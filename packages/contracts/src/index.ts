@@ -5,6 +5,7 @@ export * from "./decision.ts";
 export * from "./ingress.ts";
 export * from "./memory.ts";
 export * from "./ops.ts";
+export * from "./outcome.ts";
 export * from "./replay.ts";
 export * from "./skills.ts";
 export * from "./settings.ts";

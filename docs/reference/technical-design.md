@@ -128,6 +128,42 @@ score = intentConfidence * personaWeight + salience - fatiguePenalty
 
 六种仲裁输出是 `ignore`、`observe`、`reply`、`queue`、`execute`、`reject`。
 
+### 技能结果
+
+“已下发”不等于“已做到”。技能终态由身体回报，并回填到同一条决策上：
+
+```text
+decision.skill
+  -> bridge accepted / progress / result
+  -> decision.outcome { status, errorCode?, detail?, outcome, at }
+```
+
+`outcome.status` 取 `completed`、`failed`、`timeout`、`cancelled`、`preempted`
+之一；`outcome.outcome` 是技能自己的证据：
+
+| 字段 | 含义 |
+| --- | --- |
+| `summary` | 一句话说明实际做了什么 |
+| `changes` | 已确认的世界或背包变化，可带方块 ID 与坐标 |
+| `unconfirmed` | 已提交但无法证明生效的操作；重试可能重复副作用 |
+| `attempts` | 失败过的策略，避免下一轮重复 |
+| `problem` | 未达成目标的原因 |
+
+字段缺失表示“未知”，不表示“成功”。控制台在收到终态前不显示结果行。
+身体是外部输入，Orchestrator 写入前用 `skillOutcomeSchema` 重新校验。
+
+### 身体事件时间线
+
+身体事件与决策是两条独立的事实流：
+
+- 决策回答“节目要求做什么”。
+- 身体事件回答“角色实际经历了什么”，包括没有评论触发的反射。
+
+Mod 以通用 `event` 帧上报，Orchestrator 同时写入 `world_event`（按 `session_id`
+递增 `seq`，带 `tick`）并广播 `{ type: "world" }`。当前唯一稳定事件名是
+`reflex`，`data` 含 `kind`、`detail`、`health`；未知事件名按原样落库和显示，
+便于以后增加死亡、重生、拾取等事实而不改控制面协议。
+
 ## 5. 模型接入
 
 | 变量 | 说明 |

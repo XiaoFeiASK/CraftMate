@@ -78,6 +78,8 @@ CI 不包含真实直播间、真实模型计费、真实音频硬件、Minecraf
 | Orchestrator 持久化 | 已实现 | 迁移、重启恢复、承诺恢复、决策优先级、回放 | 4 小时连续运行 |
 | Stage A/B 仲裁 | 已实现 | 注入、冷却、意图、权重、优先级单测 | 真实直播间分布下的阈值调优 |
 | Stage C 模型 | 部分 | YYAPI/DeepSeek 真实请求返回计划；坏输出降级有测试 | 长 JSON 稳定性、成本和成功率实播采样 |
+| 技能结果契约 | 已实现 | 终态回填决策、`changes`/`unconfirmed` 渲染、坏结果被契约拒绝、重启后读回 | 真实技能样本量与“待确认”操作的重试策略 |
+| 身体事件时间线 | 已实现 | `world_event` 按 session 递增、重启续号、控制台显示最近事件 | 长会话容量、`reflex` 之外的事件类型 |
 | 语音 | 部分 | Seeduplex 真实鉴权、24kHz PCM、约 200ms 首包、一次真实 `spoken` | BlackHole/OBS 路由、首字延迟 P95、长会话 |
 | 本机音频 | 部分 | macOS 播放器曾产生 `spoken` | 设备路由；`AudioQueueStart (-66681)` 需现场处理 |
 
@@ -95,8 +97,23 @@ CI 不包含真实直播间、真实模型计费、真实音频硬件、Minecraf
 
 ## 5. 游戏身体
 
+**反射层（2026-11-04）**
+
+- Mod 每刻在技能之前检查岩浆（含两格范围）、血量 ≤6、坠落、水下缺氧、着火、
+  饥饿 ≤2、3 格内苦力怕；命中后松开按键、停止挖掘、岩浆/水下跳一下，并发
+  `event{name:"reflex"}`。
+- 协调器收到后把在跑与排队的 Agent 任务判 `failed`，原因写 `safety: …`，
+  并下发 `cancel`；`owner=operator` 期间不接受身体的安全取消。
+- `BridgeHealth.incidents` 保留最近 24 条，控制台「身体避险」直接显示。
+- 自动化：`packages/bridge/src/bridge.test.ts` 覆盖抢占、原因落库、不越权。
+- 未验收：真实岩浆、坠落与苦力怕现场；反射与 `chop_tree` 同时发生时的观感。
+
 **已实现**
 
+- 技能结果区分已确认变化（`changes`）、待确认提交（`unconfirmed`）和失败策略
+  （`attempts`）；`decision_log.outcome_json` 持久化，重启后控制台仍能看到。
+- 身体事件写入 `world_event` 并按 session 递增 `seq`；控制台「评论与决策」顶部
+  显示最近 6 条，反射原因与生命值同屏。
 - `mods/craftmate-body` 支持 Minecraft 1.21.11 / Fabric Loader 0.20.1。
 - HMCL 开发实例进入真实单人世界，连接 Bridge，上报世界快照。
 - `mine_block` 命令进入真实 Mod 执行状态机并被接受；完成结果包含同一目标位置
@@ -107,6 +124,9 @@ CI 不包含真实直播间、真实模型计费、真实音频硬件、Minecraf
 
 **未验收**
 
+- 结果契约在真实 `mine_block` / `chop_tree` 多次成功、部分成功和断线场景下的
+  证据完整性；`unconfirmed` 的实际重试或放弃策略。
+- 事件时间线在 1 小时以上会话中的容量与滚动表现；除 `reflex` 外尚无生产事件。
 - 真实环境重复验收 `mine_block`：遮挡、外部移除、方块变更和完整破坏终态。
 - 真实环境重复验收 `chop_tree`：树干、树叶遮挡、跨树干移动、多根原木计数，
   以及目标不可达时在 10 秒内重新选树或明确超时。

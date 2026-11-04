@@ -10,6 +10,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.client.player.LocalPlayer;
@@ -32,6 +33,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import org.lwjgl.glfw.GLFW;
 
 /**
  * Commands are state machines advanced by the client thread. A task remains
@@ -46,6 +48,7 @@ final class GameActions {
 	);
 	private static final Map<String, Task> TASKS = new ConcurrentHashMap<>();
 	private static int clientTick;
+	private static Reflexes reflexes;
 
 	private GameActions() {
 	}
@@ -133,6 +136,11 @@ final class GameActions {
 		TASKS.values().forEach(task -> task.age++);
 	}
 
+	/** Bound once by the bridge so reflexes and results share one wire path. */
+	static void bindSender(Consumer<JsonObject> send) {
+		reflexes = new Reflexes(send);
+	}
+
 	/**
 	 * Registers and validates a command without producing any wire result.
 	 * The caller acknowledges accepted commands before task progress or an
@@ -142,6 +150,7 @@ final class GameActions {
 		if (TASKS.containsKey(id)) {
 			return StartDecision.rejected("E_BUSY", "duplicate task id");
 		}
+		closeBlockingScreen(client);
 		Task task = switch (op) {
 			case "wait" -> new WaitTask(id, integer(args, "ticks", 1));
 			case "say" -> new SayTask(id, required(args, "text"));
@@ -166,6 +175,16 @@ final class GameActions {
 		TASKS.put(id, task);
 		showStatus(client, op + " · " + id.substring(0, Math.min(8, id.length())));
 		return StartDecision.accept();
+	}
+
+	/**
+	 * The body must be able to act without a human closing inventory, chat or
+	 * another in-game menu. Keep this to screens that are safe to dismiss; the
+	 * title and world-selection screens are only reachable before a world loads
+	 * and are already rejected by readiness checks.
+	 */
+	private static void closeBlockingScreen(Minecraft client) {
+		if (client.screen != null && client.level != null) client.setScreen(null);
 	}
 
 	/**
@@ -218,6 +237,15 @@ final class GameActions {
 
 	static void update(Minecraft client) {
 		tickTasks(client);
+		// Reflexes run before skills so a danger detected this tick stops the
+		// input a task would otherwise press again, and so a task that is
+		// already underway cannot finish the tick by walking into lava.
+		if (reflexes == null || !reflexes.tick(client)) {
+			advanceTasks(client);
+		}
+	}
+
+	private static void advanceTasks(Minecraft client) {
 		for (Task task : new ArrayList<>(TASKS.values())) {
 			if (!task.started || !TASKS.containsKey(task.id)) continue;
 			try {
@@ -254,6 +282,28 @@ final class GameActions {
 
 	private static JsonObject progress(String id, String phase, int done, int total) {
 		return BridgeMessages.progress(id, phase, done, total);
+	}
+
+	/**
+	 * Mirrors the orchestrator's outcome shape: a short summary, one confirmed
+	 * change per block, and the problem that stopped us. The console can show
+	 * this without understanding which skill produced it.
+	 */
+	private static JsonObject outcome(String summary, JsonArray mined, String problem) {
+		JsonObject outcome = new JsonObject();
+		outcome.addProperty("summary", summary);
+		JsonArray changes = new JsonArray();
+		for (var item : mined) {
+			JsonObject block = item.getAsJsonObject();
+			JsonObject change = new JsonObject();
+			change.addProperty("kind", "block_broken");
+			change.addProperty("detail", block.get("block").getAsString());
+			change.add("position", block.get("position"));
+			changes.add(change);
+		}
+		outcome.add("changes", changes);
+		if (problem != null) outcome.addProperty("problem", problem);
+		return outcome;
 	}
 
 	private static String required(JsonObject args, String name) {
@@ -433,11 +483,15 @@ final class GameActions {
 	}
 
 	private static final class MineTask extends Task {
+		private static final int WALK_BASE_TICKS = 20 * 10;
+		private static final int STALL_TICKS = 20 * 8;
+		private static final int BREAK_TICKS = 20 * 25;
 		private final String blockId;
 		private final boolean anyLog;
 		private final int count;
 		private int mined;
 		private BlockPos target;
+		private BlockPos desiredTarget;
 		private Direction side;
 		private int lastMinedCount;
 		private int miningAge;
@@ -445,9 +499,13 @@ final class GameActions {
 		private int walkingAge;
 		private BlockPos walkingDestination;
 		private boolean destroying;
-		private float lastProgress;
+		private float accumulation = 0.0f;
+		private float lastProgress = -1.0f;
+		private int lastReportedPercent = -1;
 		private int stalledTicks;
 		private BlockState blockBeforeDestroy;
+		private boolean breaking = false;
+		private boolean attackHeld = false;
 		private final JsonArray minedBlocks = new JsonArray();
 
 		MineTask(String id, JsonObject args) {
@@ -476,13 +534,14 @@ final class GameActions {
 		@Override
 		void start(Minecraft client) {
 			send.accept(progress(id, "finding", 0, count));
-			target = findTarget(client);
+			target = selectTarget(client);
 			if (target == null) {
 				finish(id, "failed", "E_PRECONDITION", "no visible " + targetName() + " within 32 blocks");
 				return;
 			}
 			walking = !canReach(client.player, target);
 			walkingDestination = target;
+			send.accept(progress(id, "target", 0, count));
 		}
 
 		@Override
@@ -494,6 +553,24 @@ final class GameActions {
 			BlockState state = client.level.getBlockState(target);
 			if (destroying && state.isAir()) {
 				stopMining(client);
+				if (desiredTarget != null && !target.equals(desiredTarget)) {
+					// This was a natural cover block. It made the requested
+					// block visible; it is not part of the requested count.
+					target = nextCoverOrTarget(client, desiredTarget);
+					if (target == null) {
+						finish(id, "failed", "E_PRECONDITION", "could not uncover " + targetName());
+						return;
+					}
+					side = Direction.UP;
+					miningAge = 0;
+					walking = !canReach(client.player, target);
+					accumulation = 0.0f;
+					lastProgress = -1.0f;
+					lastReportedPercent = -1;
+					stalledTicks = 0;
+					destroying = false;
+					return;
+				}
 				mined++;
 				send.accept(progress(id, "mining", mined, count));
 				if (blockBeforeDestroy != null) minedBlocks.add(miningResult(target, blockBeforeDestroy));
@@ -501,21 +578,28 @@ final class GameActions {
 				if (mined >= count) {
 					JsonObject evidence = new JsonObject();
 					evidence.add("mined", minedBlocks);
+					evidence.add("outcome", outcome("砍下 " + mined + " 个" + targetName(), minedBlocks, null));
 					finish(id, "completed", null, null, evidence);
 					return;
 				}
-				target = findTarget(client);
+				target = selectTarget(client);
 				if (target == null) {
 					walking = false;
 					JsonObject evidence = new JsonObject();
 					evidence.add("mined", minedBlocks);
+					evidence.add(
+						"outcome",
+						outcome("只砍到 " + mined + " 个" + targetName(), minedBlocks, "附近找不到更多")
+					);
 					finish(id, "failed", "E_PRECONDITION", "no further " + targetName() + " within 32 blocks", evidence);
 					return;
 				}
 				side = Direction.UP;
 				miningAge = 0;
 				walking = !canReach(client.player, target);
-				lastProgress = 0;
+				accumulation = 0.0f;
+				lastProgress = -1.0f;
+				lastReportedPercent = -1;
 				stalledTicks = 0;
 				destroying = false;
 				return;
@@ -525,6 +609,19 @@ final class GameActions {
 			Vec3 direction = center.subtract(player.getEyePosition()).normalize();
 			player.setYRot((float) Math.toDegrees(Math.atan2(-direction.x, direction.z)));
 			player.setXRot((float) Math.toDegrees(-Math.asin(direction.y)));
+			// Minecraft derives `hitResult` from the camera every frame, and
+			// handleKeybinds re-picks it before continueAttack reads the target.
+			// Writing rotation alone is not enough on the first tick, so keep
+			// the pointer on target and let vanilla own the destroy loop.
+			client.hitResult = client.level.clip(
+				new ClipContext(
+					player.getEyePosition(1.0f),
+					player.getEyePosition(1.0f).add(player.getViewVector(1.0f).scale(5.0)),
+					ClipContext.Block.OUTLINE,
+					ClipContext.Fluid.NONE,
+					player
+				)
+			);
 			if (walking) {
 				if (player.horizontalCollision && player.onGround()) {
 					player.jumpFromGround();
@@ -536,9 +633,7 @@ final class GameActions {
 					walking = false;
 					walkingAge = 0;
 					walkingDestination = null;
-					lastProgress = 0;
 					stalledTicks = 0;
-					if (player.input != null) player.input.keyPresses = net.minecraft.world.entity.player.Input.EMPTY;
 				}
 				// The walk is only towards the target if the target is the
 				// next log. After the first log in a trunk, re-aiming at the
@@ -548,16 +643,9 @@ final class GameActions {
 					walkingAge = 0;
 				}
 				walkingAge++;
-				if (walkingAge > 20 * 10) {
-					BlockPos nearest = findTarget(client);
-					if (nearest != null && !nearest.equals(target)) {
-						target = nearest;
-						walkingDestination = null;
-						walkingAge = 0;
-					} else {
-						stop(client);
-						finish(id, "timeout", "E_TIMEOUT", "could not reach " + targetName() + " in time");
-					}
+				if (walkingAge > walkBudgetTicks(player, target)) {
+					stop(client);
+					finish(id, "timeout", "E_TIMEOUT", "could not reach " + targetName() + " in time");
 				}
 				return;
 			}
@@ -577,39 +665,57 @@ final class GameActions {
 				finish(id, "failed", "E_PRECONDITION", "target is obstructed from the player's line of sight");
 				return;
 			}
-			boolean sameDestroyTarget = destroying && client.gameMode.isDestroying();
-			if (!sameDestroyTarget) {
-				stopMining(client);
+			if (!breaking) {
 				blockBeforeDestroy = client.level.getBlockState(target);
-				side = Direction.getNearest(
-					(int) Math.round(center.x - player.getX()),
-					(int) Math.round(center.y - player.getY()),
-					(int) Math.round(center.z - player.getZ()),
-					Direction.UP
-				);
-				client.gameMode.startDestroyBlock(target, side);
-				player.swing(InteractionHand.MAIN_HAND);
-				// Progress is emitted when a block actually disappears below;
-				// sending it for every new start would flood the coordinator.
+				side = hit.getDirection();
+				if (!client.mouseHandler.isMouseGrabbed() && client.isWindowActive()) {
+					client.mouseHandler.grabMouse();
+				}
+				KeyMapping attack = client.options.keyAttack;
+				client.missTime = 0;
+				attack.setDown(true);
+				attackHeld = true;
 				miningAge = 0;
-				lastProgress = 0;
+				accumulation = 0.0f;
+				lastProgress = -1.0f;
+				lastReportedPercent = -1;
 				stalledTicks = 0;
-				destroying = true;
-			} else {
-				client.gameMode.continueDestroyBlock(target, side);
-				player.swing(InteractionHand.MAIN_HAND);
+				breaking = true;
+				send.accept(progress(id, "breaking", 0, 100));
+			} else if (!client.mouseHandler.isMouseGrabbed() && client.isWindowActive()) {
+				client.mouseHandler.grabMouse();
 			}
-			client.gameMode.tick();
-			float progress = blockProgress(client, target);
-			if (progress <= lastProgress + 0.0001f) stalledTicks++;
+			client.missTime = 0;
+			client.gameMode.continueDestroyBlock(target, side);
+			// `getDestroyStage()` is the render stage (0-10), not the actual
+			// accumulated progress. Polling it made a slow block look stalled
+			// even while the vanilla destroy loop was working correctly.
+			BlockState current = client.level.getBlockState(target);
+			// With a hold-to-break key the vanilla client calls
+			// continueDestroyBlock every tick (see Minecraft.handleKeybinds),
+			// and each call adds one tick's worth of progress. The remaining
+			// fraction is not a progress gauge on its own: it stays below 1
+			// until the block breaks and is reset by vanilla at that point.
+			accumulation += blockProgress(client, target, current);
+			if (accumulation <= lastProgress) stalledTicks++;
 			else stalledTicks = 0;
-			lastProgress = Math.max(lastProgress, progress);
-			if (stalledTicks > 20 * 5) {
+			lastProgress = Math.max(lastProgress, accumulation);
+			int percent = Math.min(99, (int) Math.floor(accumulation * 100.0f));
+			if (percent >= lastReportedPercent + 5) {
+				lastReportedPercent = percent;
+				send.accept(progress(id, "breaking", percent, 100));
+			}
+			if (stalledTicks > STALL_TICKS) {
 				stopMining(client);
-				finish(id, "failed", "E_PRECONDITION", "target block is not being destroyed");
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"target block made no break progress for 8 seconds"
+				);
 			}
 			miningAge++;
-			if (miningAge > 20 * 20) {
+			if (miningAge > BREAK_TICKS) {
 				stopMining(client);
 				finish(id, "failed", "E_TIMEOUT", "block did not break");
 			}
@@ -632,6 +738,76 @@ final class GameActions {
 			return findBlock(client, state -> state.is(block));
 		}
 
+		private BlockPos selectTarget(Minecraft client) {
+			// A tall trunk can hide its lower logs behind leaves or adjacent
+			// blocks. Prefer a directly visible log, then accept any log within
+			// the same bounded search instead of failing while nearbyBlocks
+			// clearly reports wood.
+			BlockPos direct = findTarget(client);
+			if (direct != null) {
+				desiredTarget = null;
+				return direct;
+			}
+			if (anyLog) {
+				BlockPos nearby = findBlockUnclipped(client, state -> state.is(BlockTags.LOGS));
+				if (nearby != null) {
+					desiredTarget = null;
+					return nearby;
+				}
+			}
+			return anyLog ? null : findCoveredTarget(client);
+		}
+
+		/**
+		 * Dirt and sand are normally covered by grass or a layer of soil. A
+		 * request for one of those blocks must be able to dig down through a
+		 * few natural layers instead of reporting "not visible".
+		 */
+		private BlockPos findCoveredTarget(Minecraft client) {
+			BlockPos origin = client.player.blockPosition();
+			BlockPos best = null;
+			double bestDistance = Double.POSITIVE_INFINITY;
+			for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-8, -5, -8), origin.offset(8, 2, 8))) {
+				BlockPos candidate = pos.immutable();
+				if (!matchesTarget(client.level.getBlockState(candidate))) continue;
+				BlockPos next = nextCoverOrTarget(client, candidate);
+				if (next == null || next.equals(candidate)) continue;
+				double distance = candidate.distSqr(origin);
+				if (distance < bestDistance) {
+					bestDistance = distance;
+					desiredTarget = candidate;
+					best = next;
+				}
+			}
+			return best;
+		}
+
+		private boolean matchesTarget(BlockState state) {
+			if (anyLog) return state.is(BlockTags.LOGS);
+			return state.is(BuiltInRegistries.BLOCK.getValue(Identifier.parse(blockId)));
+		}
+
+		/**
+		 * Returns the topmost natural cover above the desired block, or the
+		 * desired block when nothing covers it. Only soil-like blocks are
+		 * removed, so this never digs through a player-made wall or a tree.
+		 */
+		private BlockPos nextCoverOrTarget(Minecraft client, BlockPos desired) {
+			BlockPos cover = desired;
+			for (int depth = 1; depth <= 4; depth++) {
+				BlockPos above = desired.above(depth);
+				BlockState state = client.level.getBlockState(above);
+				if (state.isAir()) return cover;
+				if (!isNaturalCover(state)) return null;
+				cover = above;
+			}
+			return cover;
+		}
+
+		private static boolean isNaturalCover(BlockState state) {
+			return state.is(BlockTags.DIRT) || state.is(BlockTags.SAND) || state.is(BlockTags.SNOW);
+		}
+
 		private String targetName() {
 			return anyLog ? "log" : blockId;
 		}
@@ -649,19 +825,35 @@ final class GameActions {
 			return player.isWithinBlockInteractionRange(target, 0.0);
 		}
 
-		private void stopMining(Minecraft client) {
-			if (client.gameMode != null && client.gameMode.isDestroying()) client.gameMode.stopDestroyBlock();
-			destroying = false;
+		private static int walkBudgetTicks(LocalPlayer player, BlockPos target) {
+			double blocks = Math.sqrt(player.blockPosition().distSqr(target));
+			return WALK_BASE_TICKS + (int) Math.ceil(blocks) * 20;
 		}
 
-		private static float blockProgress(Minecraft client, BlockPos target) {
-			BlockState state = client.level.getBlockState(target);
+		private void stopMining(Minecraft client) {
+			if (attackHeld) {
+				client.options.keyAttack.setDown(false);
+				attackHeld = false;
+			}
+			if (client.gameMode != null && client.gameMode.isDestroying()) client.gameMode.stopDestroyBlock();
+			destroying = false;
+			breaking = false;
+		}
+
+		/**
+		 * The client's accumulated break fraction for the current target. It
+		 * grows from 0 to 1 across the same ticks ContinueDestroyBlock sends
+		 * to the integrated server, so it is the honest stall signal.
+		 */
+		private static float blockProgress(Minecraft client, BlockPos target, BlockState state) {
+			if (state.isAir()) return 1.0f;
 			return state.getDestroyProgress(
 				client.player,
 				client.level,
 				target
 			);
 		}
+
 	}
 
 	private static final class AttackTask extends Task {
@@ -858,6 +1050,30 @@ final class GameActions {
 		return best;
 	}
 
+	/**
+	 * Fallback for a log that is present but not currently visible. The walk
+	 * loop turns toward it and the destroy loop still enforces line of sight
+	 * before starting to break it, so this cannot mine through terrain.
+	 */
+	private static BlockPos findBlockUnclipped(
+		Minecraft client,
+		java.util.function.Predicate<BlockState> matches
+	) {
+		BlockPos origin = client.player.blockPosition();
+		BlockPos best = null;
+		double bestScore = Double.POSITIVE_INFINITY;
+		for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-32, -16, -32), origin.offset(32, 16, 32))) {
+			if (!matches.test(client.level.getBlockState(pos))) continue;
+			double score = origin.distSqr(pos);
+			if (score > 32.0 * 32.0) continue;
+			if (score < bestScore) {
+				bestScore = score;
+				best = pos.immutable();
+			}
+		}
+		return best;
+	}
+
 	private static Entity nearestEntity(Minecraft client, String targetName) {
 		return client.level.getEntitiesOfClass(Entity.class, client.player.getBoundingBox().inflate(16.0)).stream()
 			.filter(entity -> entity != client.player && entity.isAlive())
@@ -872,14 +1088,23 @@ final class GameActions {
 
 	private static JsonArray nearbyBlocks(Minecraft client, LocalPlayer player) {
 		JsonArray blocks = new JsonArray();
+		Map<String, Integer> counts = new java.util.TreeMap<>();
 		BlockPos origin = player.blockPosition();
-		client.level.getBlockStates(
-			new net.minecraft.world.phys.AABB(origin).inflate(8.0)
-		).filter(state -> !state.isAir()).limit(32).forEach(state -> {
-			JsonObject entry = new JsonObject();
-			entry.addProperty("id", BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
-			blocks.add(entry);
-		});
+		for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-8, -4, -8), origin.offset(8, 4, 8))) {
+			BlockState state = client.level.getBlockState(pos);
+			if (state.isAir()) continue;
+			String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+			counts.merge(id, 1, Integer::sum);
+		}
+		counts.entrySet().stream()
+			.sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+			.limit(32)
+			.forEach(block -> {
+			JsonObject summary = new JsonObject();
+			summary.addProperty("id", block.getKey());
+			summary.addProperty("count", block.getValue());
+			blocks.add(summary);
+			});
 		return blocks;
 	}
 

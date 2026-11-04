@@ -32,6 +32,27 @@ Bridge 是受控命令通道，不是模型网关。
 | `event` | body → bridge | 世界事件，单调 `seq` |
 | `heartbeat` / ownership | 双向 | 存活与控制权 |
 
+### 3.1 反射事件
+
+`event` 的名字是 `reflex` 时，身体在报告"我正在受伤"。这是身体自己的判断，
+不等模型：Mod 每刻检查岩浆、低血、坠落、溺水、着火、饥饿和近身苦力怕，命中后
+先松开按键、停止挖掘，再发一条事件。
+
+```json
+{ "type": "event", "seq": 0, "tick": 0, "name": "reflex",
+  "data": { "kind": "lava", "detail": "站在岩浆里或离岩浆只有一格", "health": 4 } }
+```
+
+- 协调器收到后把在跑和排队中的 Agent 任务全部判 `failed`，错误码
+  `E_PRECONDITION`，原因写成 `safety: <detail>`，并给身体发 `cancel`。
+- 只有 `owner=agent` 时才这么处理。Operator 接管期间，身体不能借"安全"名义
+  取消操作员的任务。
+- 事件同时留在 `BridgeHealth.incidents`（最近 24 条）里，控制台直接显示。
+- 名字用普通字符串，老版本协调器遇到未知名字只忽略，不会断开连接。
+
+反射只做"松手 + 原生逃生"（岩浆里跳一下、水下上浮），不自己选安全点。去哪、
+接下来做什么归 Agent；反射层不发明路线，避免把角色带下悬崖。
+
 命令契约定义在 `packages/contracts/src/skills.ts` 与 `bridge.ts`。契约目录保留
 19 个技能作为未来扩展面；当前 Fabric 身体实际支持的能力和技能以
 `FABRIC_BODY_CAPABILITIES` / `FABRIC_BODY_SKILLS` 为准。未知技能、非法参数和未

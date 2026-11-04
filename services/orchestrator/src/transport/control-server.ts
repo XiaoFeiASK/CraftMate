@@ -96,6 +96,10 @@ export interface ControlServer {
   publishVoiceStatus(status: unknown): void;
   publishSubtitle(subtitle: VoiceSubtitle): void;
   publishBridgeHealth(health: BridgeHealth | null): void;
+  /** A decision whose late outcome arrived from the body. */
+  publishDecision(decision: Decision): void;
+  /** One body event, already persisted by the host. */
+  publishWorldEvent(event: { readonly name: string; readonly data: unknown; readonly at: number }): void;
   /** Local single-shot acceptance path; disabled unless wired by the host. */
   injectDecision?(raw: unknown): void;
   close(): Promise<void>;
@@ -247,6 +251,19 @@ export function createControlServer({
   };
 
   const injectDecision = (raw: unknown): void => handleDecision(raw);
+
+  const publishDecision = (decision: Decision): void => {
+    broadcast({ type: "decision", payload: decision });
+    broadcast({ type: "snapshot", payload: show.snapshot() });
+  };
+
+  const publishWorldEvent = (event: {
+    readonly name: string;
+    readonly data: unknown;
+    readonly at: number;
+  }): void => {
+    broadcast({ type: "world", payload: event });
+  };
 
   const planAndSpeak = async (decision: Decision, generation: number): Promise<void> => {
     if (generation !== controlGeneration || show.snapshot().mode !== "agent") return;
@@ -586,6 +603,8 @@ export function createControlServer({
       broadcast({ type: "subtitle", payload: subtitle });
     },
     publishBridgeHealth,
+    publishDecision,
+    publishWorldEvent,
     injectDecision,
     close: async () => {
       for (const { socket } of connections) socket.close();
