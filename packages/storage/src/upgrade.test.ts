@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
@@ -65,7 +65,7 @@ describe("schema upgrade", () => {
       const versions = (db.prepare("SELECT version FROM schema_migration ORDER BY version").all() as {
         version: number;
       }[]).map((row) => row.version);
-      assert.deepEqual(versions, [1, 2, 3, 4, 5, 6, 7]);
+      assert.deepEqual(versions, [1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
       const row = db
         .prepare("SELECT speech_text, skill_json FROM decision_log WHERE id = 'upgrade-d1'")
@@ -77,6 +77,41 @@ describe("schema upgrade", () => {
       const sessionId = (db.prepare("SELECT id FROM show_session LIMIT 1").get() as { id: string }).id;
       new CostStore(db).record({ sessionId, provider: "fake", model: "m", cost: 0.1 });
       assert.equal(new CostStore(db).spentSince(0), 0.1);
+    } finally {
+      db.close();
+    }
+  });
+
+  test("a database that ran the original 0008 gains failure history in 0009", () => {
+    // #50 was released before failure history existed. Reproduce that exact
+    // ledger: 0008 without failures_json, then the current migrator must add
+    // it in place instead of tripping over a changed checksum.
+    const file = join(mkdtempSync(join(tmpdir(), "craftmate-0008-")), "show.db");
+    const dir = join(migrationsDir, "pre-failures");
+    mkdirSync(dir, { recursive: true });
+    for (const name of readdirSync(join(process.cwd(), "db", "migrations"))) {
+      if (Number(name.slice(0, 4)) > 7) continue;
+      cpSync(join(process.cwd(), "db", "migrations", name), join(dir, name));
+    }
+    const old0008 = readFileSync(join(process.cwd(), "db", "migrations", "0008_goal_runtime.sql"), "utf8")
+      .replace(
+        /\n  failures_json(\n|\r\n)                         CHECK \(json_valid\(failures_json\) AND json_type\(failures_json\) = 'array'\)/,
+        "",
+      );
+    writeFileSync(join(dir, "0008_goal_runtime.sql"), old0008);
+    const legacy = openDatabase({ file, migrationsDir: dir });
+    legacy.close();
+
+    const db = openDatabase({ file });
+    try {
+      const columns = (
+        db.prepare("PRAGMA table_info(goal_runtime)").all() as { name: string }[]
+      ).map((column) => column.name);
+      assert.ok(columns.includes("failures_json"));
+      assert.equal(
+        (db.prepare("SELECT count(*) AS n FROM schema_migration WHERE version = 9").get() as { n: number }).n,
+        1,
+      );
     } finally {
       db.close();
     }

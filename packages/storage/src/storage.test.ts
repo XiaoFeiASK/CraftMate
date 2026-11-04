@@ -135,7 +135,8 @@ describe("storage", () => {
     new SettingsStore(first).write(context.sessionId, {
       ...settings,
       goal: "挖一组钻石",
-      goalProgress: 64,
+      goalDescription: "先挖到钻石再回来",
+      goalMode: true,
       persona: { ...settings.persona, name: "大肥鱼二号" },
     });
     first.close();
@@ -143,11 +144,13 @@ describe("storage", () => {
     const second = openDatabase({ file });
     const stored = new SettingsStore(second).read(context.sessionId) as {
       goal: string;
-      goalProgress: number;
+      goalDescription: string;
+      goalMode: boolean;
       persona: { name: string };
     };
     assert.equal(stored.goal, "挖一组钻石");
-    assert.equal(stored.goalProgress, 64);
+    assert.equal(stored.goalDescription, "先挖到钻石再回来");
+    assert.equal(stored.goalMode, true);
     assert.equal(stored.persona.name, "大肥鱼二号");
     second.close();
   });

@@ -13,6 +13,8 @@ const snapshot: ShowSnapshot = {
   stats: { received: 3, decided: 2, executed: 1, refused: 0, observed: 1, openCommitments: 0 },
   decisions: [],
   operatorNotice: null,
+  goal: null,
+  proposals: [],
   sourceHealth: null,
   voiceStatus: null,
   bridge: null,
@@ -63,7 +65,8 @@ describe("control protocol", () => {
           },
           settings: {
             goal: "盖房",
-            goalProgress: 20,
+            goalDescription: "盖一间房子",
+            goalMode: false,
             worldName: "本地世界",
             gameVersion: "1.21.11",
             accountLabel: "直播号",
@@ -91,10 +94,49 @@ describe("control protocol", () => {
     );
   });
 
+  test("goal control is operator-only and proposals carry explicit gates", () => {
+    assert.equal(
+      clientMessageSchema.safeParse({
+        type: "goalSet",
+        payload: { title: "击败末影龙", description: "完整生存链" },
+      }).success,
+      true,
+    );
+    assert.equal(clientMessageSchema.safeParse({ type: "goalPause" }).success, true);
+    assert.equal(clientMessageSchema.safeParse({ type: "goalResume" }).success, true);
+    assert.equal(
+      clientMessageSchema.safeParse({
+        type: "proposalDecision",
+        payload: { proposalId: "p1", status: "accepted", reason: "符合当前阶段" },
+      }).success,
+      true,
+    );
+    assert.equal(
+      showSnapshotSchema.parse({
+        ...snapshot,
+        goal: {
+          goalId: "g1",
+          goalVersion: 1,
+          status: "unverified",
+          stage: { id: "wood", title: "获得木头" },
+          milestone: { id: "logs", title: "背包有原木" },
+          nextTask: "chop_tree",
+          milestones: [],
+          completed: 0,
+          unverified: 0,
+          lastFailure: null,
+          updatedAt: 1,
+        },
+      }).goal?.status,
+      "unverified",
+    );
+  });
+
   test("settings reject blank labels and out-of-range weights", () => {
     const valid = {
       goal: "盖房",
-      goalProgress: 20,
+      goalDescription: "盖一间房子",
+      goalMode: false,
       worldName: "本地世界",
       gameVersion: "1.21.11",
       accountLabel: "直播号",
@@ -110,6 +152,10 @@ describe("control protocol", () => {
       },
     };
     assert.equal(showSettingsSchema.safeParse(valid).success, true);
+    // Older rows without the new goal fields must keep working.
+    const { goalDescription: _description, goalMode: _mode, ...legacy } = valid;
+    assert.deepEqual(showSettingsSchema.parse(legacy).goalMode, false);
+    assert.equal(showSettingsSchema.parse(legacy).goalDescription, "");
     assert.equal(showSettingsSchema.safeParse({ ...valid, goal: "   " }).success, false);
     assert.equal(
       showSettingsSchema.safeParse({

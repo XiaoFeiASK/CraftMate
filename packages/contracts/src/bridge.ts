@@ -82,8 +82,10 @@ export const worldSnapshotSchema = z.object({
   onGround: z.boolean().nullable().optional(),
   fallDistance: z.number().nonnegative().nullable().optional(),
   verticalVelocity: z.number().nullable().optional(),
+  /** A screen the player opened; the agent must pause instead of closing it. */
+  screenOpen: z.boolean().nullable().optional(),
   floor: z.string().max(160).nullable().optional(),
-  /** World spawn, used as the safe centre for autonomous exploration. */
+  /** World spawn; available to future goal-directed navigation. */
   spawn: z.object({
     x: z.number(),
     y: z.number(),
@@ -95,6 +97,26 @@ export const worldSnapshotSchema = z.object({
     item: z.string().max(160),
     count: z.number().int().positive(),
   })).max(9).optional(),
+  /**
+   * Every non-empty inventory slot, not only the nine hotbar slots. The
+   * planner must be able to reason about a full backpack; `hotbar` stays for
+   * older consumers. `slot` keeps the vanilla inventory index, so hotbar is
+   * 0–8, main is 9–35, armor is 36–39 and offhand is 40.
+   */
+  inventory: z.array(z.object({
+    section: z.enum(["hotbar", "main", "armor", "offhand"]),
+    slot: z.number().int().min(0).max(64),
+    item: z.string().min(1).max(160),
+    count: z.number().int().positive(),
+    durability: z.number().int().nonnegative().optional(),
+    maxDurability: z.number().int().positive().optional(),
+  })).max(64).optional(),
+  /** World time of day in ticks, 0–23999. */
+  timeOfDay: z.number().int().min(0).max(23_999).optional(),
+  /** Whole Minecraft days elapsed in this world. */
+  day: z.number().int().nonnegative().optional(),
+  /** True while the player is lying in a bed. */
+  sleeping: z.boolean().optional(),
   entities: z.array(z.object({
     name: z.string().max(160),
     type: z.string().max(160),

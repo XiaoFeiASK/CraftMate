@@ -154,6 +154,59 @@ export class SourceStore {
   }
 
   /**
+   * Locally authored evidence that is not an audience event. Goal-runtime
+   * decisions still need a traceable source row, but labelling them as
+   * comments would inflate viewer statistics.
+   */
+  appendInternal(
+    sessionId: string,
+    event: {
+      readonly id: string;
+      readonly kind: "operator" | "world" | "system";
+      readonly actorRef: string;
+      readonly text: string;
+      readonly at: number;
+    },
+  ): AppendSourceResult {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const existing = this.db
+        .prepare("SELECT id FROM source WHERE session_id = ? AND kind = ? AND external_event_id = ?")
+        .get(sessionId, event.kind, event.id) as { id: string } | undefined;
+      if (existing) {
+        this.db.exec("COMMIT");
+        return { id: existing.id, inserted: false };
+      }
+      const id = crypto.randomUUID();
+      const text = event.text.slice(0, 500);
+      this.db
+        .prepare(
+          `INSERT INTO source
+             (id, external_event_id, session_id, kind, actor_ref, raw_text,
+              payload_json, content_hash, received_at_ms, raw_expires_at_ms)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          event.id,
+          sessionId,
+          event.kind,
+          event.actorRef,
+          text,
+          JSON.stringify({ internal: true }),
+          createHash("sha256").update(`${event.kind}\u0000${event.id}\u0000${text}`).digest("hex"),
+          event.at,
+          event.at + RAW_RETENTION_MS,
+        );
+      this.db.exec("COMMIT");
+      return { id, inserted: true };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
    * Blank the raw text of expired rows, keeping the hash and metrics, and
    * leave one audit row per purged source. Each batch is its own transaction,
    * so a crash cannot produce a purge without its audit trail, and a long

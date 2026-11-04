@@ -13,6 +13,8 @@ import {
   type TimelineEntry,
   type VoiceSubtitle,
   type BodyEvent,
+  type Proposal,
+  type ProposalStatus,
 } from "@craftmate/contracts";
 import { reconnectDelay, type WireState } from "./connection.ts";
 
@@ -24,6 +26,8 @@ const emptySnapshot: ShowSnapshot = {
   stats: { received: 0, decided: 0, executed: 0, refused: 0, observed: 0, openCommitments: 0 },
   decisions: [],
   operatorNotice: null,
+  goal: null,
+  proposals: [],
   sourceHealth: null,
   voiceStatus: null,
   bridge: null,
@@ -49,6 +53,7 @@ export interface ControlLink {
   readonly timelineTraceId: string | null;
   readonly timelinePending: boolean;
   readonly worldEvents: readonly BodyEvent[];
+  readonly proposals: readonly Proposal[];
   sendComment(nickname: string, text: string): void;
   sendOperator(kind: OperatorKind, text?: string): void;
   saveSettings(next: ShowSettings): void;
@@ -61,6 +66,14 @@ export interface ControlLink {
   draftPersona(persona: ShowSettings["persona"]): void;
   activatePersona(versionId: string): void;
   lookupTrace(traceId: string): void;
+  setGoal(title: string, description: string): void;
+  pauseGoal(): void;
+  resumeGoal(): void;
+  decideProposal(
+    proposalId: string,
+    status: Exclude<ProposalStatus, "pending">,
+    reason: string,
+  ): void;
 }
 
 export function useControlLink(): ControlLink {
@@ -78,6 +91,7 @@ export function useControlLink(): ControlLink {
   const [timelineTraceId, setTimelineTraceId] = useState<string | null>(null);
   const [timelinePending, setTimelinePending] = useState(false);
   const [worldEvents, setWorldEvents] = useState<readonly BodyEvent[]>([]);
+  const [proposals, setProposals] = useState<readonly Proposal[]>([]);
   const sequence = useRef(0);
 
   useEffect(() => {
@@ -90,6 +104,7 @@ export function useControlLink(): ControlLink {
         case "ready":
           setPersonaName(message.payload.persona.name);
           setSnapshot(message.payload.snapshot);
+          setProposals(message.payload.snapshot.proposals);
           setMode(message.payload.snapshot.mode);
           setSettings(message.payload.settings);
           setIntegrations(message.payload.integrations);
@@ -110,7 +125,14 @@ export function useControlLink(): ControlLink {
           break;
         case "snapshot":
           setSnapshot(message.payload);
+          setProposals(message.payload.proposals);
           setMode(message.payload.mode);
+          break;
+        case "goal":
+          setSnapshot((current) => ({ ...current, goal: message.payload }));
+          break;
+        case "proposals":
+          setProposals(message.payload.proposals);
           break;
         case "operator":
           setMode((current) => modeAfter(message.payload.kind, current));
@@ -285,6 +307,18 @@ export function useControlLink(): ControlLink {
     },
     [send],
   );
+  const setGoal = useCallback(
+    (title: string, description: string) =>
+      send({ type: "goalSet", payload: { title, description } }),
+    [send],
+  );
+  const pauseGoal = useCallback(() => send({ type: "goalPause" }), [send]);
+  const resumeGoal = useCallback(() => send({ type: "goalResume" }), [send]);
+  const decideProposal = useCallback(
+    (proposalId: string, status: Exclude<ProposalStatus, "pending">, reason: string) =>
+      send({ type: "proposalDecision", payload: { proposalId, status, reason } }),
+    [send],
+  );
 
   return useMemo(
     () => ({
@@ -301,6 +335,7 @@ export function useControlLink(): ControlLink {
       timelineTraceId,
       timelinePending,
       worldEvents,
+      proposals,
       sendComment,
       sendOperator,
       saveSettings,
@@ -313,6 +348,10 @@ export function useControlLink(): ControlLink {
       draftPersona,
       activatePersona,
       lookupTrace,
+      setGoal,
+      pauseGoal,
+      resumeGoal,
+      decideProposal,
     }),
     [
       state,
@@ -327,6 +366,7 @@ export function useControlLink(): ControlLink {
       timeline,
       timelineTraceId,
       timelinePending,
+      proposals,
       sendComment,
       sendOperator,
       saveSettings,
@@ -339,6 +379,10 @@ export function useControlLink(): ControlLink {
       draftPersona,
       activatePersona,
       lookupTrace,
+      setGoal,
+      pauseGoal,
+      resumeGoal,
+      decideProposal,
     ],
   );
 }

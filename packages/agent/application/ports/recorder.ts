@@ -1,4 +1,4 @@
-import type { AudienceEvent, Decision } from "@craftmate/contracts";
+import type { AudienceEvent, Decision, Proposal } from "@craftmate/contracts";
 
 /**
  * Write side of a show. Implemented by the storage package; the domain never
@@ -13,6 +13,9 @@ export interface ShowRecorder {
    * recorder does not have to implement a second write path.
    */
   updateDecision?(decision: Decision): void;
+  /** Proposal decisions are durable evidence, independent of decisions. */
+  recordProposal?(proposal: Proposal): void;
+  updateProposal?(proposal: Proposal): void;
   /**
    * Retrieves the stored source_id for a given external event id. Used when
    * reserving commitments so they can be traced back to their originating event.

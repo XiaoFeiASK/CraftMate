@@ -19,6 +19,9 @@ import {
   type Decision,
   type IngressServerFrame,
   type OpsRequest,
+  type Proposal,
+  type ProposalStatus,
+  type SeasonGoal,
   type ServerMessage,
   type VoiceSubtitle,
 } from "@craftmate/contracts";
@@ -48,6 +51,10 @@ interface ControlServerOptions {
   readonly port: number;
   /** Defaults to loopback. Containers must widen it to receive host traffic. */
   readonly host?: string;
+  /** Exact browser origins allowed to open `/control`. */
+  readonly allowedControlOrigins?: readonly string[];
+  /** Containers may deliberately expose the console beyond loopback. */
+  readonly allowRemoteControl?: boolean;
   /**
    * Shared secret for `/ingress`. An empty value disables ingress entirely;
    * the orchestrator never accepts an unauthenticated data source.
@@ -55,12 +62,6 @@ interface ControlServerOptions {
   readonly ingressToken?: string;
   /** Only for containers or a deliberate remote-ingress setup. */
   readonly allowRemoteIngress?: boolean;
-  /**
-   * `/control` grants operator powers: takeover, stop, memory edits and the
-   * model base URL. Containers that expose it intentionally must opt in;
-   * widening `host` alone is not consent.
-   */
-  readonly allowRemoteControl?: boolean;
   /** Failed handshakes allowed per minute before new ingress is refused. */
   readonly ingressFailureLimit?: number;
   /** Optional voice link. Without it, speak commands are rejected readably. */
@@ -75,6 +76,27 @@ interface ControlServerOptions {
   readonly dispatchSkill?: (decision: Decision) => void | Promise<void>;
   /** Replaces the live voice connection after settings change. */
   readonly onIntegrationsChanged?: (config: RuntimeIntegrationConfig) => void;
+  /** Fired after settings are applied and broadcast, for runtime projections. */
+  readonly onSettingsApplied?: () => void;
+  /** Operator-only goal control. Absent means the runtime is not wired. */
+  readonly goalRuntime?: GoalRuntimeHooks;
+  /** Control ownership changes must interrupt or resume the goal runtime. */
+  readonly onOperator?: (kind: "takeover" | "release" | "stop") => void;
+}
+
+export interface GoalRuntimeHooks {
+  setGoal(input: {
+    readonly title: string;
+    readonly description: string;
+  }): SeasonGoal | null;
+  pause(): void;
+  resume(): void;
+  decideProposal(
+    proposalId: string,
+    status: Exclude<ProposalStatus, "pending">,
+    reason: string,
+  ): Proposal | null;
+  queryProposals(status: ProposalStatus | null, limit: number): readonly Proposal[];
 }
 
 export interface VoiceHooks {
@@ -104,6 +126,10 @@ export interface ControlServer {
   publishBridgeHealth(health: BridgeHealth | null): void;
   /** A decision whose late outcome arrived from the body. */
   publishDecision(decision: Decision): void;
+  /** Goal evidence and the proposal inbox are pushed after every change. */
+  publishProposals(proposals: readonly Proposal[]): void;
+  /** Goal progress is evidence from the runtime, not a settings slider. */
+  publishGoal(progress: import("@craftmate/contracts").GoalProgress): void;
   /** One body event, already persisted by the host. */
   publishWorldEvent(event: { readonly name: string; readonly data: unknown; readonly at: number }): void;
   /** Local single-shot acceptance path; disabled unless wired by the host. */
@@ -118,6 +144,13 @@ interface Connection {
   greeted: boolean;
 }
 
+const DEFAULT_CONTROL_ORIGINS = [
+  "tauri://localhost",
+  "http://tauri.localhost",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+] as const;
+
 /**
  * Transport adapter: wire messages in, application calls out. It owns no
  * business rules and no state beyond connection bookkeeping.
@@ -127,9 +160,10 @@ export function createControlServer({
   settings,
   port,
   host = "127.0.0.1",
+  allowedControlOrigins = DEFAULT_CONTROL_ORIGINS,
+  allowRemoteControl = false,
   ingressToken = "",
   allowRemoteIngress = false,
-  allowRemoteControl = false,
   ingressFailureLimit = 10,
   voice,
   speech,
@@ -137,6 +171,9 @@ export function createControlServer({
   bridge,
   dispatchSkill,
   onIntegrationsChanged,
+  onSettingsApplied,
+  goalRuntime,
+  onOperator,
 }: ControlServerOptions): ControlServer {
   const integrations = (): IntegrationSettingsView =>
     settings?.readIntegrations?.() ?? disabledIntegrations();
@@ -167,17 +204,23 @@ export function createControlServer({
       socket.destroy();
       return;
     }
-    if (
-      target === wss &&
-      !allowRemoteControl &&
-      !isLoopbackAddress(request.socket.remoteAddress)
-    ) {
-      // Operator commands are not authenticated, so a non-loopback peer would
-      // mean anyone on the network can take the show over.
-      socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
-      socket.destroy();
-      console.warn("orchestrator: rejected non-loopback control connection");
-      return;
+    if (target === wss) {
+      if (!allowRemoteControl && !isLoopbackAddress(request.socket.remoteAddress)) {
+        socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        console.warn("orchestrator: rejected non-loopback control connection");
+        return;
+      }
+      const origin = request.headers.origin;
+      if (origin === undefined) {
+        // Non-browser tools omit Origin. Local acceptance scripts use this
+        // path; a browser always sends one, including from a foreign site.
+      } else if (!allowedControlOrigins.includes(origin)) {
+        socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        console.warn(`orchestrator: rejected control origin ${origin}`);
+        return;
+      }
     }
     if (
       target === ingress &&
@@ -194,8 +237,6 @@ export function createControlServer({
     target.handleUpgrade(request, socket, head, (ws) => target.emit("connection", ws, request));
   });
   const connections = new Set<Connection>();
-  /** Live `/ingress` sockets, so shutdown can close them instead of hanging. */
-  const ingressSockets = new Set<WebSocket>();
   let ingressFailures: number[] = [];
   /**
    * Increments whenever an operator changes control. A plan that was already
@@ -269,6 +310,12 @@ export function createControlServer({
     const decision = show.ingest(raw);
     if (!decision) return;
     broadcast({ type: "decision", payload: decision });
+    if (goalRuntime) {
+      broadcast({
+        type: "proposals",
+        payload: { proposals: goalRuntime.queryProposals(null, 50) },
+      });
+    }
     broadcast({ type: "snapshot", payload: show.snapshot() });
     void planAndSpeak(decision, generation);
   };
@@ -278,6 +325,16 @@ export function createControlServer({
 
   const publishDecision = (decision: Decision): void => {
     broadcast({ type: "decision", payload: decision });
+    broadcast({ type: "snapshot", payload: show.snapshot() });
+  };
+
+  const publishProposals = (proposals: readonly Proposal[]): void => {
+    broadcast({ type: "proposals", payload: { proposals } });
+    broadcast({ type: "snapshot", payload: show.snapshot() });
+  };
+
+  const publishGoal = (progress: import("@craftmate/contracts").GoalProgress): void => {
+    broadcast({ type: "goal", payload: progress });
     broadcast({ type: "snapshot", payload: show.snapshot() });
   };
 
@@ -406,9 +463,92 @@ export function createControlServer({
           controlBridge(command.kind);
         }
         show.applyOperator(command);
+        if (command.kind !== "whisper") onOperator?.(command.kind);
         if (bridge) publishBridgeHealth(bridge.health());
         broadcast({ type: "operator", payload: command });
         broadcast({ type: "snapshot", payload: show.snapshot() });
+        return;
+      }
+
+      if (parsed.data.type === "goalSet") {
+        if (!goalRuntime) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_GOAL", detail: "本次运行未启用目标运行时" },
+          });
+          return;
+        }
+        const goal = goalRuntime.setGoal(parsed.data.payload);
+        if (goal === null) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_GOAL", detail: "目标未保存：请检查标题和说明" },
+          });
+          return;
+        }
+        const progress = show.snapshot().goal;
+        if (progress !== null) broadcast({ type: "goal", payload: progress });
+        broadcast({ type: "snapshot", payload: show.snapshot() });
+        return;
+      }
+
+      if (parsed.data.type === "goalPause" || parsed.data.type === "goalResume") {
+        if (!goalRuntime) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_GOAL", detail: "本次运行未启用目标运行时" },
+          });
+          return;
+        }
+        if (parsed.data.type === "goalPause") goalRuntime.pause();
+        else goalRuntime.resume();
+        const progress = show.snapshot().goal;
+        if (progress !== null) broadcast({ type: "goal", payload: progress });
+        broadcast({ type: "snapshot", payload: show.snapshot() });
+        return;
+      }
+
+      if (parsed.data.type === "proposalDecision") {
+        if (!goalRuntime) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_PROPOSAL", detail: "本次运行未启用提议收件箱" },
+          });
+          return;
+        }
+        const decided = goalRuntime.decideProposal(
+          parsed.data.payload.proposalId,
+          parsed.data.payload.status,
+          parsed.data.payload.reason,
+        );
+        if (decided === null) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_PROPOSAL", detail: "提议不存在或已经决定" },
+          });
+          return;
+        }
+        publishProposals(goalRuntime.queryProposals(null, 50));
+        return;
+      }
+
+      if (parsed.data.type === "proposalQuery") {
+        if (!goalRuntime) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_PROPOSAL", detail: "本次运行未启用提议收件箱" },
+          });
+          return;
+        }
+        send(socket, {
+          type: "proposals",
+          payload: {
+            proposals: goalRuntime.queryProposals(
+              parsed.data.payload.status ?? null,
+              parsed.data.payload.limit,
+            ),
+          },
+        });
         return;
       }
 
@@ -434,6 +574,15 @@ export function createControlServer({
           return;
         }
         broadcast({ type: "settings", payload: current.data });
+        try {
+          onSettingsApplied?.();
+        } catch (error) {
+          console.warn(
+            `orchestrator: settings applied but runtime projection failed — ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
         broadcast({ type: "snapshot", payload: show.snapshot() });
         return;
       }
@@ -589,12 +738,9 @@ export function createControlServer({
   ingress.on("connection", (socket, request) => {
     let greeted = false;
     const remote = request.socket.remoteAddress ?? "unknown";
-    ingressSockets.add(socket);
     socket.on("error", (error) => {
-      ingressSockets.delete(socket);
       console.warn(`orchestrator: ingress socket error from ${remote} — ${describeError(error)}`);
     });
-    socket.on("close", () => ingressSockets.delete(socket));
 
     if (ingressThrottled()) {
       socket.close(INGRESS_CLOSE_UNAUTHORIZED, "too many failed handshakes");
@@ -686,16 +832,34 @@ export function createControlServer({
     },
     publishBridgeHealth,
     publishDecision,
+    publishProposals,
+    publishGoal,
     publishWorldEvent,
     injectDecision,
     isPlanning: () => planning > 0,
     close: async () => {
-      for (const { socket } of connections) socket.close();
-      for (const socket of ingressSockets) socket.close();
-      ingressSockets.clear();
-      await new Promise<void>((resolve) => wss.close(() => resolve()));
-      await new Promise<void>((resolve) => ingress.close(() => resolve()));
-      await bridge?.close();
+      const closeWithDeadline = async (server: WebSocketServer): Promise<void> => {
+        const sockets = [...server.clients];
+        const finished = new Promise<void>((resolve) => {
+          server.close(() => resolve());
+        });
+        for (const socket of sockets) socket.close();
+        let terminateTimer: ReturnType<typeof setTimeout> | undefined;
+        const deadline = new Promise<void>((resolve) => {
+          terminateTimer = setTimeout(() => {
+            for (const socket of sockets) {
+              if (socket.readyState !== socket.CLOSED) socket.terminate();
+            }
+            resolve();
+          }, 250);
+        });
+        await Promise.race([finished, deadline]);
+        if (terminateTimer !== undefined) clearTimeout(terminateTimer);
+        await finished;
+      };
+      await closeWithDeadline(wss);
+      await closeWithDeadline(ingress);
+      if (bridge) await bridge.close();
       await new Promise<void>((resolve) => http.close(() => resolve()));
     },
   };

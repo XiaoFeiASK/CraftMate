@@ -1,6 +1,7 @@
 export type { Clock } from "./ports/clock.ts";
 export { systemClock } from "./ports/clock.ts";
-export * from "./autonomy.ts";
+export * from "./goal-runtime.ts";
+export * from "./proposals.ts";
 export * from "./ports/audience-store.ts";
 export * from "./ports/recorder.ts";
 export * from "./ports/model.ts";

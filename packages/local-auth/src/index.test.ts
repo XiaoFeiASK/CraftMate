@@ -24,6 +24,20 @@ describe("local auth token", () => {
     assert.equal(loadOrCreateToken(path, { CRAFTMATE_TOKEN: "env-token" }), "env-token");
   });
 
+  test("a short legacy token is rotated instead of silently reused", () => {
+    const dir = mkdtempSync(join(tmpdir(), "craftmate-auth-"));
+    const path = join(dir, "token");
+    writeFileSync(path, "weak-token\n", { mode: 0o600 });
+
+    const first = loadOrCreateToken(path, {});
+    const second = loadOrCreateToken(path, {});
+
+    assert.notEqual(first, "weak-token");
+    assert.equal(first.length, 64);
+    assert.equal(second.length, 64);
+    assert.equal(statSync(path).mode & 0o777, 0o600);
+  });
+
   test("token comparison is exact", () => {
     assert.equal(tokenMatches("abc", "abc"), true);
     assert.equal(tokenMatches("abc", "abd"), false);

@@ -33,13 +33,38 @@ export const personaProfileSchema = z.object({
 export type PersonaProfile = z.infer<typeof personaProfileSchema>;
 
 /**
+ * Operator-selectable end goals. The description is display-only: changing it
+ * is a product copy change, never a way for the audience to retarget the run.
+ */
+export const SEASON_GOAL_PRESETS = [
+  {
+    title: "击败末影龙",
+    description: "从空手开始，完成木头、石具、铁具、下界与末地的一条完整生存链。",
+  },
+  {
+    title: "盖一间海崖小屋",
+    description: "收集材料并在海边建成一间带床、箱子和工作台的小屋。",
+  },
+  {
+    title: "集齐全套钻石装备",
+    description: "找到钻石、制作全套装备，并在可验证的世界事实里确认穿戴完成。",
+  },
+] as const;
+export type SeasonGoalPreset = (typeof SEASON_GOAL_PRESETS)[number];
+
+/**
  * Everything the operator can change about the show. Display-only fields are
  * intentionally excluded: stats and decisions must stay derived from events.
  */
 export const showSettingsSchema = z.object({
   goal: label(120),
-  /** Operator-held progress until the Bridge can report world progress. */
-  goalProgress: z.number().int().min(0).max(100),
+  /** Read-only explanation of the selected end goal. */
+  goalDescription: z.string().trim().max(400).default(""),
+  /**
+   * Goal mode is operator-controlled. Turning it on without a goal is legal:
+   * the runtime stays idle until an end goal exists.
+   */
+  goalMode: z.boolean().default(false),
   worldName: label(60),
   gameVersion: label(24),
   accountLabel: label(40),

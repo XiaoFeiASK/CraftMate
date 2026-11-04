@@ -1,5 +1,12 @@
 import type { DrawerMode } from "../operations/OperationsDrawer.tsx";
-import type { ShowMode, ShowSettings, ShowStats, SourceHealth, VoiceStatus } from "@craftmate/contracts";
+import type {
+  GoalProgress,
+  ShowMode,
+  ShowSettings,
+  ShowStats,
+  SourceHealth,
+  VoiceStatus,
+} from "@craftmate/contracts";
 import type { WireState } from "../../lib/connection.ts";
 import mascot from "../../assets/dafeiyu.png";
 
@@ -12,6 +19,7 @@ interface SidebarProps {
   readonly sourceHealth: SourceHealth | null;
   readonly stats: ShowStats;
   readonly voiceStatus: VoiceStatus | null;
+  readonly goal: GoalProgress | null;
   readonly onSelect: (drawer: DrawerMode | null) => void;
 }
 
@@ -42,6 +50,18 @@ const LIVE_ITEMS: readonly NavigationItem[] = [
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M5 5.5h14v10H9l-4 3z" />
         <path d="M8.5 9h7M8.5 12h4" />
+      </svg>
+    ),
+  },
+  {
+    label: "观众提议",
+    detail: "收件箱 / 闸门",
+    drawer: "proposals",
+    icon: (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4.5 6.5h15v11h-15z" />
+        <path d="M4.5 8.5 12 13l7.5-4.5" />
+        <path d="M8 5.5h8" />
       </svg>
     ),
   },
@@ -119,6 +139,7 @@ export function Sidebar({
   sourceHealth,
   stats,
   voiceStatus,
+  goal,
   onSelect,
 }: SidebarProps): React.JSX.Element {
   const statusLabel = state === "open" ? "内核在线" : state === "connecting" ? "正在连接" : "内核离线";
@@ -150,12 +171,17 @@ export function Sidebar({
             selected={drawer === "decisions"}
             onClick={() => onSelect("decisions")}
           />
+          <NavigationButton
+            item={LIVE_ITEMS[2]!}
+            selected={drawer === "proposals"}
+            onClick={() => onSelect("proposals")}
+          />
         </section>
 
         <section className="sidebar__group">
           <h2 className="sidebar__section-title">角色</h2>
           <NavigationButton
-            item={LIVE_ITEMS[2]!}
+            item={LIVE_ITEMS[3]!}
             selected={drawer === "persona"}
             onClick={() => onSelect("persona")}
           />
@@ -185,6 +211,7 @@ export function Sidebar({
       <SessionPanel
         settings={settings}
         stats={stats}
+        goal={goal}
         online={state === "open"}
         onOpenConsole={() => onSelect("decisions")}
       />
@@ -241,14 +268,22 @@ function sourceLabel(health: SourceHealth | null): string {
 interface SessionPanelProps {
   readonly settings: ShowSettings | null;
   readonly stats: ShowStats;
+  readonly goal: GoalProgress | null;
   readonly online: boolean;
   readonly onOpenConsole: () => void;
 }
 
 /** Today's goal and counters, docked in the sidebar so the stage stays clear. */
-function SessionPanel({ settings, stats, online, onOpenConsole }: SessionPanelProps): React.JSX.Element {
-  const progress = Math.round(settings?.goalProgress ?? 0);
-
+function SessionPanel({
+  settings,
+  stats,
+  goal,
+  online,
+  onOpenConsole,
+}: SessionPanelProps): React.JSX.Element {
+  const total = goal?.milestones.length ?? 0;
+  const completed = goal?.completed ?? 0;
+  const progress = total === 0 ? null : Math.round((completed / total) * 100);
   return (
     <section className="session-panel" aria-labelledby="session-goal">
       <span className="session-panel__mascot" aria-hidden="true">
@@ -256,19 +291,35 @@ function SessionPanel({ settings, stats, online, onOpenConsole }: SessionPanelPr
       </span>
       <h2 className="sidebar__section-title">本场</h2>
       <div className="session-panel__goal">
-        <span>今日主线</span>
+        <span>{goal?.status === "unverified" ? "当前阶段 · 未验证" : "当前阶段"}</span>
         <strong id="session-goal">{settings?.goal ?? "正在读取本场目标"}</strong>
-        <div className="session-panel__progress">
-          <div
-            role="progressbar"
-            aria-label="今日主线进度"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={progress}
-          >
-            <span style={{ width: `${progress}%` }} />
+        <small className="session-panel__mode">
+          {goal?.stage.title ?? (settings?.goalMode ? "目标模式开启 · 等待观察" : "目标模式关闭")}
+        </small>
+        {goal ? (
+          <div className="session-panel__goal-detail">
+            <span>{goal.milestone.title}</span>
+            {goal.nextTask ? <span>下一任务：{goal.nextTask}</span> : null}
+            {goal.lastFailure ? <span data-tone="bad">失败：{goal.lastFailure}</span> : null}
           </div>
-          <output>{progress}%</output>
+        ) : null}
+        <div className="session-panel__progress">
+          {progress === null ? (
+            <output>里程碑未验证</output>
+          ) : (
+            <>
+              <div
+                role="progressbar"
+                aria-label="里程碑完成度"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={progress}
+              >
+                <span style={{ width: `${progress}%` }} />
+              </div>
+              <output>{completed}/{total} 里程碑</output>
+            </>
+          )}
         </div>
       </div>
 

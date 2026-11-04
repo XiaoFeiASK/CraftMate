@@ -2,10 +2,14 @@ import {
   audienceEventSchema,
   type AudienceEvent,
   type Decision,
+  type GoalProgress,
   type Intent,
   type OperatorCommand,
   type OperatorNotice,
   type PersonaSummary,
+  type Proposal,
+  type ProposalStatus,
+  type SeasonGoal,
   type ShowMode,
   type ShowSettings,
   type ShowSnapshot,
@@ -18,6 +22,7 @@ import { createHash } from "node:crypto";
 import {
   Arbiter,
   CommitmentLedger,
+  classifyIntent,
   type Persona,
 } from "../domain/index.ts";
 import type { AudienceStore } from "./ports/audience-store.ts";
@@ -26,6 +31,12 @@ import { systemClock } from "./ports/clock.ts";
 import type { MemoryPort } from "./ports/memory.ts";
 import type { ShowRecorder } from "./ports/recorder.ts";
 import { Planner } from "./planner.ts";
+import type {
+  ProposalEvaluator,
+  ProposalExecutionContext,
+  ProposalRepository,
+} from "./proposals.ts";
+import { MemoryProposalRepository, ProposalInbox } from "./proposals.ts";
 
 const MAX_DECISIONS = 200;
 /** Fast-path dedupe only; SQLite remains the authority once a recorder exists. */
@@ -100,6 +111,16 @@ interface ShowOptions {
   readonly availableSkills?: () => readonly string[];
   /** Recall budget per decision, in approximate tokens. */
   readonly memoryBudgetTokens?: number;
+  /** Proposal persistence. Absent means the inbox is in-memory only. */
+  readonly proposals?: ProposalRepository;
+  /** #42's goal-alignment evaluator; absent keeps proposals pending. */
+  readonly proposalEvaluator?: ProposalEvaluator;
+  /** Restored from storage so a restart resumes the right goal. */
+  readonly goalState?: {
+    readonly goal: SeasonGoal | null;
+    readonly progress: GoalProgress | null;
+    readonly enabled?: boolean;
+  };
 }
 
 /**
@@ -116,7 +137,8 @@ export interface WorldIncident {
 export function defaultSettings(persona: Persona, goalText = "盖一间带床和箱子的海崖小屋"): ShowSettings {
   return {
     goal: goalText,
-    goalProgress: 18,
+    goalDescription: "",
+    goalMode: false,
     worldName: "本地单人世界",
     gameVersion: "1.21.11",
     accountLabel: "专用直播账号",
@@ -164,9 +186,11 @@ export class Show {
   private readonly world: (() => unknown) | null;
   private readonly availableSkills: (() => readonly string[]) | null;
   private readonly memoryBudgetTokens: number;
-  /** Decisions waiting on Stage C. Only the newest one may still speak. */
-  private readonly pendingPlans = new Set<string>();
   private readonly incidents: WorldIncident[] = [];
+  private readonly proposalInbox: ProposalInbox;
+  private goal: GoalProgress | null;
+  private seasonGoal: SeasonGoal | null;
+  private goalMode: boolean;
 
   constructor(options: ShowOptions) {
     this.personaId = options.persona.id;
@@ -186,6 +210,14 @@ export class Show {
     this.world = options.world ?? null;
     this.availableSkills = options.availableSkills ?? null;
     this.memoryBudgetTokens = options.memoryBudgetTokens ?? 1_200;
+    this.proposalInbox = new ProposalInbox({
+      repository: options.proposals ?? new MemoryProposalRepository(),
+      ...(options.proposalEvaluator ? { evaluator: options.proposalEvaluator } : {}),
+      clock: this.clock,
+    });
+    this.goal = options.goalState?.progress ?? null;
+    this.seasonGoal = options.goalState?.goal ?? null;
+    this.goalMode = options.goalState?.enabled ?? options.goalState?.goal != null;
     if (options.history) this.decisions.push(...options.history);
     this.received = options.totals?.received ?? 0;
     this.decided = options.totals?.decided ?? 0;
@@ -213,6 +245,20 @@ export class Show {
 
     this.rememberSeen(event.id);
     this.received += 1;
+    // Audience text enters the inbox first. Natural conversation still reaches
+    // arbitration, but an actionable proposal is not dispatched from here; the
+    // GoalRuntime issues at most one task after the operator's gates.
+    if (this.goalMode && event.kind === "comment" && this.shouldQueueProposal(event)) {
+      const ingested = this.proposalInbox.ingest(event, this.proposalContext(), audienceRef);
+      if (ingested !== null) {
+        if (ingested.created) {
+          this.recorder?.recordProposal?.(ingested.proposal);
+        } else {
+          this.recorder?.updateProposal?.(ingested.proposal);
+        }
+        return this.proposalDecision(event, ingested.proposal, audienceRef);
+      }
+    }
     const { decision } = this.arbiter.evaluate(event);
     const withAudience = { ...decision, audienceRef };
     this.recorder?.recordDecision(withAudience);
@@ -220,6 +266,67 @@ export class Show {
     this.audience.recordCommand(event.userId, decision.intent, this.clock.now());
     this.count(withAudience);
     return withAudience;
+  }
+
+  /** Proposals are the only audience path that can later affect goal choice. */
+  private shouldQueueProposal(event: AudienceEvent): boolean {
+    if (this.mode !== "agent") return false;
+    const text = event.text?.trim() ?? "";
+    if (text.length === 0) return false;
+    const intent = classifyIntent(event).intent;
+    return intent !== "chat" && intent !== "unknown" && intent !== "spam";
+  }
+
+  private proposalDecision(
+    event: AudienceEvent,
+    proposal: Proposal,
+    audienceRef: string,
+  ): Decision {
+    const decision: Decision = {
+      id: this.clock.newId(),
+      eventId: event.id,
+      nickname: event.nickname,
+      text: proposal.text,
+      intent: proposal.intent,
+      decision:
+        proposal.status === "rejected"
+          ? "REFUSE"
+          : proposal.status === "pending"
+            ? "QUEUE"
+            : "ACK_ONLY",
+      priority: "vote",
+      reason: proposal.reason,
+      score: 0,
+      stage: "rules",
+      skill: null,
+      speech: "",
+      audienceRef,
+      trace: null,
+      at: this.clock.now(),
+    };
+    this.recorder?.recordDecision(decision);
+    this.remember(decision);
+    this.audience.recordCommand(event.userId, decision.intent, this.clock.now());
+    this.count(decision);
+    return decision;
+  }
+
+  proposalContext(): ProposalExecutionContext {
+    return {
+      mode: this.mode,
+      bridge: this.bridge,
+      world: this.bridge?.world ?? null,
+      goal: this.goal,
+    };
+  }
+
+  /** Restored goal evidence; the runtime replaces it on the next observation. */
+  currentGoal(): GoalProgress | null {
+    return this.goal === null ? null : structuredClone(this.goal);
+  }
+
+  currentSeasonGoal(): SeasonGoal | null {
+    return this.seasonGoal === null ? null : { ...this.seasonGoal };
   }
 
   /**
@@ -242,7 +349,6 @@ export class Show {
       return decision;
     }
 
-    this.pendingPlans.add(decision.id);
     const context = {
       decision,
       goal: this.settings.goal,
@@ -265,7 +371,6 @@ export class Show {
         : {}),
     };
     const planned = await this.planner.plan(context);
-    this.pendingPlans.delete(decision.id);
 
     const next: Decision = {
       ...decision,
@@ -310,45 +415,6 @@ export class Show {
   recordIncident(incident: WorldIncident): void {
     this.incidents.push(incident);
     if (this.incidents.length > 8) this.incidents.splice(0, this.incidents.length - 8);
-  }
-
-  /**
-   * A bounded action chosen by the local autonomy loop. It bypasses audience
-   * arbitration because no audience event authorised it, but it still obeys
-   * the same mode gate and appears in the live decision stream.
-   */
-  recordAutonomous(input: {
-    readonly intent: "mine" | "move";
-    readonly text: string;
-    readonly reason: string;
-    readonly skill: NonNullable<Decision["skill"]>;
-    readonly recorder?: {
-      record(decision: Decision): void;
-    };
-  }): Decision | null {
-    if (this.mode !== "agent") return null;
-    const id = this.clock.newId();
-    const decision: Decision = {
-      id,
-      eventId: `autonomous-${id}`,
-      nickname: this.settings.persona.name,
-      text: input.text,
-      intent: input.intent,
-      decision: "EXECUTE",
-      priority: "plan",
-      reason: input.reason,
-      score: 1,
-      stage: "planned",
-      skill: input.skill,
-      speech: "",
-      audienceRef: "",
-      trace: null,
-      at: this.clock.now(),
-    };
-    this.remember(decision);
-    input.recorder?.record(decision);
-    this.count(decision);
-    return decision;
   }
 
   currentIncidents(): readonly WorldIncident[] {
@@ -484,6 +550,8 @@ export class Show {
       },
       decisions: this.recent(),
       operatorNotice: this.operatorNotice,
+      goal: this.goal,
+      proposals: this.proposalInbox.query(null, 40),
       sourceHealth: this.sourceHealth,
       voiceStatus: this.voiceStatus,
       bridge: this.bridge,
@@ -494,6 +562,53 @@ export class Show {
         detail: "未配置模型",
       },
     };
+  }
+
+  proposals(status: ProposalStatus | null = null, limit = 50): readonly Proposal[] {
+    return this.proposalInbox.query(status, limit);
+  }
+
+  decideProposal(
+    proposalId: string,
+    status: Exclude<ProposalStatus, "pending">,
+    reason: string,
+  ): Proposal | null {
+    const decided = this.proposalInbox.decide(
+      proposalId,
+      status,
+      reason,
+      this.proposalContext(),
+    );
+    if (decided !== null) this.recorder?.updateProposal?.(decided);
+    return decided;
+  }
+
+  /** The runtime is authoritative; the show only projects its evidence. */
+  setGoalProgress(progress: GoalProgress | null): void {
+    this.goal = progress === null ? null : structuredClone(progress);
+  }
+
+  /**
+   * Adds a GoalRuntime-authored decision to the live stream. Persistence is
+   * done by the host because it needs a system source row, not an audience id.
+   */
+  recordRuntimeDecision(decision: Decision): boolean {
+    if (this.mode !== "agent") return false;
+    this.remember(decision);
+    this.count(decision);
+    return true;
+  }
+
+  setSeasonGoal(goal: SeasonGoal | null): void {
+    this.seasonGoal = goal === null ? null : { ...goal };
+  }
+
+  setGoalMode(enabled: boolean): void {
+    this.goalMode = enabled;
+  }
+
+  isGoalMode(): boolean {
+    return this.goalMode;
   }
 
   private notice(command: OperatorCommand, detail: string): OperatorNotice {

@@ -30,6 +30,10 @@ export function App(): React.JSX.Element {
     forgetMemory,
     activatePersona,
     lookupTrace,
+    setGoal,
+    pauseGoal,
+    resumeGoal,
+    decideProposal,
   } = useControlLink();
   const { preferences, update, reset } = usePreferences();
   const [drawer, setDrawer] = useState<DrawerMode | null>(null);
@@ -54,6 +58,7 @@ export function App(): React.JSX.Element {
           sourceHealth={snapshot.sourceHealth}
           stats={snapshot.stats}
           voiceStatus={snapshot.voiceStatus}
+          goal={snapshot.goal}
           onSelect={setDrawer}
         />
         <LiveHero
@@ -91,6 +96,10 @@ export function App(): React.JSX.Element {
           onForgetMemory={forgetMemory}
           onActivatePersona={activatePersona}
           onLookupTrace={lookupTrace}
+          onSetGoal={setGoal}
+          onPauseGoal={pauseGoal}
+          onResumeGoal={resumeGoal}
+          onDecideProposal={decideProposal}
         />
       ) : null}
     </div>

@@ -17,12 +17,14 @@ async function withBridge(
     session: () => BodySession,
     bridge: BridgeUpgrade,
   ) => Promise<void>,
+  handshakeTimeoutMs?: number,
 ): Promise<void> {
   const http = createServer();
   const bridge = createBridgeUpgrade({
     token: TOKEN,
     sessionId: "ws-session",
     actions: new MemoryActionPort(),
+    ...(handshakeTimeoutMs === undefined ? {} : { handshakeTimeoutMs }),
   });
   attachBridgeUpgrade(http, bridge);
   await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", () => resolve()));
@@ -87,6 +89,28 @@ describe("bridge WebSocket transport", () => {
       );
       assert.equal(await closed, 4401);
     });
+  });
+
+  test("a silent unauthenticated connection releases the slot after its deadline", async () => {
+    await withBridge(async (url, health) => {
+      const squatter = new WebSocket(url);
+      await new Promise<void>((resolve, reject) => {
+        squatter.once("open", () => resolve());
+        squatter.once("error", reject);
+      });
+      const closed = new Promise<number>((resolve) => squatter.once("close", (code) => resolve(code)));
+      assert.equal(await closed, 4401);
+      assert.equal(health().connected, false);
+
+      const body = connectBridgeClient({ url, token: TOKEN, ticksPerCommand: 1 });
+      await body.open;
+      await delay(100);
+      try {
+        assert.equal(health().connected, true);
+      } finally {
+        await body.close();
+      }
+    }, 80);
   });
 
   test("a socket close releases the body's inputs locally", async () => {

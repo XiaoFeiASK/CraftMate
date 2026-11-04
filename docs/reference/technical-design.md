@@ -21,6 +21,8 @@
 ### 2.1 安全
 
 - 所有监听默认 `127.0.0.1`，HTTP upgrade 分路径鉴权。
+- `/control` 还要求 loopback，并只接受桌面端/本机 Vite 的 Origin；无 Origin
+  的本机验收工具仍可使用。
 - Orchestrator、Ingress、Voice 共用 `~/.craftmate/ingress-token`；Bridge 使用
   `~/.craftmate/bridge.token`。文件权限 `0600`。
 - `/ingress` 与 `/voice` 要求 loopback 和正确 `hello.token`，失败分别以 `4401` 关闭。

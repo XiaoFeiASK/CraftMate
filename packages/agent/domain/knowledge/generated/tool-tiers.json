@@ -1,0 +1,4343 @@
+{
+  "meta": {
+    "schemaVersion": 1,
+    "minecraftVersion": "1.21.11",
+    "source": "https://github.com/misode/mcmeta.git",
+    "sourceTag": "1.21.11-data-json",
+    "dataVersion": 4671,
+    "generatedFrom": "2025-12-09T12:20:42+00:00"
+  },
+  "ranks": {
+    "hand": 0,
+    "wood": 1,
+    "gold": 1,
+    "stone": 2,
+    "iron": 3,
+    "diamond": 4,
+    "netherite": 5
+  },
+  "tools": {
+    "minecraft:wooden_pickaxe": {
+      "type": "pickaxe",
+      "tier": "wood",
+      "rank": 1
+    },
+    "minecraft:wooden_axe": {
+      "type": "axe",
+      "tier": "wood",
+      "rank": 1
+    },
+    "minecraft:wooden_shovel": {
+      "type": "shovel",
+      "tier": "wood",
+      "rank": 1
+    },
+    "minecraft:wooden_hoe": {
+      "type": "hoe",
+      "tier": "wood",
+      "rank": 1
+    },
+    "minecraft:wooden_sword": {
+      "type": "sword",
+      "tier": "wood",
+      "rank": 1
+    },
+    "minecraft:golden_pickaxe": {
+      "type": "pickaxe",
+      "tier": "gold",
+      "rank": 1
+    },
+    "minecraft:golden_axe": {
+      "type": "axe",
+      "tier": "gold",
+      "rank": 1
+    },
+    "minecraft:golden_shovel": {
+      "type": "shovel",
+      "tier": "gold",
+      "rank": 1
+    },
+    "minecraft:golden_hoe": {
+      "type": "hoe",
+      "tier": "gold",
+      "rank": 1
+    },
+    "minecraft:golden_sword": {
+      "type": "sword",
+      "tier": "gold",
+      "rank": 1
+    },
+    "minecraft:stone_pickaxe": {
+      "type": "pickaxe",
+      "tier": "stone",
+      "rank": 2
+    },
+    "minecraft:stone_axe": {
+      "type": "axe",
+      "tier": "stone",
+      "rank": 2
+    },
+    "minecraft:stone_shovel": {
+      "type": "shovel",
+      "tier": "stone",
+      "rank": 2
+    },
+    "minecraft:stone_hoe": {
+      "type": "hoe",
+      "tier": "stone",
+      "rank": 2
+    },
+    "minecraft:stone_sword": {
+      "type": "sword",
+      "tier": "stone",
+      "rank": 2
+    },
+    "minecraft:iron_pickaxe": {
+      "type": "pickaxe",
+      "tier": "iron",
+      "rank": 3
+    },
+    "minecraft:iron_axe": {
+      "type": "axe",
+      "tier": "iron",
+      "rank": 3
+    },
+    "minecraft:iron_shovel": {
+      "type": "shovel",
+      "tier": "iron",
+      "rank": 3
+    },
+    "minecraft:iron_hoe": {
+      "type": "hoe",
+      "tier": "iron",
+      "rank": 3
+    },
+    "minecraft:iron_sword": {
+      "type": "sword",
+      "tier": "iron",
+      "rank": 3
+    },
+    "minecraft:diamond_pickaxe": {
+      "type": "pickaxe",
+      "tier": "diamond",
+      "rank": 4
+    },
+    "minecraft:diamond_axe": {
+      "type": "axe",
+      "tier": "diamond",
+      "rank": 4
+    },
+    "minecraft:diamond_shovel": {
+      "type": "shovel",
+      "tier": "diamond",
+      "rank": 4
+    },
+    "minecraft:diamond_hoe": {
+      "type": "hoe",
+      "tier": "diamond",
+      "rank": 4
+    },
+    "minecraft:diamond_sword": {
+      "type": "sword",
+      "tier": "diamond",
+      "rank": 4
+    },
+    "minecraft:netherite_pickaxe": {
+      "type": "pickaxe",
+      "tier": "netherite",
+      "rank": 5
+    },
+    "minecraft:netherite_axe": {
+      "type": "axe",
+      "tier": "netherite",
+      "rank": 5
+    },
+    "minecraft:netherite_shovel": {
+      "type": "shovel",
+      "tier": "netherite",
+      "rank": 5
+    },
+    "minecraft:netherite_hoe": {
+      "type": "hoe",
+      "tier": "netherite",
+      "rank": 5
+    },
+    "minecraft:netherite_sword": {
+      "type": "sword",
+      "tier": "netherite",
+      "rank": 5
+    },
+    "minecraft:shears": {
+      "type": "shears",
+      "tier": "hand",
+      "rank": 0
+    }
+  },
+  "blocks": [
+    {
+      "block": "minecraft:acacia_button",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_door",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_fence",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_fence_gate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_leaves",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_planks",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_pressure_plate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_shelf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_slab",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_stairs",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_trapdoor",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_wall_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_wall_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:acacia_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:activator_rail",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:amethyst_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:amethyst_cluster",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:ancient_debris",
+      "tool": "pickaxe",
+      "minimumTier": "diamond"
+    },
+    {
+      "block": "minecraft:andesite",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:andesite_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:andesite_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:andesite_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:anvil",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:azalea_leaves",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_block",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_button",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_door",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_fence",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_fence_gate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_mosaic",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_mosaic_slab",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_mosaic_stairs",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_planks",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_pressure_plate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_shelf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_slab",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_stairs",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_trapdoor",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_wall_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bamboo_wall_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:barrel",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:basalt",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:bee_nest",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:beehive",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bell",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:big_dripleaf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:big_dripleaf_stem",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_button",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_door",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_fence",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_fence_gate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_leaves",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_planks",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_pressure_plate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_shelf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_slab",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_stairs",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_trapdoor",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_wall_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_wall_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:birch_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:black_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:black_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:black_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:black_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:black_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:black_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:black_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:blackstone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:blackstone_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:blackstone_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:blackstone_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:blast_furnace",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:blue_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:blue_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:blue_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:blue_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:blue_ice",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:blue_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:blue_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:blue_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bone_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:bookshelf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:brain_coral_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:brewing_stand",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:brick_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:brick_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:brick_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:brown_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:brown_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:brown_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:brown_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:brown_mushroom_block",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:brown_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:brown_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:brown_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:bubble_coral_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:budding_amethyst",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:calcite",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:calibrated_sculk_sensor",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:campfire",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cartography_table",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:carved_pumpkin",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cauldron",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cherry_button",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_door",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_fence",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_fence_gate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_leaves",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_planks",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_pressure_plate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_shelf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_slab",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_stairs",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_trapdoor",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_wall_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_wall_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cherry_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:chest",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:chipped_anvil",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:chiseled_bookshelf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:chiseled_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:chiseled_deepslate",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:chiseled_nether_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:chiseled_polished_blackstone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:chiseled_quartz_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:chiseled_red_sandstone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:chiseled_resin_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:chiseled_sandstone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:chiseled_stone_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:chiseled_tuff",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:chiseled_tuff_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:chorus_flower",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:chorus_plant",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:clay",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:coal_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:coal_ore",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:coarse_dirt",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cobbled_deepslate",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cobbled_deepslate_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cobbled_deepslate_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cobbled_deepslate_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cobblestone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cobblestone_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cobblestone_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cobblestone_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cocoa",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:composter",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:conduit",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:copper_bars",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:copper_block",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:copper_bulb",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:copper_chain",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:copper_chest",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:copper_door",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:copper_golem_statue",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:copper_grate",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:copper_lantern",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:copper_ore",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:copper_trapdoor",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:cracked_deepslate_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cracked_deepslate_tiles",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cracked_nether_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cracked_polished_blackstone_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cracked_stone_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:crafter",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:crafting_table",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:creaking_heart",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_button",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_door",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_fence",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_fence_gate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_hyphae",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_nylium",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:crimson_planks",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_pressure_plate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_shelf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_slab",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_stairs",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_stem",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_trapdoor",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_wall_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_wall_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crying_obsidian",
+      "tool": "pickaxe",
+      "minimumTier": "diamond"
+    },
+    {
+      "block": "minecraft:cut_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:cut_copper_slab",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:cut_copper_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:cut_red_sandstone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cut_red_sandstone_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cut_sandstone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cut_sandstone_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cyan_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cyan_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cyan_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cyan_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cyan_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cyan_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cyan_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:damaged_anvil",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dark_oak_button",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_door",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_fence",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_fence_gate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_leaves",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_planks",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_pressure_plate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_shelf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_slab",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_stairs",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_trapdoor",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_wall_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_wall_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_oak_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dark_prismarine",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dark_prismarine_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dark_prismarine_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:daylight_detector",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dead_brain_coral",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_brain_coral_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_brain_coral_fan",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_brain_coral_wall_fan",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_bubble_coral",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_bubble_coral_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_bubble_coral_fan",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_bubble_coral_wall_fan",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_fire_coral",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_fire_coral_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_fire_coral_fan",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_fire_coral_wall_fan",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_horn_coral",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_horn_coral_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_horn_coral_fan",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_horn_coral_wall_fan",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_tube_coral",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_tube_coral_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_tube_coral_fan",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_tube_coral_wall_fan",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:deepslate",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:deepslate_brick_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:deepslate_brick_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:deepslate_brick_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:deepslate_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:deepslate_coal_ore",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:deepslate_copper_ore",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:deepslate_diamond_ore",
+      "tool": "pickaxe",
+      "minimumTier": "iron"
+    },
+    {
+      "block": "minecraft:deepslate_emerald_ore",
+      "tool": "pickaxe",
+      "minimumTier": "iron"
+    },
+    {
+      "block": "minecraft:deepslate_gold_ore",
+      "tool": "pickaxe",
+      "minimumTier": "iron"
+    },
+    {
+      "block": "minecraft:deepslate_iron_ore",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:deepslate_lapis_ore",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:deepslate_redstone_ore",
+      "tool": "pickaxe",
+      "minimumTier": "iron"
+    },
+    {
+      "block": "minecraft:deepslate_tile_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:deepslate_tile_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:deepslate_tile_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:deepslate_tiles",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:detector_rail",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:diamond_block",
+      "tool": "pickaxe",
+      "minimumTier": "iron"
+    },
+    {
+      "block": "minecraft:diamond_ore",
+      "tool": "pickaxe",
+      "minimumTier": "iron"
+    },
+    {
+      "block": "minecraft:diorite",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:diorite_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:diorite_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:diorite_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dirt",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dirt_path",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dispenser",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dried_kelp_block",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:dripstone_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dropper",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:emerald_block",
+      "tool": "pickaxe",
+      "minimumTier": "iron"
+    },
+    {
+      "block": "minecraft:emerald_ore",
+      "tool": "pickaxe",
+      "minimumTier": "iron"
+    },
+    {
+      "block": "minecraft:enchanting_table",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:end_stone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:end_stone_brick_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:end_stone_brick_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:end_stone_brick_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:end_stone_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:ender_chest",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:exposed_chiseled_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:exposed_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:exposed_copper_bars",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:exposed_copper_bulb",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:exposed_copper_chain",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:exposed_copper_chest",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:exposed_copper_door",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:exposed_copper_golem_statue",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:exposed_copper_grate",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:exposed_copper_lantern",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:exposed_copper_trapdoor",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:exposed_cut_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:exposed_cut_copper_slab",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:exposed_cut_copper_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:exposed_lightning_rod",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:farmland",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:fire_coral_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:fletching_table",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:flowering_azalea_leaves",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:furnace",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:gilded_blackstone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:glow_lichen",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:gold_block",
+      "tool": "pickaxe",
+      "minimumTier": "iron"
+    },
+    {
+      "block": "minecraft:gold_ore",
+      "tool": "pickaxe",
+      "minimumTier": "iron"
+    },
+    {
+      "block": "minecraft:granite",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:granite_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:granite_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:granite_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:grass_block",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:gravel",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:gray_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:gray_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:gray_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:gray_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:gray_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:gray_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:gray_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:green_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:green_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:green_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:green_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:green_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:green_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:green_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:grindstone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:hay_block",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:heavy_core",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:heavy_weighted_pressure_plate",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:hopper",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:horn_coral_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:ice",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:infested_chiseled_stone_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:infested_cobblestone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:infested_cracked_stone_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:infested_deepslate",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:infested_mossy_stone_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:infested_stone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:infested_stone_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:iron_bars",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:iron_block",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:iron_chain",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:iron_door",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:iron_ore",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:iron_trapdoor",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:jack_o_lantern",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jukebox",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_button",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_door",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_fence",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_fence_gate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_leaves",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_planks",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_pressure_plate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_shelf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_slab",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_stairs",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_trapdoor",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_wall_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_wall_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:jungle_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:ladder",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:lantern",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:lapis_block",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:lapis_ore",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:large_amethyst_bud",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:lava_cauldron",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:lectern",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:light_blue_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:light_blue_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:light_blue_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:light_blue_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:light_blue_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:light_blue_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:light_blue_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:light_gray_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:light_gray_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:light_gray_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:light_gray_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:light_gray_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:light_gray_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:light_gray_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:light_weighted_pressure_plate",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:lightning_rod",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:lime_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:lime_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:lime_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:lime_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:lime_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:lime_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:lime_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:lodestone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:loom",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:magenta_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:magenta_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:magenta_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:magenta_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:magenta_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:magenta_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:magenta_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:magma_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:mangrove_button",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_door",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_fence",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_fence_gate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_leaves",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_planks",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_pressure_plate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_roots",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_shelf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_slab",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_stairs",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_trapdoor",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_wall_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_wall_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mangrove_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:medium_amethyst_bud",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:melon",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:moss_block",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:moss_carpet",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mossy_cobblestone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:mossy_cobblestone_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:mossy_cobblestone_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:mossy_cobblestone_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:mossy_stone_brick_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:mossy_stone_brick_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:mossy_stone_brick_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:mossy_stone_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:mud",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mud_brick_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:mud_brick_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:mud_brick_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:mud_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:muddy_mangrove_roots",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mushroom_stem",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:mycelium",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:nether_brick_fence",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:nether_brick_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:nether_brick_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:nether_brick_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:nether_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:nether_gold_ore",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:nether_quartz_ore",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:nether_wart_block",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:netherite_block",
+      "tool": "pickaxe",
+      "minimumTier": "diamond"
+    },
+    {
+      "block": "minecraft:netherrack",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:note_block",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_button",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_door",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_fence",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_fence_gate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_leaves",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_planks",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_pressure_plate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_shelf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_slab",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_stairs",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_trapdoor",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_wall_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_wall_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oak_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:observer",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:obsidian",
+      "tool": "pickaxe",
+      "minimumTier": "diamond"
+    },
+    {
+      "block": "minecraft:orange_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:orange_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:orange_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:orange_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:orange_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:orange_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:orange_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:oxidized_chiseled_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:oxidized_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:oxidized_copper_bars",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:oxidized_copper_bulb",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:oxidized_copper_chain",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:oxidized_copper_chest",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:oxidized_copper_door",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:oxidized_copper_golem_statue",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:oxidized_copper_grate",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:oxidized_copper_lantern",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:oxidized_copper_trapdoor",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:oxidized_cut_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:oxidized_cut_copper_slab",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:oxidized_cut_copper_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:oxidized_lightning_rod",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:packed_ice",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:packed_mud",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:pale_moss_block",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_moss_carpet",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_button",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_door",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_fence",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_fence_gate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_leaves",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_planks",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_pressure_plate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_shelf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_slab",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_stairs",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_trapdoor",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_wall_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_wall_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pale_oak_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:petrified_oak_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:pink_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pink_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:pink_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pink_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:pink_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:pink_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:pink_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:piston",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:piston_head",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:podzol",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pointed_dripstone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_andesite",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_andesite_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_andesite_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_basalt",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_blackstone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_blackstone_brick_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_blackstone_brick_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_blackstone_brick_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_blackstone_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_blackstone_button",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_blackstone_pressure_plate",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_blackstone_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_blackstone_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_blackstone_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_deepslate",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_deepslate_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_deepslate_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_deepslate_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_diorite",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_diorite_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_diorite_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_granite",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_granite_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_granite_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_tuff",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_tuff_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_tuff_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:polished_tuff_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:powder_snow_cauldron",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:powered_rail",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:prismarine",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:prismarine_brick_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:prismarine_brick_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:prismarine_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:prismarine_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:prismarine_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:prismarine_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:pumpkin",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:purple_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:purple_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:purple_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:purple_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:purple_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:purple_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:purple_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:purpur_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:purpur_pillar",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:purpur_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:purpur_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:quartz_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:quartz_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:quartz_pillar",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:quartz_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:quartz_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:rail",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:raw_copper_block",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:raw_gold_block",
+      "tool": "pickaxe",
+      "minimumTier": "iron"
+    },
+    {
+      "block": "minecraft:raw_iron_block",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:red_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:red_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:red_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:red_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:red_mushroom_block",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:red_nether_brick_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:red_nether_brick_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:red_nether_brick_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:red_nether_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:red_sand",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:red_sandstone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:red_sandstone_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:red_sandstone_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:red_sandstone_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:red_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:red_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:red_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:redstone_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:redstone_ore",
+      "tool": "pickaxe",
+      "minimumTier": "iron"
+    },
+    {
+      "block": "minecraft:resin_brick_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:resin_brick_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:resin_brick_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:resin_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:respawn_anchor",
+      "tool": "pickaxe",
+      "minimumTier": "diamond"
+    },
+    {
+      "block": "minecraft:rooted_dirt",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:sand",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:sandstone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:sandstone_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:sandstone_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:sandstone_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:sculk",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:sculk_catalyst",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:sculk_sensor",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:sculk_shrieker",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:sculk_vein",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:shroomlight",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:small_amethyst_bud",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:smithing_table",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:smoker",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:smooth_basalt",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:smooth_quartz",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:smooth_quartz_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:smooth_quartz_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:smooth_red_sandstone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:smooth_red_sandstone_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:smooth_red_sandstone_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:smooth_sandstone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:smooth_sandstone_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:smooth_sandstone_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:smooth_stone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:smooth_stone_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:snow",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:snow_block",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:soul_campfire",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:soul_lantern",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:soul_sand",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:soul_soil",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spawner",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:sponge",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_button",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_door",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_fence",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_fence_gate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_leaves",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_planks",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_pressure_plate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_shelf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_slab",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_stairs",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_trapdoor",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_wall_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_wall_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:spruce_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:sticky_piston",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:stone",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:stone_brick_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:stone_brick_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:stone_brick_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:stone_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:stone_button",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:stone_pressure_plate",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:stone_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:stone_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:stonecutter",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:stripped_acacia_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_acacia_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_bamboo_block",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_birch_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_birch_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_cherry_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_cherry_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_crimson_hyphae",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_crimson_stem",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_dark_oak_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_dark_oak_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_jungle_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_jungle_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_mangrove_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_mangrove_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_oak_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_oak_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_pale_oak_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_pale_oak_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_spruce_log",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_spruce_wood",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_warped_hyphae",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:stripped_warped_stem",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:suspicious_gravel",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:suspicious_sand",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:target",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:trapped_chest",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:tube_coral_block",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:tuff",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:tuff_brick_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:tuff_brick_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:tuff_brick_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:tuff_bricks",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:tuff_slab",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:tuff_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:tuff_wall",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:vine",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_button",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_door",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_fence",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_fence_gate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_hyphae",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_nylium",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:warped_planks",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_pressure_plate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_shelf",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_slab",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_stairs",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_stem",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_trapdoor",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_wall_hanging_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_wall_sign",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:warped_wart_block",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:water_cauldron",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_chiseled_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_copper_bars",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_copper_block",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_copper_bulb",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_copper_chain",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_copper_chest",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_copper_door",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_copper_golem_statue",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_copper_grate",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_copper_lantern",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_copper_trapdoor",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_cut_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_cut_copper_slab",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_cut_copper_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_exposed_chiseled_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_exposed_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_exposed_copper_bars",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_exposed_copper_bulb",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_exposed_copper_chain",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_exposed_copper_chest",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_exposed_copper_door",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_exposed_copper_golem_statue",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_exposed_copper_grate",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_exposed_copper_lantern",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_exposed_copper_trapdoor",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_exposed_cut_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_exposed_cut_copper_slab",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_exposed_cut_copper_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_exposed_lightning_rod",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_lightning_rod",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_chiseled_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_copper_bars",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_copper_bulb",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_copper_chain",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_copper_chest",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_copper_door",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_copper_golem_statue",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_copper_grate",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_copper_lantern",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_copper_trapdoor",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_cut_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_cut_copper_slab",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_cut_copper_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_oxidized_lightning_rod",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_weathered_chiseled_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_weathered_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_weathered_copper_bars",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_weathered_copper_bulb",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_weathered_copper_chain",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_weathered_copper_chest",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_weathered_copper_door",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_weathered_copper_golem_statue",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_weathered_copper_grate",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_weathered_copper_lantern",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:waxed_weathered_copper_trapdoor",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_weathered_cut_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_weathered_cut_copper_slab",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_weathered_cut_copper_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:waxed_weathered_lightning_rod",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:weathered_chiseled_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:weathered_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:weathered_copper_bars",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:weathered_copper_bulb",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:weathered_copper_chain",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:weathered_copper_chest",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:weathered_copper_door",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:weathered_copper_golem_statue",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:weathered_copper_grate",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:weathered_copper_lantern",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:weathered_copper_trapdoor",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:weathered_cut_copper",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:weathered_cut_copper_slab",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:weathered_cut_copper_stairs",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:weathered_lightning_rod",
+      "tool": "pickaxe",
+      "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:wet_sponge",
+      "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:white_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:white_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:white_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:white_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:white_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:white_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:white_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:yellow_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:yellow_concrete",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:yellow_concrete_powder",
+      "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:yellow_glazed_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:yellow_shulker_box",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:yellow_terracotta",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:yellow_wall_banner",
+      "tool": "axe",
+      "minimumTier": "hand"
+    }
+  ]
+}
