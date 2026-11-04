@@ -58,7 +58,10 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
   z.object({ name: z.literal("craft"), args: z.object({ item: itemId, count: z.number().int().min(1).max(64).default(1) }) }),
   z.object({ name: z.literal("equip"), args: z.object({ item: itemId }) }),
   z.object({ name: z.literal("eat"), args: z.object({ item: itemId.optional() }) }),
-  z.object({ name: z.literal("deposit"), args: z.object({ container: point.optional() }) }),
+  z.object({
+    name: z.literal("deposit"),
+    args: z.object({ container: point.optional(), item: itemId.optional() }),
+  }),
   z.object({
     name: z.literal("place_block"),
     args: z.object({ block: blockId, count: z.number().int().min(1).max(64).default(1) }),
@@ -137,6 +140,7 @@ export const FABRIC_BODY_SKILLS = [
   "mine_block",
   "chop_tree",
   "collect_items",
+  "deposit",
   "say",
   "wait",
   "attack",
