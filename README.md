@@ -85,7 +85,8 @@ tools/              开发与校验脚本
 
 项目采用 MIT OR Apache-2.0 双许可，文本见 [licenses/README.md](licenses/README.md)。
 
-记忆与编排设计参考了 [PowerContext](https://github.com/oceanbase/powercontext)、
-[SeekMemory](https://github.com/NeverENG/SeekMemory)、[AstrBot](https://github.com/AstrBotDevs/AstrBot)
-与 [dafeiyu-astrbot](https://github.com/whyever77/dafeiyu-astrbot)；本项目代码为独立实现，
-不复制许可证受限源码。
+致谢：[PowerContext](https://github.com/oceanbase/powercontext) 启发了证据与记忆分离、
+版本化和召回预算；[SeekMemory](https://github.com/NeverENG/SeekMemory) 启发了注意力
+闸门、跟进窗口和取消语义；[AstrBot](https://github.com/AstrBotDevs/AstrBot) 启发了阶
+段编排与策略选择结构；[dafeiyu-astrbot](https://github.com/whyever77/dafeiyu-astrbot)
+提供了「大肥鱼」人格性格参考。本项目代码为独立实现，不复制许可证受限源码。
