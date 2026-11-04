@@ -152,8 +152,12 @@ public final class BridgeClient {
 			case "cancel" -> {
 				executor.submit(() -> {
 					if (source != socket || closing) return false;
-					String id = frame.has("id") ? BridgeJson.string(frame, "id") : null;
-					GameActions.cancel(Minecraft.getInstance(), id);
+					// `taskId` is the id this body minted in its accepted frame, and
+					// it is the key `GameActions.TASKS` uses. `id` is the
+					// orchestrator's command id and only helps before an ack.
+					String taskId = frame.has("taskId") ? BridgeJson.string(frame, "taskId") : null;
+					String commandId = frame.has("id") ? BridgeJson.string(frame, "id") : null;
+					GameActions.cancel(Minecraft.getInstance(), taskId, commandId);
 					return true;
 				});
 			}

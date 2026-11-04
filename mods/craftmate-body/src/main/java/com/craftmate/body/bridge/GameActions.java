@@ -288,16 +288,17 @@ public final class GameActions {
 		}
 	}
 
-	static void cancel(Minecraft client, String id) {
-		if (id != null) {
-			Task task = TASKS.remove(id);
-			if (task != null) {
-				task.stop(client);
-				task.send.accept(result(id, "cancelled", "E_CANCELLED", "cancelled by orchestrator"));
-			}
+	static void cancel(Minecraft client, String taskId, String commandId) {
+		Task task = taskId == null ? null : TASKS.remove(taskId);
+		// The command id is only a last resort: a body task is never keyed by it,
+		// so this branch exists for frames that carry nothing else.
+		if (task == null && commandId != null) task = TASKS.remove(commandId);
+		if (task != null) {
+			task.stop(client);
+			task.send.accept(result(task.id, "cancelled", "E_CANCELLED", "cancelled by orchestrator"));
 			return;
 		}
-		stopLocally(client);
+		if (taskId == null && commandId == null) stopLocally(client);
 	}
 
 	static void stopLocally(Minecraft client) {
@@ -1563,6 +1564,9 @@ public final class GameActions {
 				}
 				lastPosition = null;
 				lastProgressAge = age;
+				// The next item is somewhere else, so "already reached" has to be
+				// re-earned; otherwise the stall check below fires while walking.
+				reachedItem = false;
 			}
 			if (client.player.position().distanceTo(target.position()) < 1.1) reachedItem = true;
 			if (target == null || !target.isAlive()) {
@@ -3017,11 +3021,16 @@ public final class GameActions {
 			JsonObject change = new JsonObject();
 			change.addProperty("kind", "entity_damaged");
 			change.addProperty("detail", targetName);
-			JsonObject position = new JsonObject();
-			position.addProperty("x", round(target.getX()));
-			position.addProperty("y", round(target.getY()));
-			position.addProperty("z", round(target.getZ()));
-			change.add("position", position);
+			// `target` is null exactly when the entity could not be found, which is
+			// a reportable outcome. Dereferencing it here turned that into an
+			// E_INTERNAL that hid the real reason.
+			if (target != null) {
+				JsonObject position = new JsonObject();
+				position.addProperty("x", round(target.getX()));
+				position.addProperty("y", round(target.getY()));
+				position.addProperty("z", round(target.getZ()));
+				change.add("position", position);
+			}
 			JsonArray changes = new JsonArray();
 			if (problem == null) changes.add(change);
 			outcome.add("changes", changes);
@@ -3304,6 +3313,12 @@ public final class GameActions {
 
 	private static final class PlaceTask extends Task {
 		private final String blockId;
+		/**
+		 * Namespaced form of {@link #blockId}. `findHotbar` accepts "stone" and
+		 * resolves it to "minecraft:stone", so the confirmation has to compare
+		 * against the same canonical id or a real placement reads as a failure.
+		 */
+		private final String expectedBlock;
 		private final int count;
 		private int placed;
 		private BlockPos targetPos;
@@ -3314,12 +3329,19 @@ public final class GameActions {
 		PlaceTask(String id, String blockId, int count) {
 			super(id);
 			this.blockId = blockId;
+			Identifier parsed = Identifier.tryParse(blockId);
+			this.expectedBlock = parsed == null ? blockId : parsed.toString();
 			this.count = count;
 		}
 
 		@Override
 		boolean validate(Minecraft client) {
-			return super.validate(client);
+			if (!super.validate(client)) return false;
+			if (Identifier.tryParse(blockId) == null) {
+				validationError = "invalid block " + blockId;
+				return false;
+			}
+			return true;
 		}
 
 		@Override
@@ -3384,7 +3406,7 @@ public final class GameActions {
 			int afterCount = client.player.getInventory().getSelectedItem().getCount();
 			if (
 				InteractionEvidence.placementConfirmed(
-					blockId,
+					expectedBlock,
 					beforeBlock,
 					blockSnapshot(client, targetPos),
 					beforeCount,
@@ -3472,7 +3494,7 @@ public final class GameActions {
 		}
 	}
 
-	private static void releaseWalkInput(Minecraft client) {
+	static void releaseWalkInput(Minecraft client) {
 		setWalkInput(client, false);
 	}
 

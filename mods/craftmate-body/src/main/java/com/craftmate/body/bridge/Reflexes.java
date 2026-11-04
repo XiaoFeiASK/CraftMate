@@ -119,6 +119,10 @@ final class Reflexes {
 			player.input.keyPresses = net.minecraft.world.entity.player.Input.EMPTY;
 		}
 		Minecraft client = Minecraft.getInstance();
+		// Clearing `keyPresses` is not enough: `KeyboardInput.tick` rebuilds the
+		// move vector from the `KeyMapping`s on the next frame, so a held forward
+		// key keeps the body walking into the danger it just reported.
+		GameActions.releaseWalkInput(client);
 		GameActions.releaseMiningInput(client);
 	}
 
