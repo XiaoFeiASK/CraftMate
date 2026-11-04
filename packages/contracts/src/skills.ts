@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { BridgeCapability } from "./bridge.ts";
 
 /**
  * Per-skill arguments. The bridge ships `args` as an open record on the wire,
@@ -124,3 +125,41 @@ export const SKILL_CAPABILITY: Readonly<Record<SkillName, string>> = {
   emote: "hud",
   wait: "sensor",
 };
+
+/**
+ * The contract is the future catalogue; this is the catalogue that the current
+ * Fabric body can execute. Keep it aligned with GameActions so UI, planning and
+ * documentation cannot describe unimplemented skills as product capabilities.
+ */
+export const FABRIC_BODY_SKILLS = [
+  "goto",
+  "look_at",
+  "mine_block",
+  "say",
+  "wait",
+  "attack",
+  "equip",
+  "eat",
+  "use_block",
+  "place_block",
+] as const satisfies readonly SkillName[];
+
+export const FABRIC_BODY_CAPABILITIES = [
+  "sensor",
+  "move",
+  "mine",
+  "attack",
+  "use",
+  "build",
+  "camera",
+  "hud",
+] as const satisfies readonly BridgeCapability[];
+
+const REQUIRED_FABRIC_CAPABILITIES = FABRIC_BODY_SKILLS.map(
+  (skill) => SKILL_CAPABILITY[skill] as BridgeCapability,
+);
+
+const fabricCapabilities: readonly BridgeCapability[] = FABRIC_BODY_CAPABILITIES;
+if (REQUIRED_FABRIC_CAPABILITIES.some((capability) => !fabricCapabilities.includes(capability))) {
+  throw new Error("Fabric body capability catalogue is inconsistent with its skill catalogue");
+}
