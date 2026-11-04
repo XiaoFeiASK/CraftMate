@@ -258,6 +258,11 @@ function SessionPanel({ settings, stats, online, onOpenConsole }: SessionPanelPr
       <div className="session-panel__goal">
         <span>今日主线</span>
         <strong id="session-goal">{settings?.goal ?? "正在读取本场目标"}</strong>
+        <small className="session-panel__mode">
+          {settings?.autonomy.enabled
+            ? "自主行动开启 · 有明确目标才动"
+            : "等待指令 · 空闲不移动"}
+        </small>
         <div className="session-panel__progress">
           <div
             role="progressbar"

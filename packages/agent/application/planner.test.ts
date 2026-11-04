@@ -208,13 +208,54 @@ describe("stage C planner", () => {
       goal: "盖房",
       persona,
       availableSkills: ["goto", "chop_tree"],
-      world: { position: { x: 10, y: 64, z: 20 } },
+      // No yaw means "unknown", which must retain the old eastward default.
+      world: { position: { x: 10, y: 64, z: 20 }, yaw: -90 },
     });
 
     assert.equal(calls, 0);
     assert.equal(planned.skill?.name, "goto");
     assert.deepEqual(planned.skill?.args, { target: { x: 14, y: 64, z: 20 } });
     assert.match(planned.speech, /走/);
+  });
+
+  test("forward movement follows the body yaw instead of always going +X", async () => {
+    const cases = [
+      { yaw: 0, target: { x: 10, y: 64, z: 24 } },
+      { yaw: 90, target: { x: 6, y: 64, z: 20 } },
+      { yaw: 180, target: { x: 10, y: 64, z: 16 } },
+      { yaw: -90, target: { x: 14, y: 64, z: 20 } },
+    ];
+    for (const { yaw, target } of cases) {
+      const planner = new Planner({ provider: null });
+      const planned = await planner.plan({
+        decision: decision({ text: "往前走几步", intent: "move" }),
+        goal: "盖房",
+        persona,
+        availableSkills: ["goto"],
+        world: { position: { x: 10, y: 64, z: 20 }, yaw },
+      });
+      assert.equal(planned.skill?.name, "goto");
+      assert.deepEqual(planned.skill?.args, { target });
+    }
+  });
+
+  test("the model-failure fallback also walks along the reported yaw", async () => {
+    const planner = new Planner({
+      provider: provider(async () => {
+        throw new Error("fetch failed");
+      }),
+    });
+    const planned = await planner.plan({
+      // A direction change is a move intent, but not the narrow "walk
+      // forward" fast path, so a provider outage exercises the fallback.
+      decision: decision({ text: "左转看看", intent: "move" }),
+      goal: "盖房",
+      persona,
+      availableSkills: ["goto"],
+      world: { position: { x: 10, y: 64, z: 20 }, yaw: 90 },
+    });
+    assert.equal(planned.degraded, true);
+    assert.deepEqual(planned.skill?.args, { target: { x: 6, y: 64, z: 20 } });
   });
 
   test("fast planning still requires an approved EXECUTE decision", async () => {

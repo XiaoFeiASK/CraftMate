@@ -41,6 +41,41 @@ test("health endpoint answers on the configured host", async () => {
   });
 });
 
+test("control rejects a foreign browser Origin before the handshake", async () => {
+  const server = createControlServer({ show: new Show({ persona: dafeiyu }), port: 0, ingressToken: TEST_TOKEN });
+  try {
+    const port = await server.listening;
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/control`, {
+      headers: { Origin: "https://attacker.example" },
+    });
+    const outcome = await new Promise<"open" | "rejected">((resolve) => {
+      socket.once("open", () => resolve("open"));
+      socket.once("error", () => resolve("rejected"));
+    });
+    assert.equal(outcome, "rejected");
+    socket.terminate();
+  } finally {
+    await server.close();
+  }
+});
+
+test("control accepts the local console Origin and a tool without one", async () => {
+  const server = createControlServer({ show: new Show({ persona: dafeiyu }), port: 0, ingressToken: TEST_TOKEN });
+  try {
+    const port = await server.listening;
+    for (const headers of [{ Origin: "http://localhost:5173" }, {}]) {
+      const socket = new WebSocket(`ws://127.0.0.1:${port}/control`, { headers });
+      await new Promise<void>((resolve, reject) => {
+        socket.once("open", resolve);
+        socket.once("error", reject);
+      });
+      socket.close();
+    }
+  } finally {
+    await server.close();
+  }
+});
+
 test("a wildcard host accepts connections addressed to loopback", async () => {
   await withServer("0.0.0.0", async (port) => {
     const response = await fetch(`http://127.0.0.1:${port}/health`);
@@ -636,6 +671,26 @@ describe("console independence", () => {
       await server.close();
     }
   });
+});
+
+test("shutdown terminates an open ingress socket instead of waiting forever", async () => {
+  const server = createControlServer({
+    show: new Show({ persona: dafeiyu }),
+    port: 0,
+    ingressToken: TEST_TOKEN,
+  });
+  const port = await server.listening;
+  const ingress = new WebSocket(`ws://127.0.0.1:${port}/ingress`);
+  await new Promise<void>((resolve, reject) => {
+    ingress.once("open", resolve);
+    ingress.once("error", reject);
+  });
+
+  const result = await Promise.race([
+    server.close().then(() => "closed"),
+    new Promise<string>((resolve) => setTimeout(() => resolve("blocked"), 1_500)),
+  ]);
+  assert.equal(result, "closed");
 });
 
 function commentEvent(id: string): unknown {

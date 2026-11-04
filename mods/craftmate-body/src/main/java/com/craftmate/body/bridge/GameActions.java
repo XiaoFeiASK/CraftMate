@@ -139,6 +139,7 @@ public final class GameActions {
 		world.addProperty("onGround", player.onGround());
 		world.addProperty("fallDistance", round(player.fallDistance));
 		world.addProperty("verticalVelocity", round(player.getDeltaMovement().y));
+		world.addProperty("screenOpen", client.screen != null);
 		BlockPos feet = player.blockPosition();
 		BlockState floor = client.level.getBlockState(feet.below());
 		world.addProperty(
@@ -209,7 +210,9 @@ public final class GameActions {
 		if (TASKS.containsKey(id)) {
 			return StartDecision.rejected("E_BUSY", "duplicate task id");
 		}
-		closeBlockingScreen(client);
+		if (blocksOnPlayerScreen(client)) {
+			return StartDecision.rejected("E_BUSY", "the player has a screen open");
+		}
 		Task task;
 		try {
 			task = switch (op) {
@@ -257,13 +260,13 @@ public final class GameActions {
 	}
 
 	/**
-	 * The body must be able to act without a human closing inventory, chat or
-	 * another in-game menu. Keep this to screens that are safe to dismiss; the
-	 * title and world-selection screens are only reachable before a world loads
-	 * and are already rejected by readiness checks.
+	 * A human opening chat, inventory or the pause menu is not something the
+	 * agent may dismiss: forcibly closing the screen made E and Escape appear
+	 * broken. Tasks wait until the player finishes and the screen closes
+	 * naturally.
 	 */
-	private static void closeBlockingScreen(Minecraft client) {
-		if (client.screen != null && client.level != null) client.setScreen(null);
+	private static boolean blocksOnPlayerScreen(Minecraft client) {
+		return client.screen != null && client.level != null;
 	}
 
 	/**
@@ -326,13 +329,15 @@ public final class GameActions {
 	}
 
 	private static void advanceTasks(Minecraft client) {
-		// `Minecraft.tick` sets `screen` to null while it ticks the world and
-		// restores the same instance afterwards. A task runs inside that
-		// window, so closing once at command acceptance is not enough: the
-		// menu would come back and freeze walking or mining on the next frame.
+		// A screen the player opened pauses the agent instead of being closed.
+		// Tasks that need a menu mark it with `keepScreen` and keep working.
 		boolean keepScreen = TASKS.values().stream()
 			.anyMatch(task -> task.started && task.keepScreen(client));
-		if (!keepScreen) closeBlockingScreen(client);
+		if (blocksOnPlayerScreen(client) && !keepScreen) {
+			releaseWalkInput(client);
+			releaseMiningInput(client);
+			return;
+		}
 		for (Task task : new ArrayList<>(TASKS.values())) {
 			if (!task.started || !TASKS.containsKey(task.id)) continue;
 			try {
@@ -851,9 +856,7 @@ public final class GameActions {
 				start,
 				goal,
 					(x, y, z) -> standingY(client, new BlockPos(x, y, z)) == y,
-				(x, y, z) -> x == goal.x()
-					&& z == goal.z()
-					&& Math.abs(y - goal.y()) <= 1,
+				(x, y, z) -> isNearGoal(x, z, goal),
 				MAX_PATH_NODES,
 				MAX_PATH_RADIUS
 			);
@@ -868,6 +871,16 @@ public final class GameActions {
 		}
 
 		private record Route(Vec3 destination, boolean complete, List<Vec3> waypoints) {
+		}
+
+		/**
+		 * The exact target column can be a wall, a ledge or slightly outside
+		 * this step's four-block reach. A nearby standable cell still makes the
+		 * exploration step useful instead of failing and re-sending the same
+		 * unreachable goto every cooldown.
+		 */
+		private static boolean isNearGoal(int x, int z, BoundedPathfinder.Cell goal) {
+			return Math.abs(x - goal.x()) <= 1 && Math.abs(z - goal.z()) <= 1;
 		}
 
 		@Override

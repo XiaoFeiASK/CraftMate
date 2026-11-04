@@ -428,6 +428,13 @@
   line-height: 1.45;
 }
 
+.session-panel__mode {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink-soft);
+  font-size: calc(10px * var(--ui-scale));
+}
+
 .session-panel__progress {
   display: flex;
   align-items: center;

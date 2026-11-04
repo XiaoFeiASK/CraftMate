@@ -48,6 +48,10 @@ interface ControlServerOptions {
   readonly port: number;
   /** Defaults to loopback. Containers must widen it to receive host traffic. */
   readonly host?: string;
+  /** Exact browser origins allowed to open `/control`. */
+  readonly allowedControlOrigins?: readonly string[];
+  /** Containers may deliberately expose the console beyond loopback. */
+  readonly allowRemoteControl?: boolean;
   /**
    * Shared secret for `/ingress`. An empty value disables ingress entirely;
    * the orchestrator never accepts an unauthenticated data source.
@@ -112,6 +116,13 @@ interface Connection {
   greeted: boolean;
 }
 
+const DEFAULT_CONTROL_ORIGINS = [
+  "tauri://localhost",
+  "http://tauri.localhost",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+] as const;
+
 /**
  * Transport adapter: wire messages in, application calls out. It owns no
  * business rules and no state beyond connection bookkeeping.
@@ -121,6 +132,8 @@ export function createControlServer({
   settings,
   port,
   host = "127.0.0.1",
+  allowedControlOrigins = DEFAULT_CONTROL_ORIGINS,
+  allowRemoteControl = false,
   ingressToken = "",
   allowRemoteIngress = false,
   ingressFailureLimit = 10,
@@ -159,6 +172,24 @@ export function createControlServer({
     if (!target) {
       socket.destroy();
       return;
+    }
+    if (target === wss) {
+      if (!allowRemoteControl && !isLoopbackAddress(request.socket.remoteAddress)) {
+        socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        console.warn("orchestrator: rejected non-loopback control connection");
+        return;
+      }
+      const origin = request.headers.origin;
+      if (origin === undefined) {
+        // Non-browser tools omit Origin. Local acceptance scripts use this
+        // path; a browser always sends one, including from a foreign site.
+      } else if (!allowedControlOrigins.includes(origin)) {
+        socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        socket.destroy();
+        console.warn(`orchestrator: rejected control origin ${origin}`);
+        return;
+      }
     }
     if (
       target === ingress &&
@@ -630,10 +661,28 @@ export function createControlServer({
     injectDecision,
     isPlanning: () => planning > 0,
     close: async () => {
-      for (const { socket } of connections) socket.close();
-      await new Promise<void>((resolve) => wss.close(() => resolve()));
-      await new Promise<void>((resolve) => ingress.close(() => resolve()));
-      await bridge?.close();
+      const closeWithDeadline = async (server: WebSocketServer): Promise<void> => {
+        const sockets = [...server.clients];
+        const finished = new Promise<void>((resolve) => {
+          server.close(() => resolve());
+        });
+        for (const socket of sockets) socket.close();
+        let terminateTimer: ReturnType<typeof setTimeout> | undefined;
+        const deadline = new Promise<void>((resolve) => {
+          terminateTimer = setTimeout(() => {
+            for (const socket of sockets) {
+              if (socket.readyState !== socket.CLOSED) socket.terminate();
+            }
+            resolve();
+          }, 250);
+        });
+        await Promise.race([finished, deadline]);
+        if (terminateTimer !== undefined) clearTimeout(terminateTimer);
+        await finished;
+      };
+      await closeWithDeadline(wss);
+      await closeWithDeadline(ingress);
+      if (bridge) await bridge.close();
       await new Promise<void>((resolve) => http.close(() => resolve()));
     },
   };

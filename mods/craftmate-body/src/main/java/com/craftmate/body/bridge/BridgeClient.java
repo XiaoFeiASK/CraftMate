@@ -26,6 +26,7 @@ public final class BridgeClient {
 	private static final String URL_PROPERTY = "craftmate.bridge.url";
 	private static final String TOKEN_ENV = "CRAFTMATE_BRIDGE_TOKEN";
 	private static final String URL_ENV = "CRAFTMATE_BRIDGE_URL";
+	private static final String TOKEN_FILE_ENV = "CRAFTMATE_BRIDGE_TOKEN_FILE";
 
 	private final URI uri;
 	private final String token;
@@ -75,7 +76,7 @@ public final class BridgeClient {
 			token = firstNonBlank(
 				System.getProperty(TOKEN_PROPERTY),
 				System.getenv(TOKEN_ENV),
-				BridgeToken.loadOrCreate(Path.of(System.getProperty("user.home"), ".craftmate", "bridge.token"))
+				BridgeToken.loadOrCreate(defaultTokenPath())
 			);
 		} catch (IOException error) {
 			throw new IllegalStateException("cannot read CraftMate bridge token", error);
@@ -87,6 +88,30 @@ public final class BridgeClient {
 
 	public static URI defaultUri() {
 		return DEFAULT_URI;
+	}
+
+	/**
+	 * Launchers commonly set {@code -Duser.home} to the game directory. The
+	 * orchestrator always writes to the operating-system account's home, so
+	 * resolving the token through that property silently splits one machine
+	 * into two unrelated token files.
+	 */
+	static Path defaultTokenPath() {
+		String override = firstNonBlank(System.getenv(TOKEN_FILE_ENV));
+		if (!override.isEmpty()) return Path.of(override);
+		String home = firstNonBlank(
+			System.getProperty("craftmate.home"),
+			System.getenv("CRAFTMATE_HOME")
+		);
+		return Path.of(home.isEmpty() ? userHome() : home, ".craftmate", "bridge.token");
+	}
+
+	private static String userHome() {
+		String home = System.getenv("HOME");
+		if (home != null && !home.isBlank()) return home;
+		String property = System.getProperty("user.home");
+		if (property != null && !property.isBlank()) return property;
+		throw new IllegalStateException("cannot determine the user home directory");
 	}
 
 	private void connect() {
@@ -135,7 +160,7 @@ public final class BridgeClient {
 				watchdogMs = BridgeJson.integer(frame, "watchdogMs");
 				initialHandshake = "none".equals(owner)
 					&& !GameActions.snapshot(Minecraft.getInstance()).get("inWorld").getAsBoolean();
-				applyOwnership(source, owner, "桥接已连接 · " + owner);
+				applyOwnership(source, owner, "我是大肥鱼喵，Ciallo～(∠・ω< )⌒☆");
 				for (String skill : GameActions.skills()) {
 					if (!contains(frame, skill)) {
 						CraftMateBodyClient.LOGGER.warn("server did not negotiate {}; advertised locally", skill);

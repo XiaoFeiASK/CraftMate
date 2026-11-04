@@ -43,6 +43,14 @@ export const showSettingsSchema = z.object({
   worldName: label(60),
   gameVersion: label(24),
   accountLabel: label(40),
+  /**
+   * Off by default: normal play waits for an audience or operator command.
+   * When enabled, autonomy may only act on something the body can actually
+   * observe, such as a nearby log. It never walks without a destination.
+   */
+  autonomy: z.object({
+    enabled: z.boolean().default(false),
+  }).default({ enabled: false }),
   integrations: z.object({
     douyinRoomId: z.string().trim().max(64),
     deepseekModel: z.string().trim().max(64),

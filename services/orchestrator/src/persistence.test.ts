@@ -168,3 +168,22 @@ test("the bootstrap retention sweep purges raw text but keeps the decision", () 
     second.close();
   }
 });
+
+test("autonomy is off by default and survives an explicit opt-in", () => {
+  const dbPath = temporaryDatabase();
+  const first = createPersistentShow({ dbPath, env: {} });
+  assert.equal(first.show.currentSettings().autonomy.enabled, false);
+  const enabled = first.saveSettings({
+    ...first.show.currentSettings(),
+    autonomy: { enabled: true },
+  });
+  assert.equal(enabled?.autonomy.enabled, true);
+  first.close();
+
+  const second = createPersistentShow({ dbPath, env: {} });
+  try {
+    assert.equal(second.show.currentSettings().autonomy.enabled, true);
+  } finally {
+    second.close();
+  }
+});

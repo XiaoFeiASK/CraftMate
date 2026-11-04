@@ -82,8 +82,10 @@ export const worldSnapshotSchema = z.object({
   onGround: z.boolean().nullable().optional(),
   fallDistance: z.number().nonnegative().nullable().optional(),
   verticalVelocity: z.number().nullable().optional(),
+  /** A screen the player opened; the agent must pause instead of closing it. */
+  screenOpen: z.boolean().nullable().optional(),
   floor: z.string().max(160).nullable().optional(),
-  /** World spawn, used as the safe centre for autonomous exploration. */
+  /** World spawn; available to future goal-directed navigation. */
   spawn: z.object({
     x: z.number(),
     y: z.number(),

@@ -8,8 +8,6 @@ import { createBridgeUpgrade, SqliteActionPort } from "@craftmate/bridge";
 import { loadOrCreateBridgeToken } from "@craftmate/bridge";
 import { createIngressSupervisor } from "./ingress-supervisor.ts";
 import {
-  AUTONOMY_STUCK_TURN_DEGREES,
-  AUTONOMY_TURN_DEGREES,
   nextAutonomousAction,
 } from "@craftmate/agent/application";
 import { readFileSync, unlinkSync } from "node:fs";
@@ -30,11 +28,8 @@ let autonomousInFlight: string | null = null;
 let autonomousCommandId: string | null = null;
 let autonomousStartedAt = 0;
 let lastAutonomousAt = 0;
-let autonomySequence = 0;
-let autonomyRouteFailures = 0;
+let autonomyConsecutiveFailures = 0;
 let autonomyMiningBlockedUntil = 0;
-let autonomyOrigin: { readonly x: number; readonly z: number } | null = null;
-let autonomyHeading: number | null = null;
 const persistent = createPersistentShow({
   world: () => bridge?.health().world ?? null,
   availableSkills: () => bridge?.health().skills ?? [],
@@ -134,19 +129,8 @@ bridge = createBridgeUpgrade({
     if (outcome.decisionId === autonomousInFlight) {
       autonomousInFlight = null;
       autonomousCommandId = null;
-      // Keep walking the same heading after success. Turn only when the body
-      // reports a blocked route, so exploration is a continuous line rather
-      // than a four-block square.
       if (outcome.status !== "completed") {
-        autonomySequence += 1;
-        autonomyRouteFailures += 1;
-        if (autonomyHeading !== null) {
-          const turn =
-            autonomyRouteFailures >= 2
-              ? AUTONOMY_STUCK_TURN_DEGREES
-              : AUTONOMY_TURN_DEGREES;
-          autonomyHeading = (autonomyHeading + turn) % 360;
-        }
+        autonomyConsecutiveFailures += 1;
         const decision = persistent.show
           .recent()
           .find((entry) => entry.id === outcome.decisionId);
@@ -157,7 +141,7 @@ bridge = createBridgeUpgrade({
           autonomyMiningBlockedUntil = Date.now() + 6_000;
         }
       } else {
-        autonomyRouteFailures = 0;
+        autonomyConsecutiveFailures = 0;
         autonomyMiningBlockedUntil = 0;
       }
     }
@@ -364,11 +348,45 @@ const bridgePoll = setInterval(() => {
   server.publishBridgeHealth(bridge.health());
 }, 2_000);
 
-// One bounded step at a time. The next decision is made only after the body
-// settles the previous one, so autonomy cannot build a command backlog or
-// fight an audience command that is still being planned.
+// One bounded step at a time, and only when the operator turned autonomy on.
+// The default is intentionally silent: normal play responds to comments and
+// operator commands, not to a timer that invents a destination.
 const autonomousLoop = setInterval(() => {
-  if (process.env.CRAFTMATE_AUTONOMY === "0") return;
+  // Keep the environment escape hatch for headless checks, but a setting is
+  // the source of truth for normal play.
+  const autonomyEnabled =
+    process.env.CRAFTMATE_AUTONOMY !== "0" &&
+    persistent.show.currentSettings().autonomy.enabled === true;
+  if (!autonomyEnabled) {
+    // Turning the switch off must stop the current idle action, not only the
+    // next one. Audience/operator commands are deliberately not tracked here.
+    if (autonomousInFlight !== null) {
+      const stopped = autonomousInFlight;
+      const commandId = autonomousCommandId;
+      autonomousInFlight = null;
+      autonomousCommandId = null;
+      if (commandId !== null) {
+        try {
+          bridge.session.cancel(commandId, "autonomy turned off");
+        } catch (error) {
+          console.warn(
+            `orchestrator: could not cancel autonomous step — ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+      const settled = persistent.show.settleDecision(stopped, {
+        status: "cancelled",
+        errorCode: "E_CANCELLED",
+        detail: "自主行动已关闭",
+        outcome: null,
+        at: Date.now(),
+      });
+      if (settled) server.publishDecision(settled);
+    }
+    return;
+  }
   const health = bridge.health();
   if (autonomousInFlight !== null && Date.now() - autonomousStartedAt > 35_000) {
     // A lost terminal frame must not permanently freeze an always-on agent.
@@ -399,33 +417,18 @@ const autonomousLoop = setInterval(() => {
     if (failed) server.publishDecision(failed);
     autonomousInFlight = null;
     autonomousCommandId = null;
-    autonomySequence += 1;
-    autonomyRouteFailures += 1;
+    autonomyConsecutiveFailures += 1;
   }
   if (autonomousInFlight !== null) return;
   if (server.isPlanning()) return;
-  if (autonomyOrigin === null && health.world?.position) {
-    autonomyOrigin = {
-      x: health.world.position.x,
-      z: health.world.position.z,
-    };
-  }
-  if (autonomyHeading === null && health.world?.yaw !== undefined) {
-    autonomyHeading = health.world.yaw ?? 0;
-  }
   const action = nextAutonomousAction({
     now: Date.now(),
     mode: persistent.show.snapshot().mode,
     bridge: health,
+    enabled: true,
     lastAttemptAt: lastAutonomousAt,
-    sequence: autonomySequence,
-    origin: autonomyOrigin,
-    spawn: health.world?.spawn
-      ? { x: health.world.spawn.x, z: health.world.spawn.z }
-      : null,
-    heading: autonomyHeading,
     miningBlockedUntil: autonomyMiningBlockedUntil,
-    routeFailures: autonomyRouteFailures,
+    consecutiveFailures: autonomyConsecutiveFailures,
   });
   if (action === null) return;
   const skill = skillCallSchema.safeParse(action.skill);

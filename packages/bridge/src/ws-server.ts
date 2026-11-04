@@ -10,6 +10,11 @@ export interface BridgeUpgradeOptions
   /** Defaults to `/bridge`. Must be an exact path. */
   readonly path?: string;
   readonly maxPayloadBytes?: number;
+  /**
+   * A socket that has not completed a valid hello by then is closed. This
+   * keeps an unauthenticated connection from owning the single body slot.
+   */
+  readonly handshakeTimeoutMs?: number;
 }
 
 export interface BridgeUpgrade {
@@ -41,6 +46,7 @@ export function createBridgeUpgrade(options: BridgeUpgradeOptions): BridgeUpgrad
   const control = options.control ?? new ControlAuthority();
   let session: BodySession | null = null;
   let socket: WebSocket | null = null;
+  const handshakeTimeoutMs = options.handshakeTimeoutMs ?? 5_000;
 
   const transport = {
     send(frame: BridgeServerFrame): void {
@@ -70,9 +76,25 @@ export function createBridgeUpgrade(options: BridgeUpgradeOptions): BridgeUpgrad
       connected.close(4409, "bridge already has a body");
       return;
     }
+    // A new socket ends the previous session's slot even if it cannot
+    // authenticate. Otherwise one silent socket keeps every real body out.
     session = current;
     socket = connected;
+    const handshakeTimer = setTimeout(() => {
+      if (current.negotiated === null) {
+        connected.close(4401, "bridge hello timeout");
+        setTimeout(() => {
+          if (connected.readyState !== connected.CLOSED) connected.terminate();
+        }, 250).unref();
+      }
+    }, handshakeTimeoutMs);
+    handshakeTimer.unref();
+    let frameReceived = false;
     connected.on("message", (raw) => {
+      if (!frameReceived) {
+        frameReceived = true;
+        clearTimeout(handshakeTimer);
+      }
       const text = raw.toString();
       let parsed: unknown;
       try {
@@ -90,6 +112,7 @@ export function createBridgeUpgrade(options: BridgeUpgradeOptions): BridgeUpgrad
       current.handle(parsed);
     });
     connected.on("close", () => {
+      clearTimeout(handshakeTimer);
       current.close("socket closed");
       if (socket === connected) socket = null;
       session = null;
@@ -124,7 +147,23 @@ export function createBridgeUpgrade(options: BridgeUpgradeOptions): BridgeUpgrad
     health: () => current.health(),
     async close() {
       current.close("bridge server closing");
-      await new Promise<void>((resolve) => wss.close(() => resolve()));
+      const sockets = [...wss.clients];
+      const finished = new Promise<void>((resolve) => {
+        wss.close(() => resolve());
+      });
+      for (const client of sockets) client.close();
+      let terminateTimer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<void>((resolve) => {
+        terminateTimer = setTimeout(() => {
+          for (const client of sockets) {
+            if (client.readyState !== client.CLOSED) client.terminate();
+          }
+          resolve();
+        }, 250);
+      });
+      await Promise.race([finished, deadline]);
+      if (terminateTimer !== undefined) clearTimeout(terminateTimer);
+      await finished;
     },
   };
 }

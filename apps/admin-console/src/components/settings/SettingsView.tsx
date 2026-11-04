@@ -241,6 +241,33 @@ export function SettingsView({
         </Field>
       </Section>
 
+      <Section
+        title="Agent 行为"
+        hint="默认只响应观众和操作员。开启后也不会盲走：只有附近确有可交互目标时才行动"
+      >
+        <Field
+          label="自主行动"
+          hint={
+            draft.autonomy.enabled
+              ? "开启：空闲时会做有现场依据的动作，例如砍附近一根原木；没有目标就原地等待"
+              : "关闭：空闲时不移动、不刷指令，只在收到评论或操作员指令后行动"
+          }
+        >
+          <button
+            type="button"
+            className="toggle"
+            role="switch"
+            aria-checked={draft.autonomy.enabled}
+            data-on={draft.autonomy.enabled}
+            onClick={() =>
+              patch({ autonomy: { enabled: !draft.autonomy.enabled } })
+            }
+          >
+            <span />
+          </button>
+        </Field>
+      </Section>
+
       <Section title="角色与人格" hint="权重会直接进入仲裁打分，不只是展示">
         <Field label="角色名">
           <input

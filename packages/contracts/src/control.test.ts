@@ -67,6 +67,7 @@ describe("control protocol", () => {
             worldName: "本地世界",
             gameVersion: "1.21.11",
             accountLabel: "直播号",
+            autonomy: { enabled: false },
             integrations: { douyinRoomId: "", deepseekModel: "" },
             persona: {
               name: "大肥鱼",
@@ -98,6 +99,7 @@ describe("control protocol", () => {
       worldName: "本地世界",
       gameVersion: "1.21.11",
       accountLabel: "直播号",
+      autonomy: { enabled: false },
       integrations: { douyinRoomId: "", deepseekModel: "" },
       persona: {
         name: "大肥鱼",
@@ -110,6 +112,9 @@ describe("control protocol", () => {
       },
     };
     assert.equal(showSettingsSchema.safeParse(valid).success, true);
+    // Older rows and clients without the field must keep working.
+    const { autonomy: _autonomy, ...legacy } = valid;
+    assert.deepEqual(showSettingsSchema.parse(legacy).autonomy, { enabled: false });
     assert.equal(showSettingsSchema.safeParse({ ...valid, goal: "   " }).success, false);
     assert.equal(
       showSettingsSchema.safeParse({

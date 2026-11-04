@@ -46,6 +46,13 @@ export function loadOrCreateToken(
       cached = { path, token: existing };
       return existing;
     }
+    // A short token is not a usable secret. Rewrite in place so concurrent
+    // readers cannot observe a missing file and create a second secret.
+    const token = randomBytes(32).toString("hex");
+    writeFileSync(path, `${token}\n`, { encoding: "utf8", mode: 0o600 });
+    chmodSync(path, 0o600);
+    cached = { path, token };
+    return token;
   }
 
   const token = randomBytes(32).toString("hex");

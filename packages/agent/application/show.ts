@@ -120,6 +120,7 @@ export function defaultSettings(persona: Persona, goalText = "盖一间带床和
     worldName: "本地单人世界",
     gameVersion: "1.21.11",
     accountLabel: "专用直播账号",
+    autonomy: { enabled: false },
     integrations: { douyinRoomId: "", deepseekModel: "" },
     persona: {
       name: persona.name,
@@ -164,8 +165,6 @@ export class Show {
   private readonly world: (() => unknown) | null;
   private readonly availableSkills: (() => readonly string[]) | null;
   private readonly memoryBudgetTokens: number;
-  /** Decisions waiting on Stage C. Only the newest one may still speak. */
-  private readonly pendingPlans = new Set<string>();
   private readonly incidents: WorldIncident[] = [];
 
   constructor(options: ShowOptions) {
@@ -242,7 +241,6 @@ export class Show {
       return decision;
     }
 
-    this.pendingPlans.add(decision.id);
     const context = {
       decision,
       goal: this.settings.goal,
@@ -265,7 +263,6 @@ export class Show {
         : {}),
     };
     const planned = await this.planner.plan(context);
-    this.pendingPlans.delete(decision.id);
 
     const next: Decision = {
       ...decision,

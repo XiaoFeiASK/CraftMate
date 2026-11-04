@@ -136,6 +136,7 @@ describe("storage", () => {
       ...settings,
       goal: "挖一组钻石",
       goalProgress: 64,
+      autonomy: { enabled: true },
       persona: { ...settings.persona, name: "大肥鱼二号" },
     });
     first.close();
@@ -144,10 +145,12 @@ describe("storage", () => {
     const stored = new SettingsStore(second).read(context.sessionId) as {
       goal: string;
       goalProgress: number;
+      autonomy: { enabled: boolean };
       persona: { name: string };
     };
     assert.equal(stored.goal, "挖一组钻石");
     assert.equal(stored.goalProgress, 64);
+    assert.equal(stored.autonomy.enabled, true);
     assert.equal(stored.persona.name, "大肥鱼二号");
     second.close();
   });

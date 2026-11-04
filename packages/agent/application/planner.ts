@@ -335,21 +335,13 @@ export class Planner {
       };
     }
     if (context.decision.intent === "move" && supports("goto")) {
-      const target = context.world && typeof context.world === "object"
-        ? (context.world as { position?: { x?: unknown; y?: unknown; z?: unknown } }).position
-        : undefined;
-      if (target && Number.isFinite(target.x) && Number.isFinite(target.y) && Number.isFinite(target.z)) {
+      const position = worldPosition(context.world);
+      if (position !== null) {
         return {
           speech: "模型没接上，我先往前面走一段。",
           skill: {
             name: "goto",
-            args: {
-              target: {
-                x: Number(target.x) + 4,
-                y: Number(target.y),
-                z: Number(target.z),
-              },
-            },
+            args: { target: forwardTarget(position, worldYaw(context.world), 4) },
             idempotencyKey,
           },
           reason: "模型不可用：按意图执行最小动作",
@@ -372,7 +364,10 @@ export class Planner {
     const supports = (name: SkillCall["name"]): boolean =>
       available === undefined ? true : available.includes(name);
 
-    if (context.decision.intent === "move") {
+    if (
+      context.decision.intent === "move" &&
+      /(?:往前|向前|前进|走|迈|退后|后退)/u.test(context.decision.text)
+    ) {
       const position = worldPosition(context.world);
       if (position !== null && supports("goto")) {
         const distance = forwardDistance(context.decision.text);
@@ -380,13 +375,7 @@ export class Planner {
           speech: "好，我往前走几步。",
           skill: {
             name: "goto",
-            args: {
-              target: {
-                x: position.x + distance,
-                y: position.y,
-                z: position.z,
-              },
-            },
+            args: { target: forwardTarget(position, worldYaw(context.world), distance) },
             idempotencyKey: crypto.randomUUID(),
           },
           reason: "确定性快速规划：移动意图已获执行批准",
@@ -480,6 +469,29 @@ function worldPosition(world: unknown): { x: number; y: number; z: number } | nu
   return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)
     ? { x: Number(x), y: Number(y), z: Number(z) }
     : null;
+}
+
+function worldYaw(world: unknown): number {
+  if (world === null || typeof world !== "object") return 0;
+  const yaw = (world as { yaw?: unknown }).yaw;
+  return typeof yaw === "number" && Number.isFinite(yaw) ? yaw : 0;
+}
+
+/**
+ * Minecraft yaw is degrees clockwise from +Z: 0 faces south (+Z), 90 faces
+ * west (-X). Keep the Y coordinate: goto walks on the same level.
+ */
+function forwardTarget(
+  position: { readonly x: number; readonly y: number; readonly z: number },
+  yaw: number,
+  distance: number,
+): { x: number; y: number; z: number } {
+  const radians = (yaw * Math.PI) / 180;
+  return {
+    x: position.x - Math.sin(radians) * distance,
+    y: position.y,
+    z: position.z + Math.cos(radians) * distance,
+  };
 }
 
 function forwardDistance(text: string): number {

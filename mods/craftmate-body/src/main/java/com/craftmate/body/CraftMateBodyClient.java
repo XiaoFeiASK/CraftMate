@@ -46,8 +46,10 @@ public final class CraftMateBodyClient implements ClientModInitializer {
 				GameActions.releaseInputs(client);
 				return;
 			}
-			recoverAcceptanceDeath(client, this);
-			if (acceptanceEnabled()) tickAcceptance(client);
+			if (acceptanceEnabled()) {
+				recoverAcceptanceDeath(client, this);
+				tickAcceptance(client);
+			}
 		});
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
 			if (frames != null) frames.close();

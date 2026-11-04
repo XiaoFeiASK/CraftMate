@@ -16,9 +16,12 @@ cp build/libs/craftmate-body-0.1.0.jar "$HOME/MC/.minecraft/mods/"
 ```
 
 Install Fabric Loader 0.20.1 for Minecraft 1.21.11 in HMCL, then launch with the
-same game directory as the installed mod. The bridge token is read from
-`~/.craftmate/bridge.token`; the orchestrator creates it with `0600` permissions.
-The default endpoint is `ws://127.0.0.1:4321/bridge`.
+same game directory as the installed mod. The bridge token is read from the
+operating-system account's `~/.craftmate/bridge.token`; the orchestrator creates
+it with `0600` permissions. HMCL passes `-Duser.home=<game dir>` to the game, so
+the mod resolves `HOME` first instead of trusting that property. Set
+`CRAFTMATE_BRIDGE_TOKEN_FILE` or `CRAFTMATE_HOME` to point both sides at another
+location. The default endpoint is `ws://127.0.0.1:4321/bridge`.
 
 The body is a client mod because camera, local player input, inventory selection,
 and visible client-side actions must run in the game client. A command sent to

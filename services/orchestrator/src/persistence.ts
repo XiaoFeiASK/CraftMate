@@ -93,6 +93,15 @@ export function createPersistentShow(options: {
   const history = decisions.recent(context.sessionId, 50);
   const totals = decisions.counts(context.sessionId);
   const stored = showSettingsSchema.safeParse(settingsStore.read(context.sessionId));
+  // Normalise rows written before a setting existed. Validating supplies the
+  // defaults, but leaving them only in memory makes the next read disagree
+  // with what the console just displayed. Write the complete shape once.
+  if (stored.success) {
+    const raw = settingsStore.read(context.sessionId);
+    if (JSON.stringify(raw) !== JSON.stringify(stored.data)) {
+      settingsStore.write(context.sessionId, stored.data);
+    }
+  }
   const ledger = new CommitmentLedger({ journal: commitments });
   ledger.restore(commitments.open());
   const expiredCommitments = ledger.expireOverdue();
