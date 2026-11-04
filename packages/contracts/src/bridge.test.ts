@@ -4,6 +4,7 @@ import {
   bridgeClientFrameSchema,
   bridgeErrorCodeSchema,
   bridgeServerFrameSchema,
+  skillOutcomeSchema,
   skillCommandSchema,
   worldEventSchema,
   worldSnapshotSchema,
@@ -121,5 +122,33 @@ describe("bridge wire protocol", () => {
   test("error codes are a closed enum, not free text", () => {
     assert.equal(bridgeErrorCodeSchema.safeParse("E_TIMEOUT").success, true);
     assert.equal(bridgeErrorCodeSchema.safeParse("timeout").success, false);
+  });
+
+  test("an interaction outcome distinguishes confirmed changes from unconfirmed submissions", () => {
+    const confirmed = skillOutcomeSchema.parse({
+      summary: "placed 1 x minecraft:oak_planks",
+      changes: [
+        {
+          kind: "block_placed",
+          detail: "minecraft:oak_planks",
+          position: { x: 4, y: 65, z: -2 },
+        },
+      ],
+    });
+    assert.equal(confirmed.changes?.length, 1);
+    assert.equal(confirmed.unconfirmed, undefined);
+
+    const unconfirmed = skillOutcomeSchema.parse({
+      summary: "swing submitted",
+      unconfirmed: ["attack submission had no observable health change"],
+      problem: "attack did not change the target's health",
+    });
+    assert.deepEqual(unconfirmed.changes, undefined);
+    assert.equal(unconfirmed.unconfirmed?.length, 1);
+
+    assert.equal(
+      skillOutcomeSchema.safeParse({ changes: [{ kind: "", detail: "" }] }).success,
+      false,
+    );
   });
 });
