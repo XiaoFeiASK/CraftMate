@@ -1,9 +1,17 @@
 import type { BridgeHealth } from "@craftmate/contracts";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
-/** Bundled scene used only while no real game frame is available. */
+/** Bundled scene used as the stage backdrop until real game frames arrive. */
 const SCENE_VIDEO = "/scene/pond-loop.mp4";
 const SCENE_POSTER = "/scene/pond-poster.jpg";
+
+/**
+ * The body serves JPEG frames from loopback. It is deliberately outside the
+ * bridge protocol: the picture can stall or be absent without affecting
+ * command ownership or liveness.
+ */
+const STREAM_URL =
+  import.meta.env.VITE_CRAFTMATE_STREAM_URL ?? "http://127.0.0.1:4324/stream.mjpg";
 
 interface LiveHeroProps {
   readonly reduceMotion: boolean;
@@ -14,6 +22,10 @@ interface LiveHeroProps {
 export function LiveHero({ reduceMotion, bridge }: LiveHeroProps): React.JSX.Element {
   const video = useRef<HTMLVideoElement>(null);
   const inGame = bridge?.connected === true && bridge.world?.inWorld === true;
+  const [live, setLive] = useState(false);
+  /** Hide the clip as soon as the first stream part is being decoded. */
+  const [painting, setPainting] = useState(false);
+  const [streamKey, setStreamKey] = useState(0);
 
   // A wallpaper is only worth its decode cost while it is actually on screen.
   // The app preference, the OS preference, and a hidden window all fall back
@@ -21,10 +33,6 @@ export function LiveHero({ reduceMotion, bridge }: LiveHeroProps): React.JSX.Ele
   useEffect(() => {
     const element = video.current;
     if (!element) return;
-    if (inGame) {
-      element.pause();
-      return;
-    }
     const systemReduce = window.matchMedia("(prefers-reduced-motion: reduce)");
     const sync = (): void => {
       const shouldPlay =
@@ -44,43 +52,76 @@ export function LiveHero({ reduceMotion, bridge }: LiveHeroProps): React.JSX.Ele
       document.removeEventListener("visibilitychange", sync);
       systemReduce.removeEventListener("change", sync);
     };
-  }, [inGame, reduceMotion]);
+  }, [reduceMotion]);
+
+  // The body pushes JPEG parts over one long-lived response. The img paints
+  // each part as it arrives, so there is no polling or blob churn.
+  useEffect(() => {
+    if (!inGame) {
+      setLive(false);
+      setPainting(false);
+      return;
+    }
+    // A stream that never produced a first part looks the same as one that
+    // dropped; retrying keeps a restarted game recoverable without a reload.
+    const retry = window.setInterval(() => {
+      if (!live) setStreamKey((key) => key + 1);
+    }, 4_000);
+    return () => window.clearInterval(retry);
+  }, [inGame, live]);
 
   return (
     <main className="hero" aria-label="游戏画面">
+      <video
+        ref={video}
+        className="hero__video"
+        data-hidden={painting ? "true" : "false"}
+        src={SCENE_VIDEO}
+        poster={SCENE_POSTER}
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="auto"
+        disablePictureInPicture
+        aria-hidden="true"
+        tabIndex={-1}
+      />
       {inGame ? (
-        <div className="hero__live" role="status">
-          <span className="hero__live-badge">LIVE</span>
-          <strong>CraftMate 游戏身体已连接</strong>
-          <span>
-            {bridge.client ?? "Minecraft"} · {bridge.skills.length} 个可用动作
+        <img
+          key={streamKey}
+          className="hero__frame"
+          data-painting={painting ? "true" : "false"}
+          src={`${STREAM_URL}?session=${streamKey}`}
+          alt=""
+          aria-hidden="true"
+          onLoad={() => {
+            setLive(true);
+            setPainting(true);
+          }}
+          onError={() => {
+            setLive(false);
+            setPainting(false);
+          }}
+        />
+      ) : null}
+      {inGame ? (
+        <div className="hero__status" role="status">
+          <span
+            className={live ? "hero__dot hero__dot--live" : "hero__dot"}
+            aria-hidden="true"
+          />
+          <span>{live ? "LIVE" : "连接中"}</span>
+          <span className="hero__status-meta">
+            {bridge.client ?? "Minecraft"} · {bridge.skills.length} 个动作
           </span>
-          <small>
-            游戏画面截图通道尚未接入；这里不会播放演示画面冒充实时画面。
-          </small>
         </div>
       ) : (
-        <>
-          <video
-            ref={video}
-            className="hero__video"
-            src={SCENE_VIDEO}
-            poster={SCENE_POSTER}
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="auto"
-            disablePictureInPicture
-            aria-hidden="true"
-            tabIndex={-1}
-          />
-          <div className="hero__offline" role="status">
-            <span className="hero__offline-badge">无游戏画面</span>
-            <strong>Minecraft 尚未连接</strong>
-            <small>等待 Fabric 游戏身体通过 Bridge 上报真实世界状态。</small>
-          </div>
-        </>
+        <div className="hero__status" role="status">
+          <span className="hero__dot" aria-hidden="true" />
+          <span>演示画面</span>
+          <span className="hero__status-meta">Minecraft 尚未连接</span>
+        </div>
       )}
     </main>
   );

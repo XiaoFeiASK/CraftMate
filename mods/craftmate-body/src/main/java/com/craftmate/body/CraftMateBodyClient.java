@@ -1,9 +1,11 @@
 package com.craftmate.body;
 
 import com.craftmate.body.bridge.BridgeClient;
+import com.craftmate.body.stream.FrameServer;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
@@ -17,6 +19,7 @@ public final class CraftMateBodyClient implements ClientModInitializer {
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
 	private BridgeClient bridge;
+	private FrameServer frames;
 	private Screen acceptanceScreen;
 	private int acceptanceScreenTicks;
 	private boolean acceptanceWorldRequested;
@@ -24,11 +27,15 @@ public final class CraftMateBodyClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
 		bridge = BridgeClient.startDefault();
+		frames = FrameServer.start(() -> Minecraft.getInstance().level != null);
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			bridge.tick(client);
 			if (acceptanceEnabled() && client.level == null) tickAcceptance(client);
 		});
-		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> bridge.close());
+		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
+			if (frames != null) frames.close();
+			bridge.close();
+		});
 		LOGGER.info("CraftMate body initialized; bridge={}", BridgeClient.defaultUri());
 	}
 
