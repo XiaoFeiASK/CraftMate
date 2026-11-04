@@ -453,13 +453,16 @@ export class Planner {
 
 function parseCount(value: string): number {
   if (/^\d+$/u.test(value)) return Number(value);
+  // 「两」和「二」同义，但它不在 digits 表里：indexOf 会返回 -1，被下面的
+  // 下限夹成 1，于是「砍两根木头」只砍一根。先归一化再解析。
+  const normalized = value.replaceAll("两", "二");
   const digits = "零一二三四五六七八九";
-  if (value === "十") return 10;
-  if (value.length === 1) return Math.max(1, digits.indexOf(value));
-  if (value.startsWith("十")) return 10 + Math.max(0, digits.indexOf(value[1] ?? ""));
-  if (value.endsWith("十")) return Math.max(1, digits.indexOf(value[0] ?? "")) * 10;
-  const tens = digits.indexOf(value[0] ?? "");
-  const ones = digits.indexOf(value[2] ?? "");
+  if (normalized === "十") return 10;
+  if (normalized.length === 1) return Math.max(1, digits.indexOf(normalized));
+  if (normalized.startsWith("十")) return 10 + Math.max(0, digits.indexOf(normalized[1] ?? ""));
+  if (normalized.endsWith("十")) return Math.max(1, digits.indexOf(normalized[0] ?? "")) * 10;
+  const tens = digits.indexOf(normalized[0] ?? "");
+  const ones = digits.indexOf(normalized[2] ?? "");
   return tens * 10 + Math.max(0, ones);
 }
 

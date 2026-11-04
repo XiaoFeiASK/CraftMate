@@ -141,6 +141,32 @@ describe("stage C planner", () => {
     assert.match(planned.speech, /砍/);
   });
 
+  test("「两」reads as two instead of collapsing to the minimum", async () => {
+    const planner = new Planner({
+      provider: provider(async () => {
+        throw new Error("provider should not be called");
+      }),
+    });
+
+    const chop = await planner.plan({
+      decision: decision({ text: "去砍两根原木", intent: "mine" }),
+      goal: "盖房",
+      persona,
+      availableSkills: ["goto", "chop_tree"],
+    });
+    assert.equal(chop.skill?.name, "chop_tree");
+    assert.deepEqual(chop.skill?.args, { count: 2 });
+
+    const dig = await planner.plan({
+      decision: decision({ text: "挖两块泥土", intent: "mine" }),
+      goal: "盖房",
+      persona,
+      availableSkills: ["mine_block", "chop_tree"],
+    });
+    assert.equal(dig.skill?.name, "mine_block");
+    assert.deepEqual(dig.skill?.args, { block: "minecraft:dirt", count: 2 });
+  });
+
   test("a clear dirt request becomes mine_block without waiting for the model", async () => {
     let calls = 0;
     const planner = new Planner({
