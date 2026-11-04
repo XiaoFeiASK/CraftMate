@@ -1,51 +1,23 @@
-# 文档索引
+# 文档地图
 
-换对话、换人接手，从这里开始读。根目录的 [README](../README.md) 是产品介绍与文档地图，本文只给维护者一条最短路径。
+CraftMate 文档按使用场景分为四类。每个主题只有一个权威文档；重复的阶段性说明不保留。
 
-## 按问题找文档
-
-| 我想知道 | 读这篇 |
-| --- | --- |
-| 系统分几层、边界在哪、哪些不能破 | [architecture.md](architecture.md) |
-| 协议、参数、状态机、人格、记忆、表结构 | [technical-design.md](technical-design.md) |
-| 抖音评论和游戏身体怎么接 | [integration.md](integration.md) |
-| `/bridge` 协议、队列、看门狗与真机约束 | [bridge.md](bridge.md) |
-| Bridge 验证到哪一步、哪些还没做 | [bridge-run-report.md](bridge-run-report.md) |
-| 接下来做什么、做到什么算完 | [delivery-plan.md](delivery-plan.md) |
-| 现在能跑什么、哪些是假的 | [status.md](status.md) |
-| 怎么启动、怎么排错 | [local-setup.md](local-setup.md) |
-| 为什么用 TS / Tauri / Java | [tech-stack.md](tech-stack.md) |
-| 某个技术决定为什么这么定 | [decisions.md](decisions.md) |
-| 某个词到底指什么 | [../GLOSSARY.md](../GLOSSARY.md) |
-| 数据库迁移、幂等与保留策略 | [../db/README.md](../db/README.md) |
-
-## 三条阅读路径
-
-1. **第一次接触**：architecture → technical-design §1 → status。
-2. **准备动手**：local-setup → status → delivery-plan 的核心流程。
-3. **接外部系统**：integration → technical-design §2「本机协议」→ decisions。
-
-## 文档职责
-
-每篇只回答一类问题，不重复别人的内容。
-
-| 文档 | 唯一职责 | 不写什么 |
+| 场景 | 文档 | 回答的问题 |
 | --- | --- | --- |
-| `architecture.md` | 边界、不变量、状态机形态、部署拓扑 | 字段、参数、代码路径 |
-| `technical-design.md` | 协议、参数、算法、存储、人格与记忆细节 | 路线图、选型论证 |
-| `integration.md` | 外部组件选型与映射 | 分阶段排期（放交付计划） |
-| `bridge.md` | `/bridge` 协议、队列、安全与线程约束 | 真机验收记录（放运行报告） |
-| `bridge-run-report.md` | 一次具体环境下的 Bridge 验证结果与阻塞 | 长期现状（放 status） |
-| `delivery-plan.md` | 核心目标、近期功能与完成标准 | 现状事实（放 status） |
-| `status.md` | 已实现 / 部分 / 未实现 | 计划与设计 |
-| `tech-stack.md` | 语言与框架的取舍论证 | 具体实现细节 |
-| `decisions.md` | 不可轻易回退的决定 | 实现细节 |
+| 了解项目 | [README](../README.md) | 产品要做什么、现在能跑什么、从哪里开始 |
+| 首次运行 | [运行手册](operations/runbook.md) | 依赖、启动、服务、数据、排错 |
+| 接外部系统 | [外部集成](guides/integrations.md) | 模型、语音、抖音、Minecraft 的配置与联调 |
+| 理解系统 | [架构总览](reference/architecture.md) | 模块边界、运行链路、硬约束 |
+| 查实现细节 | [技术设计](reference/technical-design.md) | 协议、决策内核、存储、人格与记忆 |
+| 接游戏身体 | [Bridge 设计](reference/bridge.md) | 游戏通道协议、队列、控制权与安全 |
+| 查术语与数据 | [术语表](reference/glossary.md)、[数据模型](reference/data-model.md) | 词义、迁移、约束、保留策略 |
+| 查验收事实 | [验证清单](operations/verification.md) | 已验证、未验证、验收标准和证据 |
+| 查决策 | [决策记录](decisions/adr.md)、[技术选型](decisions/tech-stack.md) | 已拍板方案、理由和重新评估条件 |
 
 ## 维护规则
 
-- 新的拍板结论先追加到 `decisions.md`，再更新 `technical-design.md`。
-- 每次合并后同步 `status.md`；它是「已实现 / 未实现」的唯一事实来源。
-- 架构变化先改 `architecture.md`，再改实现。
-- 不新增与上表职责重叠的文档。内容多了先拆章节，不先拆文件。
-- 已废止的方案不删除，在 `decisions.md` 标「已废止」并链接取代者。
-- 文档里的路径、命令、端口必须能在仓库里验证；改代码时顺手改对应文档。
+- 一个主题只放一篇权威文档；新内容优先进入现有章节。
+- 一次性实施报告不进仓库。结论并入状态或验证清单，原始过程保留在 Issue。
+- 文档中的命令、路径和配置必须能用仓库验证。
+- 修改运行行为时，同步运行手册或外部集成；修改数据时，同步数据模型。
+- 状态句必须区分「自动化验证」「本机验收」「未验收」，不能把模拟结果写成真实结果。
