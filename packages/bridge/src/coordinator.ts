@@ -115,7 +115,13 @@ export class BodySession {
     this.options = options;
     this.clock = options.clock ?? { now: () => Date.now() };
     this.scheduler = options.scheduler ?? systemTimers;
-    this.queue = new CommandQueue({ capacity: options.queueCapacity ?? 32 });
+    // A reconnect creates a new session with a fresh queue. The body ack
+    // adopts its own task id, but there is a window between welcome and ack
+    // where a delayed old frame could otherwise match a reused `task-1`.
+    this.queue = new CommandQueue({
+      capacity: options.queueCapacity ?? 32,
+      taskPrefix: `task-${crypto.randomUUID()}`,
+    });
     this.authority = options.control ?? new ControlAuthority();
     this.ownership = { owner: "none", reason: "awaiting handshake", at: this.clock.now() };
     this.lastSeenAt = this.clock.now();
@@ -510,7 +516,16 @@ export class BodySession {
       idempotencyKey: next.command.idempotencyKey,
       ...(next.command.deadlineTick === undefined ? {} : { deadlineTick: next.command.deadlineTick }),
     };
-    this.transport.send(frame);
+    try {
+      this.transport.send(frame);
+    } catch (error) {
+      this.settle(
+        next,
+        "failed",
+        "E_INTERNAL",
+        `could not deliver command: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     void now;
   }
 

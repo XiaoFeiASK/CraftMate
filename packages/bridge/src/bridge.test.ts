@@ -209,6 +209,76 @@ describe("bridge command lifecycle", () => {
     assert.equal(commands(harness).filter((frame) => frame.idempotencyKey === "same-key").length, 1);
   });
 
+  test("a result from a replaced body cannot settle a new session", () => {
+    const harness = createHarness("manual");
+    connectHarness(harness);
+    harness.coordinator.issue(harness.frame({ id: "c-1" }));
+    harness.advance(50);
+    assert.equal(harness.coordinator.health().running, 1);
+
+    harness.coordinator.close("socket closed");
+    const next = createHarness("manual");
+    connectHarness(next);
+    next.coordinator.issue(next.frame({ id: "c-2" }));
+    next.advance(50);
+
+    next.coordinator.handle({
+      v: 1,
+      type: "result",
+      taskId: harness.body.state().task?.taskId ?? "old-task",
+      status: "completed",
+    });
+
+    assert.equal(next.coordinator.health().running, 1);
+    assert.equal(next.actions.snapshot()[0]?.status, "queued");
+  });
+
+  test("a transport send failure settles the command instead of leaving it running", () => {
+    const actions = new MemoryActionPort();
+    const outcomes: string[] = [];
+    let ready = false;
+    const session = new BodySession({
+      token: TOKEN,
+      sessionId: "send-failure",
+      transport: {
+        send: () => {
+          if (!ready) return;
+          throw new Error("socket is not writable");
+        },
+        close: () => {},
+      },
+      clock: { now: () => 1_000 },
+      scheduler: {
+        setInterval: () => 1,
+        clearInterval: () => undefined,
+      },
+      actions,
+      onOutcome: (outcome) => outcomes.push(outcome.taskId),
+    });
+    session.handle({
+      v: 1,
+      type: "hello",
+      token: TOKEN,
+      client: "test-body",
+      capabilities: ["sensor"],
+      skills: ["wait"],
+    });
+    ready = true;
+    session.issue({
+      v: 1,
+      type: "cmd",
+      id: "send-failure-command",
+      op: "wait",
+      args: {},
+      priority: "command",
+      idempotencyKey: "send-failure-key",
+    });
+
+    assert.equal(outcomes.length, 1);
+    assert.equal(actions.snapshot()[0]?.status, "failed");
+    assert.equal(session.health().running, 0);
+  });
+
   test("a reused command id is ignored instead of creating a second task", () => {
     const harness = createHarness();
     connectHarness(harness);
@@ -249,6 +319,24 @@ describe("bridge command lifecycle", () => {
 
     assert.equal(harness.actions.snapshot()[0]?.status, "cancelled");
     assert.deepEqual(harness.body.state().pressed, []);
+  });
+
+  test("a queued command still expires without a body ack", () => {
+    const harness = createHarness("manual");
+    connectHarness(harness);
+    harness.coordinator.issue(
+      harness.frame({ id: "c-1", deadlineTick: 10 }),
+    );
+    harness.coordinator.handle({
+      v: 1,
+      type: "heartbeat",
+      tick: 20,
+      owner: "agent",
+    });
+    harness.advance(100);
+
+    assert.equal(harness.actions.snapshot()[0]?.status, "timeout");
+    assert.ok(harness.sent.some((frame) => frame.type === "cancel"));
   });
 
   test("a timed-out command is reported as timeout and the body is told to stop", () => {

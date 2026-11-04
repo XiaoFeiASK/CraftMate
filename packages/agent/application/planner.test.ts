@@ -98,6 +98,108 @@ describe("stage C planner", () => {
     assert.equal(planner.status.state, "error");
   });
 
+  test("a model outage still performs the approved chop intent", async () => {
+    const planner = new Planner({
+      provider: provider(async () => {
+        throw new Error("fetch failed");
+      }),
+    });
+
+    const planned = await planner.plan({
+      decision: decision({ text: "去砍点木头", intent: "mine" }),
+      goal: "盖房",
+      persona,
+      availableSkills: ["goto", "chop_tree"],
+    });
+
+    assert.equal(planned.degraded, false);
+    assert.equal(planned.skill?.name, "chop_tree");
+    assert.deepEqual(planned.skill?.args, { count: 1 });
+    assert.match(planned.speech, /砍/);
+  });
+
+  test("a clear approved action bypasses the model latency", async () => {
+    let called = false;
+    const planner = new Planner({
+      provider: provider(async () => {
+        called = true;
+        throw new Error("provider should not be called");
+      }),
+    });
+
+    const planned = await planner.plan({
+      decision: decision({ text: "去砍三根原木", intent: "mine" }),
+      goal: "盖房",
+      persona,
+      availableSkills: ["goto", "chop_tree"],
+    });
+
+    assert.equal(called, false);
+    assert.equal(planned.degraded, false);
+    assert.equal(planned.skill?.name, "chop_tree");
+    assert.deepEqual(planned.skill?.args, { count: 3 });
+    assert.match(planned.speech, /砍/);
+  });
+
+  test("a clear dirt request becomes mine_block without waiting for the model", async () => {
+    let calls = 0;
+    const planner = new Planner({
+      provider: provider(async () => {
+        calls += 1;
+        return { speech: "模型不该被调用", skill: null, reason: "", provider: "fake", model: "fake-1" };
+      }),
+    });
+
+    const planned = await planner.plan({
+      decision: decision({ text: "挖点泥土", intent: "mine" }),
+      goal: "盖房",
+      persona,
+      availableSkills: ["mine_block", "chop_tree"],
+    });
+
+    assert.equal(calls, 0);
+    assert.equal(planned.skill?.name, "mine_block");
+    assert.deepEqual(planned.skill?.args, { block: "minecraft:dirt", count: 1 });
+  });
+
+  test("fast planning still requires an approved EXECUTE decision", async () => {
+    let called = false;
+    const planner = new Planner({
+      provider: provider(async () => {
+        called = true;
+        return { speech: "好。", skill: null, reason: "", provider: "fake", model: "fake-1" };
+      }),
+    });
+
+    const planned = await planner.plan({
+      decision: decision({ decision: "ACK_ONLY", text: "去砍三根原木", intent: "mine" }),
+      goal: "盖房",
+      persona,
+      availableSkills: ["chop_tree"],
+    });
+
+    assert.equal(called, true);
+    assert.equal(planned.skill, null);
+  });
+
+  test("a model outage never turns a non-EXECUTE decision into an action", async () => {
+    const planner = new Planner({
+      provider: provider(async () => {
+        throw new Error("fetch failed");
+      }),
+    });
+
+    const planned = await planner.plan({
+      decision: decision({ decision: "ACK_ONLY", text: "去砍点木头", intent: "mine" }),
+      goal: "盖房",
+      persona,
+      availableSkills: ["chop_tree"],
+    });
+
+    assert.equal(planned.degraded, true);
+    assert.equal(planned.skill, null);
+  });
+
   test("passes the live world snapshot to planning without moving it into instructions", async () => {
     let seen: PlanRequest | null = null;
     const planner = new Planner({

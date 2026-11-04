@@ -133,7 +133,18 @@ export class Planner {
   async plan(context: PlanContext): Promise<Planned> {
     const startedAt = Date.now();
     const provider = this.provider;
-    const template = this.template(context);
+    let template: { speech: string; skill: SkillCall | null; reason: string } = this.template(context);
+    const fast = this.fastPlan(context);
+    if (fast !== null) {
+      return {
+        ...fast,
+        provider: provider?.id ?? null,
+        model: provider?.model ?? null,
+        latencyMs: Date.now() - startedAt,
+        degraded: false,
+        detail: "确定性快速路径",
+      };
+    }
     if (!provider) {
       return { ...template, provider: null, model: null, latencyMs: 0, degraded: true, detail: "未配置模型" };
     }
@@ -206,6 +217,13 @@ export class Planner {
           message: error instanceof Error ? error.message : String(error),
         },
       });
+      // The model only chooses phrasing and extra detail. When the body is
+      // connected and the arbiter already approved an actionable intent, a
+      // provider outage must not turn an EXECUTE decision into a spoken line
+      // with no action: that is exactly the "only talks, never moves" failure
+      // the audience sees. Fall back to the smallest deterministic skill that
+      // the intent actually asks for, and be honest in the speech.
+      template = this.fallbackSkill(context) ?? template;
       return {
         ...template,
         provider: provider.id,
@@ -296,7 +314,105 @@ export class Planner {
     return { speech: result.speech.trim(), skill: parsed.data, reason: result.reason };
   }
 
-  /** Deterministic, always-available line. It never invents a skill. */
+  /**
+   * A minimal action for an approved EXECUTE. This is not a second planner:
+   * it only maps the already-classified intent to one supported skill and
+   * never upgrades an ACK_ONLY/QUEUE/REFUSE decision. Anything ambiguous
+   * stays speech-only.
+   */
+  private fallbackSkill(context: PlanContext): { speech: string; skill: SkillCall; reason: string } | null {
+    if (context.decision.decision !== "EXECUTE") return null;
+    const available = context.availableSkills;
+    const supports = (name: SkillCall["name"]): boolean =>
+      available === undefined ? true : available.includes(name);
+    const text = context.decision.text;
+    const idempotencyKey = crypto.randomUUID();
+    if (context.decision.intent === "mine" && supports("chop_tree") && /木头|原木|砍树|砍木|tree|wood|log/iu.test(text)) {
+      return {
+        speech: "模型没接上，我先自己去砍一根木头。",
+        skill: { name: "chop_tree", args: { count: 1 }, idempotencyKey },
+        reason: "模型不可用：按意图执行最小动作",
+      };
+    }
+    if (context.decision.intent === "move" && supports("goto")) {
+      const target = context.world && typeof context.world === "object"
+        ? (context.world as { position?: { x?: unknown; y?: unknown; z?: unknown } }).position
+        : undefined;
+      if (target && Number.isFinite(target.x) && Number.isFinite(target.y) && Number.isFinite(target.z)) {
+        return {
+          speech: "模型没接上，我先往前面走一段。",
+          skill: {
+            name: "goto",
+            args: {
+              target: {
+                x: Number(target.x) + 4,
+                y: Number(target.y),
+                z: Number(target.z),
+              },
+            },
+            idempotencyKey,
+          },
+          reason: "模型不可用：按意图执行最小动作",
+        };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The arbiter has already made the safety and persona decision. For a small
+   * set of unambiguous EXECUTE intents, waiting for a language model to
+   * restate that decision only adds latency and another failure point. Keep
+   * this table intentionally narrow: the model still owns phrasing and all
+   * open-ended requests.
+   */
+  private fastPlan(context: PlanContext): { speech: string; skill: SkillCall; reason: string } | null {
+    if (context.decision.decision !== "EXECUTE") return null;
+    const available = context.availableSkills;
+    const supports = (name: SkillCall["name"]): boolean =>
+      available === undefined ? true : available.includes(name);
+    if (context.decision.intent !== "mine") return null;
+
+    const text = context.decision.text;
+    if (!/木头|原木|砍树|砍木|tree|wood|log/iu.test(text)) {
+      // Explicit soil/stone digging is just as unambiguous as chopping:
+      // waiting for the model only adds a timeout path that drops the action.
+      const block = /\b(dirt|soil)\b|泥土|土块/iu.test(text)
+        ? "minecraft:dirt"
+        : /\b(stone|cobblestone)\b|石头|圆石/iu.test(text)
+          ? "minecraft:stone"
+          : null;
+      if (block === null || !supports("mine_block")) return null;
+      const numeral = /([0-9]+|[一二两三四五六七八九十]+)\s*(?:块|个)/u.exec(text)?.[1];
+      const requested = numeral === undefined ? 1 : parseCount(numeral);
+      const count = Number.isInteger(requested) ? Math.min(64, Math.max(1, requested)) : 1;
+      const label = block === "minecraft:dirt" ? "泥土" : "石头";
+      return {
+        speech: `好，我去挖 ${count} 块${label}。`,
+        skill: {
+          name: "mine_block",
+          args: { block, count },
+          idempotencyKey: crypto.randomUUID(),
+        },
+        reason: "确定性快速规划：挖掘意图已获执行批准",
+      };
+    }
+    if (!supports("chop_tree")) return null;
+    const numeral = /([0-9]+|[一二两三四五六七八九十]+)\s*(?:根|棵|个)(?:木头|原木|树)?/u.exec(text)?.[1];
+    const requested = numeral === undefined ? 1 : parseCount(numeral);
+    const count = Number.isInteger(requested) ? Math.min(16, Math.max(1, requested)) : 1;
+    return {
+      speech: count === 1 ? "好，我去砍一根木头。" : `好，我去砍 ${count} 根木头。`,
+      skill: {
+        name: "chop_tree",
+        args: { count },
+        idempotencyKey: crypto.randomUUID(),
+      },
+      reason: "确定性快速规划：砍树意图已获执行批准",
+    };
+  }
+
+  /** Deterministic, always-available line. */
   private template(context: PlanContext): { speech: string; skill: null; reason: string } {
     const { decision, persona } = context;
     if (decision.decision === "REFUSE") {
@@ -310,6 +426,18 @@ export class Planner {
     }
     return { speech: "", skill: null, reason: decision.reason };
   }
+}
+
+function parseCount(value: string): number {
+  if (/^\d+$/u.test(value)) return Number(value);
+  const digits = "零一二三四五六七八九";
+  if (value === "十") return 10;
+  if (value.length === 1) return Math.max(1, digits.indexOf(value));
+  if (value.startsWith("十")) return 10 + Math.max(0, digits.indexOf(value[1] ?? ""));
+  if (value.endsWith("十")) return Math.max(1, digits.indexOf(value[0] ?? "")) * 10;
+  const tens = digits.indexOf(value[0] ?? "");
+  const ones = digits.indexOf(value[2] ?? "");
+  return tens * 10 + Math.max(0, ones);
 }
 
 function skillCorrectionInstructions(availableSkills: readonly string[] | undefined): string {

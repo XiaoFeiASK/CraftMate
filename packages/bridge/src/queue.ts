@@ -34,6 +34,7 @@ interface TaskRecord {
 export class CommandQueue {
   private readonly capacity: number;
   private readonly retainedLimit: number;
+  private readonly taskPrefix: string;
   private readonly terminalTasks: Array<{ taskId: string; status: BridgeTerminalStatus }> = [];
   private readonly byIdempotency = new Map<string, TaskRecord>();
   private readonly byCommand = new Map<string, TaskRecord>();
@@ -43,13 +44,19 @@ export class CommandQueue {
   private readonly historyLimit: number;
   private nextTask = 1;
 
-  constructor(options: { readonly capacity: number; readonly historyLimit?: number }) {
+  constructor(options: {
+    readonly capacity: number;
+    readonly historyLimit?: number;
+    /** Local task namespace, used to isolate reconnects before the body acks. */
+    readonly taskPrefix?: string;
+  }) {
     if (!Number.isInteger(options.capacity) || options.capacity < 1) {
       throw new Error("queue capacity must be a positive integer");
     }
     this.capacity = options.capacity;
     this.historyLimit = options.historyLimit ?? 100;
     this.retainedLimit = options.historyLimit ?? 100;
+    this.taskPrefix = options.taskPrefix ?? "task";
   }
 
   /**
@@ -89,7 +96,7 @@ export class CommandQueue {
       command,
       attemptId,
       deadlineExtensible,
-      taskId: `task-${this.nextTask++}`,
+      taskId: `${this.taskPrefix}-${this.nextTask++}`,
       status: "accepted",
       acceptedAt: now,
       startedAt: null,
