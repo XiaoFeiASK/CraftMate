@@ -177,4 +177,34 @@ class InteractionEvidenceTest {
 		assertFalse(InteractionEvidence.itemChanged("minecraft:bread", 3, "minecraft:bread", 3));
 		assertFalse(InteractionEvidence.itemChanged(null, 0, "minecraft:bread", 1));
 	}
+
+	@Test
+	void attackWaitsForEnoughCharge() {
+		assertFalse(InteractionEvidence.attackReady(0.0f));
+		assertFalse(InteractionEvidence.attackReady(0.6f));
+		assertTrue(InteractionEvidence.attackReady(0.9f));
+		assertTrue(InteractionEvidence.attackReady(1.0f));
+	}
+
+	@Test
+	void durabilityEvidenceRequiresTheSameTool() {
+		assertTrue(
+			InteractionEvidence.durabilityChanged(
+				"minecraft:iron_pickaxe",
+				"minecraft:iron_pickaxe",
+				10,
+				11
+			)
+		);
+		assertFalse(
+			InteractionEvidence.durabilityChanged(
+				"minecraft:iron_pickaxe",
+				"minecraft:stone_pickaxe",
+				10,
+				11
+			),
+			"a different tool must not inherit the old durability"
+		);
+		assertFalse(InteractionEvidence.durabilityChanged("minecraft:iron_pickaxe", "minecraft:iron_pickaxe", 10, 10));
+	}
 }

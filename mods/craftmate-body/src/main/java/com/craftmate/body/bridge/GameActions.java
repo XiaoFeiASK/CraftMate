@@ -921,7 +921,9 @@ public final class GameActions {
 				}
 				mined++;
 				send.accept(progress(id, "mining", mined, count));
-				if (blockBeforeDestroy != null) minedBlocks.add(miningResult(target, blockBeforeDestroy));
+				if (blockBeforeDestroy != null) {
+					minedBlocks.add(miningResult(client.player, target, blockBeforeDestroy));
+				}
 				blockBeforeDestroy = null;
 				if (mined >= count) {
 					JsonObject evidence = new JsonObject();
@@ -1180,9 +1182,19 @@ public final class GameActions {
 			}
 		}
 
-		private JsonObject miningResult(BlockPos position, BlockState state) {
+		private JsonObject miningResult(LocalPlayer player, BlockPos position, BlockState state) {
 			JsonObject evidence = new JsonObject();
 			evidence.addProperty("block", BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
+			ItemStack tool = player.getInventory().getSelectedItem();
+			if (!tool.isEmpty()) {
+				evidence.addProperty(
+					"tool",
+					BuiltInRegistries.ITEM.getKey(tool.getItem()).toString()
+				);
+				if (tool.isDamageableItem()) {
+					evidence.addProperty("toolDamage", tool.getDamageValue());
+				}
+			}
 			JsonObject minedPosition = new JsonObject();
 			minedPosition.addProperty("x", position.getX());
 			minedPosition.addProperty("y", position.getY());
@@ -1404,6 +1416,7 @@ public final class GameActions {
 		private final String targetName;
 		private Entity target;
 		private InteractionEvidence.TargetSnapshot before;
+		private boolean submitted;
 		private int submittedAt = -1;
 
 		AttackTask(String id, String targetName) {
@@ -1415,11 +1428,31 @@ public final class GameActions {
 		void start(Minecraft client) {
 			target = nearestEntity(client, targetName);
 			before = snapshot(client, target);
-			submit(client);
 		}
 
 		@Override
 		void tick(Minecraft client) {
+			if (!submitted) {
+				String blocked = InteractionEvidence.attackBlocked(before);
+				if (blocked != null) {
+					finish(id, "failed", "E_PRECONDITION", blocked, attackEvidence(blocked));
+					return;
+				}
+				if (!InteractionEvidence.attackReady(client.player.getAttackStrengthScale(0.5f))) {
+					send.accept(progress(id, "charging", 0, 1));
+					return;
+				}
+				Vec3 center = target.getBoundingBox().getCenter();
+				Vec3 direction = center.subtract(client.player.getEyePosition()).normalize();
+				client.player.setYRot((float) Math.toDegrees(Math.atan2(-direction.x, direction.z)));
+				client.player.setXRot((float) Math.toDegrees(-Math.asin(direction.y)));
+				before = snapshot(client, target);
+				submittedAt = age;
+				submitted = true;
+				client.gameMode.attack(client.player, target);
+				client.player.swing(InteractionHand.MAIN_HAND);
+				return;
+			}
 			if (target == null || target.isRemoved()) {
 				finish(
 					id,
@@ -1444,16 +1477,6 @@ public final class GameActions {
 				blocked == null ? "attack did not change the target's health" : blocked,
 				attackEvidence("the swing produced no confirmed health change")
 			);
-		}
-
-		private void submit(Minecraft client) {
-			submittedAt = age;
-			Vec3 center = target.getBoundingBox().getCenter();
-			Vec3 direction = center.subtract(client.player.getEyePosition()).normalize();
-			client.player.setYRot((float) Math.toDegrees(Math.atan2(-direction.x, direction.z)));
-			client.player.setXRot((float) Math.toDegrees(-Math.asin(direction.y)));
-			client.gameMode.attack(client.player, target);
-			client.player.swing(InteractionHand.MAIN_HAND);
 		}
 
 		private static InteractionEvidence.TargetSnapshot snapshot(Minecraft client, Entity entity) {

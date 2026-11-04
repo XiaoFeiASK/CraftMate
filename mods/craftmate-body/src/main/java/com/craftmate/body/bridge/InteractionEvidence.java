@@ -91,6 +91,21 @@ final class InteractionEvidence {
 	}
 
 	/**
+	 * Vanilla attacks deal full damage only near a full charge. A body that
+	 * clicks as fast as the tick loop would keep landing weak hits and then
+	 * report a failure that looks like a target problem.
+	 */
+	static boolean attackReady(float strength) {
+		return strength >= 0.9f;
+	}
+
+	/** A durability delta is evidence only for the same tool. */
+	static boolean durabilityChanged(String toolBefore, String toolAfter, int before, int after) {
+		if (toolBefore == null || toolAfter == null) return false;
+		return toolBefore.equals(toolAfter) && after > before;
+	}
+
+	/**
 	 * An item stack changing kind is a successful use (for example a bucket
 	 * becoming an empty bucket); the same stack with no world change is not.
 	 */
