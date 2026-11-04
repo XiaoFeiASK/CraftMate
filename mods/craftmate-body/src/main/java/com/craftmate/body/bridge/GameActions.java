@@ -921,12 +921,21 @@ public final class GameActions {
 				}
 				mined++;
 				send.accept(progress(id, "mining", mined, count));
-				if (blockBeforeDestroy != null) minedBlocks.add(miningResult(target, blockBeforeDestroy));
+				if (blockBeforeDestroy != null) {
+					minedBlocks.add(miningResult(client.player, target, blockBeforeDestroy));
+				}
 				blockBeforeDestroy = null;
 				if (mined >= count) {
 					JsonObject evidence = new JsonObject();
 					evidence.add("mined", minedBlocks);
-					evidence.add("outcome", outcome("砍下 " + mined + " 个" + targetName(), minedBlocks, null));
+					evidence.add(
+						"outcome",
+						outcome(
+							(anyLog ? "砍下 " : "挖掉 ") + mined + " 个" + targetName(),
+							minedBlocks,
+							null
+						)
+					);
 					finish(id, "completed", null, null, evidence);
 					return;
 				}
@@ -937,7 +946,11 @@ public final class GameActions {
 					evidence.add("mined", minedBlocks);
 					evidence.add(
 						"outcome",
-						outcome("只砍到 " + mined + " 个" + targetName(), minedBlocks, "附近找不到更多")
+						outcome(
+							(anyLog ? "只砍到 " : "只挖到 ") + mined + " 个" + targetName(),
+							minedBlocks,
+							"附近找不到更多"
+						)
 					);
 					finish(
 						id,
@@ -1169,9 +1182,19 @@ public final class GameActions {
 			}
 		}
 
-		private JsonObject miningResult(BlockPos position, BlockState state) {
+		private JsonObject miningResult(LocalPlayer player, BlockPos position, BlockState state) {
 			JsonObject evidence = new JsonObject();
 			evidence.addProperty("block", BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
+			ItemStack tool = player.getInventory().getSelectedItem();
+			if (!tool.isEmpty()) {
+				evidence.addProperty(
+					"tool",
+					BuiltInRegistries.ITEM.getKey(tool.getItem()).toString()
+				);
+				if (tool.isDamageableItem()) {
+					evidence.addProperty("toolDamage", tool.getDamageValue());
+				}
+			}
 			JsonObject minedPosition = new JsonObject();
 			minedPosition.addProperty("x", position.getX());
 			minedPosition.addProperty("y", position.getY());
@@ -1391,6 +1414,10 @@ public final class GameActions {
 
 	private static final class AttackTask extends Task {
 		private final String targetName;
+		private Entity target;
+		private InteractionEvidence.TargetSnapshot before;
+		private boolean submitted;
+		private int submittedAt = -1;
 
 		AttackTask(String id, String targetName) {
 			super(id);
@@ -1399,22 +1426,92 @@ public final class GameActions {
 
 		@Override
 		void start(Minecraft client) {
-			Entity entity = nearestEntity(client, targetName);
-			if (entity == null) {
-				finish(id, "failed", "E_PRECONDITION", "no visible target");
-				return;
-			}
-			if (entity.distanceToSqr(client.player) > 3.0 * 3.0) {
-				finish(id, "failed", "E_PRECONDITION", "target is out of reach");
-				return;
-			}
-			client.gameMode.attack(client.player, entity);
-			client.player.swing(InteractionHand.MAIN_HAND);
-			finish(id, "completed", null, null);
+			target = nearestEntity(client, targetName);
+			before = snapshot(client, target);
 		}
 
 		@Override
 		void tick(Minecraft client) {
+			if (!submitted) {
+				String blocked = InteractionEvidence.attackBlocked(before);
+				if (blocked != null) {
+					finish(id, "failed", "E_PRECONDITION", blocked, attackEvidence(blocked));
+					return;
+				}
+				if (!InteractionEvidence.attackReady(client.player.getAttackStrengthScale(0.5f))) {
+					send.accept(progress(id, "charging", 0, 1));
+					return;
+				}
+				Vec3 center = target.getBoundingBox().getCenter();
+				Vec3 direction = center.subtract(client.player.getEyePosition()).normalize();
+				client.player.setYRot((float) Math.toDegrees(Math.atan2(-direction.x, direction.z)));
+				client.player.setXRot((float) Math.toDegrees(-Math.asin(direction.y)));
+				before = snapshot(client, target);
+				submittedAt = age;
+				submitted = true;
+				client.gameMode.attack(client.player, target);
+				client.player.swing(InteractionHand.MAIN_HAND);
+				return;
+			}
+			if (target == null || target.isRemoved()) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"target disappeared before the hit could be confirmed",
+					attackEvidence("hit was submitted but the target could not be verified")
+				);
+				return;
+			}
+			InteractionEvidence.TargetSnapshot now = snapshot(client, target);
+			if (InteractionEvidence.attackConfirmed(before, now)) {
+				finish(id, "completed", null, null, attackEvidence(null));
+				return;
+			}
+			if (age - submittedAt <= InteractionEvidence.CONFIRM_TICKS) return;
+			String blocked = InteractionEvidence.attackBlocked(now);
+			finish(
+				id,
+				"failed",
+				"E_PRECONDITION",
+				blocked == null ? "attack did not change the target's health" : blocked,
+				attackEvidence("the swing produced no confirmed health change")
+			);
+		}
+
+		private static InteractionEvidence.TargetSnapshot snapshot(Minecraft client, Entity entity) {
+			if (entity == null) return null;
+			float health = entity instanceof LivingEntity living ? living.getHealth() : 0.0f;
+			return new InteractionEvidence.TargetSnapshot(
+				entity.getId(),
+				health,
+				entity.isAlive(),
+				client.player.hasLineOfSight(entity),
+				Math.sqrt(entity.distanceToSqr(client.player))
+			);
+		}
+
+		private JsonObject attackEvidence(String problem) {
+			JsonObject outcome = new JsonObject();
+			JsonObject change = new JsonObject();
+			change.addProperty("kind", "entity_damaged");
+			change.addProperty("detail", targetName);
+			JsonObject position = new JsonObject();
+			position.addProperty("x", round(target.getX()));
+			position.addProperty("y", round(target.getY()));
+			position.addProperty("z", round(target.getZ()));
+			change.add("position", position);
+			JsonArray changes = new JsonArray();
+			if (problem == null) changes.add(change);
+			outcome.add("changes", changes);
+			outcome.addProperty("summary", problem == null ? "confirmed damage to " + targetName : "swing submitted");
+			if (problem != null) {
+				outcome.addProperty("problem", problem);
+				JsonArray unconfirmed = new JsonArray();
+				unconfirmed.add("attack submission had no observable health change");
+				outcome.add("unconfirmed", unconfirmed);
+			}
+			return outcome;
 		}
 	}
 
@@ -1434,7 +1531,20 @@ public final class GameActions {
 				return;
 			}
 			client.player.getInventory().setSelectedSlot(slot);
-			finish(id, "completed", null, null);
+			ItemStack selected = client.player.getInventory().getSelectedItem();
+			if (!matches(selected, itemId)) {
+				finish(id, "failed", "E_PRECONDITION", "selected slot does not hold " + itemId);
+				return;
+			}
+			JsonObject outcome = new JsonObject();
+			outcome.addProperty("summary", "equipped " + itemId);
+			JsonObject change = new JsonObject();
+			change.addProperty("kind", "item_selected");
+			change.addProperty("detail", itemId);
+			JsonArray changes = new JsonArray();
+			changes.add(change);
+			outcome.add("changes", changes);
+			finish(id, "completed", null, null, outcome);
 		}
 
 		@Override
@@ -1446,6 +1556,10 @@ public final class GameActions {
 		private final String itemId;
 		private int ticks;
 		private boolean useObserved;
+		private int foodBefore;
+		private String itemBefore;
+		private int countBefore;
+		private boolean startedUse;
 
 		EatTask(String id, String itemId) {
 			super(id);
@@ -1464,8 +1578,17 @@ public final class GameActions {
 				}
 				player.getInventory().setSelectedSlot(slot);
 			}
+			ItemStack eating = player.getInventory().getSelectedItem();
+			if (eating.isEmpty()) {
+				finish(id, "failed", "E_PRECONDITION", "no food in the selected slot");
+				return;
+			}
+			foodBefore = player.getFoodData().getFoodLevel();
+			itemBefore = BuiltInRegistries.ITEM.getKey(eating.getItem()).toString();
+			countBefore = eating.getCount();
 			client.gameMode.useItem(player, InteractionHand.MAIN_HAND);
 			useObserved = player.isUsingItem();
+			startedUse = useObserved;
 			send.accept(progress(id, "eating", 0, 1));
 		}
 
@@ -1475,17 +1598,70 @@ public final class GameActions {
 			boolean using = client.player.isUsingItem();
 			if (using) useObserved = true;
 			if (useObserved && !using) {
-				finish(id, "completed", null, null);
+				int foodAfter = client.player.getFoodData().getFoodLevel();
+				ItemStack stack = client.player.getInventory().getSelectedItem();
+				String itemAfter = stack.isEmpty()
+					? null
+					: BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+				boolean consumed =
+					foodAfter > foodBefore
+						|| InteractionEvidence.itemChanged(itemBefore, countBefore, itemAfter, stack.getCount());
+				JsonObject evidence = foodEvidence(consumed, foodAfter);
+				if (consumed) {
+					finish(id, "completed", null, null, evidence);
+				} else {
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"eating stopped without a food or item change",
+						evidence
+					);
+				}
 			} else if (!useObserved && ticks > 4) {
 				finish(id, "failed", "E_PRECONDITION", "held item is not edible");
 			} else if (ticks > 20 * 7) {
 				finish(id, "failed", "E_TIMEOUT", "eating did not finish");
 			}
 		}
+
+		private JsonObject foodEvidence(boolean consumed, int foodAfter) {
+			JsonObject outcome = new JsonObject();
+			outcome.addProperty(
+				"summary",
+				consumed
+					? "ate " + (itemBefore == null ? "food" : itemBefore)
+					: "eating stopped without a confirmed effect"
+			);
+			JsonArray changes = new JsonArray();
+			if (consumed) {
+				JsonObject change = new JsonObject();
+				change.addProperty("kind", "food_consumed");
+				change.addProperty(
+					"detail",
+					(itemBefore == null ? "food" : itemBefore) + " food " + foodBefore + " -> " + foodAfter
+				);
+				changes.add(change);
+			}
+			outcome.add("changes", changes);
+			if (!consumed) {
+				outcome.addProperty("problem", "food level and held stack were unchanged");
+				JsonArray unconfirmed = new JsonArray();
+				unconfirmed.add("eating animation ended without a confirmed consumption");
+				outcome.add("unconfirmed", unconfirmed);
+			}
+			return outcome;
+		}
 	}
 
 	private static final class UseBlockTask extends Task {
 		private final String blockId;
+		private BlockPos targetPos;
+		private InteractionEvidence.BlockSnapshot beforeBlock;
+		private String beforeItem;
+		private int beforeCount;
+		private boolean screenBefore;
+		private int submittedAt = -1;
 
 		UseBlockTask(String id, String blockId) {
 			super(id);
@@ -1499,11 +1675,18 @@ public final class GameActions {
 				? blockHit
 				: null;
 			if (hit != null && (blockId == null || blockMatches(client.level, hit.getBlockPos(), blockId))) {
+				targetPos = hit.getBlockPos().immutable();
+				beforeBlock = blockSnapshot(client, targetPos);
+				rememberHand(client);
+				screenBefore = client.screen != null;
+				submittedAt = age;
 				client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, hit);
-				finish(id, "completed", null, null);
+				send.accept(progress(id, "confirming", 0, 1));
 			} else if (blockId == null) {
+				rememberHand(client);
+				submittedAt = age;
 				client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
-				finish(id, "completed", null, null);
+				send.accept(progress(id, "confirming", 0, 1));
 			} else {
 				finish(id, "failed", "E_PRECONDITION", "target block is outside reach or view");
 			}
@@ -1511,12 +1694,101 @@ public final class GameActions {
 
 		@Override
 		void tick(Minecraft client) {
+			if (submittedAt < 0) return;
+			if (targetPos == null && itemChanged(client)) {
+				finish(id, "completed", null, null, useEvidence("item used", null));
+				return;
+			}
+			boolean screenOpened = client.screen != null && !screenBefore;
+			if (
+				targetPos != null
+					&& InteractionEvidence.useConfirmed(
+						beforeBlock,
+						blockSnapshot(client, targetPos),
+						beforeCount,
+						handCount(client)
+					)
+			) {
+				finish(id, "completed", null, null, useEvidence("interaction observed", null));
+				return;
+			}
+			if (screenOpened) {
+				finish(
+					id,
+					"completed",
+					null,
+					null,
+					useEvidence("screen opened; no world change was proven", null)
+				);
+				return;
+			}
+			if (age - submittedAt <= InteractionEvidence.CONFIRM_TICKS) return;
+			finish(
+				id,
+				"failed",
+				"E_PRECONDITION",
+				"use was submitted but produced no confirmed effect",
+				useEvidence(
+					"use submitted",
+					screenOpened
+						? "a screen opened but no world or item change was confirmed"
+						: "block, held item and screen were unchanged"
+				)
+			);
+		}
+
+		private void rememberHand(Minecraft client) {
+			ItemStack stack = client.player.getInventory().getSelectedItem();
+			beforeItem = stack.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+			beforeCount = stack.getCount();
+		}
+
+		private boolean itemChanged(Minecraft client) {
+			ItemStack stack = client.player.getInventory().getSelectedItem();
+			String after = stack.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+			return InteractionEvidence.itemChanged(beforeItem, beforeCount, after, stack.getCount());
+		}
+
+		private int handCount(Minecraft client) {
+			return client.player.getInventory().getSelectedItem().getCount();
+		}
+
+		private JsonObject useEvidence(String summary, String problem) {
+			JsonObject outcome = new JsonObject();
+			outcome.addProperty("summary", summary);
+			JsonArray changes = new JsonArray();
+			if (problem == null && targetPos != null) {
+				JsonObject change = new JsonObject();
+				change.addProperty("kind", "block_used");
+				change.addProperty("detail", blockId == null ? "interaction" : blockId);
+				change.add("position", position(targetPos));
+				changes.add(change);
+			}
+			if (problem == null && targetPos == null) {
+				JsonObject change = new JsonObject();
+				change.addProperty("kind", "item_used");
+				change.addProperty("detail", beforeItem == null ? "selected item" : beforeItem);
+				changes.add(change);
+			}
+			outcome.add("changes", changes);
+			if (problem != null) {
+				outcome.addProperty("problem", problem);
+				JsonArray unconfirmed = new JsonArray();
+				unconfirmed.add("use submission had no observable effect");
+				outcome.add("unconfirmed", unconfirmed);
+			}
+			return outcome;
 		}
 	}
 
 	private static final class PlaceTask extends Task {
 		private final String blockId;
 		private final int count;
+		private int placed;
+		private BlockPos targetPos;
+		private InteractionEvidence.BlockSnapshot beforeBlock;
+		private int beforeCount;
+		private int submittedAt = -1;
 
 		PlaceTask(String id, String blockId, int count) {
 			super(id);
@@ -1526,20 +1798,26 @@ public final class GameActions {
 
 		@Override
 		boolean validate(Minecraft client) {
-			if (!super.validate(client)) return false;
-			if (count > 1) {
-				validationError =
-					"place_block accepts count=1 in the current body; split the request into confirmed placements";
-				return false;
-			}
-			return true;
+			return super.validate(client);
 		}
 
 		@Override
 		void start(Minecraft client) {
+			beginPlacement(client);
+		}
+
+		private void beginPlacement(Minecraft client) {
 			int slot = findHotbar(client.player, blockId);
 			if (slot < 0) {
-				finish(id, "failed", "E_PRECONDITION", "block item is not in hotbar");
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					placed > 0
+						? "only " + placed + " of " + count + " blocks could be placed: item is not in hotbar"
+						: "block item is not in hotbar",
+					placeEvidence(placed > 0 ? "ran out of " + blockId : null)
+				);
 				return;
 			}
 			client.player.getInventory().setSelectedSlot(slot);
@@ -1548,15 +1826,99 @@ public final class GameActions {
 				? blockHit
 				: null;
 			if (hit == null) {
-				finish(id, "failed", "E_PRECONDITION", "no placement surface in view");
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					placed > 0
+						? "only " + placed + " of " + count + " blocks placed: no placement surface in view"
+						: "no placement surface in view",
+					placeEvidence(placed > 0 ? "no further placement surface" : null)
+				);
+				return;
+			}
+			targetPos = hit.getBlockPos().relative(hit.getDirection());
+			beforeBlock = blockSnapshot(client, targetPos);
+			beforeCount = client.player.getInventory().getSelectedItem().getCount();
+			submittedAt = age;
+			if (beforeBlock != null && !beforeBlock.replaceable()) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					placed > 0
+						? "only " + placed + " of " + count + " blocks placed: the next cell is already occupied"
+						: "placement cell is already occupied",
+					placeEvidence("the target cell was not replaceable")
+				);
 				return;
 			}
 			client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, hit);
-			finish(id, "completed", null, null);
+			send.accept(progress(id, "confirming", placed, count));
 		}
 
 		@Override
 		void tick(Minecraft client) {
+			if (submittedAt < 0) return;
+			int afterCount = client.player.getInventory().getSelectedItem().getCount();
+			if (
+				InteractionEvidence.placementConfirmed(
+					blockId,
+					beforeBlock,
+					blockSnapshot(client, targetPos),
+					beforeCount,
+					afterCount,
+					client.player.isCreative()
+				)
+			) {
+				placed++;
+				submittedAt = -1;
+				if (placed >= count) {
+					finish(id, "completed", null, null, placeEvidence(null));
+					return;
+				}
+				send.accept(progress(id, "placed", placed, count));
+				beginPlacement(client);
+				return;
+			}
+			if (age - submittedAt <= InteractionEvidence.CONFIRM_TICKS) return;
+			submittedAt = -1;
+			finish(
+				id,
+				"failed",
+				"E_PRECONDITION",
+				placed > 0
+					? "only " + placed + " of " + count + " blocks were confirmed; the next placement rolled back"
+					: "placement was submitted but the world did not show the requested block",
+				placeEvidence("no confirmed placement (prediction may roll back)")
+			);
+		}
+
+		private JsonObject placeEvidence(String problem) {
+			JsonObject outcome = new JsonObject();
+			outcome.addProperty(
+				"summary",
+				problem == null
+					? "placed " + placed + " x " + blockId
+					: placed > 0
+						? "placed " + placed + " of " + count + " " + blockId
+						: "placement submitted"
+			);
+			JsonArray changes = new JsonArray();
+			for (int index = 0; index < placed; index++) {
+				JsonObject change = new JsonObject();
+				change.addProperty("kind", "block_placed");
+				change.addProperty("detail", blockId);
+				changes.add(change);
+			}
+			outcome.add("changes", changes);
+			if (problem != null) {
+				outcome.addProperty("problem", problem);
+				JsonArray unconfirmed = new JsonArray();
+				unconfirmed.add("placement submission was not confirmed by the world");
+				outcome.add("unconfirmed", unconfirmed);
+			}
+			return outcome;
 		}
 	}
 
@@ -1780,5 +2142,28 @@ public final class GameActions {
 	private static boolean blockMatches(ClientLevel level, BlockPos pos, String blockId) {
 		Identifier id = Identifier.tryParse(blockId);
 		return id != null && level.getBlockState(pos).getBlock() == BuiltInRegistries.BLOCK.getValue(id);
+	}
+
+	/**
+	 * Captures the full block state, not just the registry ID. A door, chest
+	 * or redstone component can change without changing its block type.
+	 */
+	private static InteractionEvidence.BlockSnapshot blockSnapshot(Minecraft client, BlockPos pos) {
+		BlockState state = client.level.getBlockState(pos);
+		return new InteractionEvidence.BlockSnapshot(
+			BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString(),
+			state.toString(),
+			state.isAir(),
+			state.canBeReplaced(),
+			!state.getFluidState().isEmpty()
+		);
+	}
+
+	private static JsonObject position(BlockPos pos) {
+		JsonObject point = new JsonObject();
+		point.addProperty("x", pos.getX());
+		point.addProperty("y", pos.getY());
+		point.addProperty("z", pos.getZ());
+		return point;
 	}
 }
