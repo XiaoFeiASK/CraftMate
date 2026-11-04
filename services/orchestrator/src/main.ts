@@ -240,6 +240,7 @@ const server = createControlServer({
   host,
   ingressToken,
   allowRemoteIngress: process.env.CRAFTMATE_ALLOW_REMOTE_INGRESS === "1",
+  allowRemoteControl: process.env.CRAFTMATE_ALLOW_REMOTE_CONTROL === "1",
   voice: {
     speak: (command) => voiceLink?.speak(command),
     stop: (reason) => voiceLink?.stop(reason),

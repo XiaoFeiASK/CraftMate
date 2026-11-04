@@ -152,7 +152,7 @@ test("saving integrations persists through the control protocol and exposes only
       JSON.stringify({
         type: "settingsSave",
         payload: {
-          settings: show.currentSettings(),
+          settings: { ...show.currentSettings(), goal: "盖一间带阳台的树屋" },
           integrations: {
             model: {
               provider: "deepseek",
@@ -179,6 +179,11 @@ test("saving integrations persists through the control protocol and exposes only
 
     assert.equal(applied, true);
     assert.equal(runtimeApplied, true);
+    assert.equal(
+      show.currentSettings().goal,
+      "盖一间带阳台的树屋",
+      "the settings half of the frame is persisted, not just the integrations",
+    );
     const integrationFrame = messages.find(
       (message) => (message as { type?: string }).type === "integrations",
     );
