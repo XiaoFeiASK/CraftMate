@@ -45,7 +45,8 @@ describe("skills", () => {
 
 describe("fabric body capability catalogue", () => {
   test("executable skills map to advertised capabilities", () => {
-    assert.equal(FABRIC_BODY_SKILLS.length, 14);
+    assert.equal(FABRIC_BODY_SKILLS.length, 15);
+    assert.ok((FABRIC_BODY_SKILLS as readonly SkillName[]).includes("sleep"));
     const capabilities: readonly BridgeCapability[] = FABRIC_BODY_CAPABILITIES;
     for (const skill of FABRIC_BODY_SKILLS) {
       assert.ok(capabilities.includes(SKILL_CAPABILITY[skill] as BridgeCapability));
@@ -54,7 +55,7 @@ describe("fabric body capability catalogue", () => {
 
   test("contract catalogue is not mistaken for current body capabilities", () => {
     const implemented = new Set([
-      "goto", "look_at", "mine_block", "chop_tree", "collect_items", "craft", "deposit", "say", "wait", "attack", "equip", "eat", "use_block", "place_block",
+      "goto", "look_at", "mine_block", "chop_tree", "collect_items", "craft", "deposit", "say", "wait", "attack", "equip", "eat", "use_block", "place_block", "sleep",
     ]);
     for (const skill of skillNameSchema.options) {
       assert.equal((FABRIC_BODY_SKILLS as readonly SkillName[]).includes(skill), implemented.has(skill));

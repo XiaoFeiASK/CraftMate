@@ -10,6 +10,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.InBedChatScreen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.gui.screens.recipebook.RecipeCollection;
@@ -18,6 +19,7 @@ import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.player.KeyboardInput;
+import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -25,11 +27,14 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.attribute.BedRule;
+import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.StackedItemContents;
+import net.minecraft.world.item.BedItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -45,9 +50,11 @@ import net.minecraft.world.item.crafting.display.SlotDisplay;
 import net.minecraft.world.item.crafting.display.SlotDisplayContext;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -59,7 +66,7 @@ import net.minecraft.world.phys.Vec3;
 public final class GameActions {
 	private static final List<String> SKILLS = List.of(
 		"goto", "look_at", "mine_block", "chop_tree", "collect_items", "craft", "deposit", "say", "wait", "attack",
-		"equip", "eat", "use_block", "place_block"
+		"equip", "eat", "use_block", "place_block", "sleep"
 	);
 	private static final List<String> CAPABILITIES = List.of(
 		"sensor", "move", "mine", "container", "attack", "use", "build", "camera", "hud"
@@ -85,6 +92,12 @@ public final class GameActions {
 	private static final int CRAFT_RESULT_TIMEOUT = 20 * 3;
 	private static final int CRAFT_STABLE_TICKS = 5;
 	private static final int CRAFT_TOTAL_TIMEOUT = 20 * 60;
+	private static final int SLEEP_SEARCH_RADIUS = 16;
+	private static final int SLEEP_CONFIRM_TICKS = 20 * 3;
+	/** Observe the wake-up when the server can skip the night. */
+	private static final int SLEEP_OBSERVE_TICKS = 20 * 30;
+	/** Time updates can trail the wake-up packet by a tick or two. */
+	private static final int SLEEP_WAKE_GRACE_TICKS = 20 * 3;
 	private static final int PATH_STEP_UP = 1;
 	private static final int PATH_STEP_DOWN = 1;
 	private static final Map<String, Task> TASKS = new ConcurrentHashMap<>();
@@ -139,6 +152,10 @@ public final class GameActions {
 		world.addProperty("onGround", player.onGround());
 		world.addProperty("fallDistance", round(player.fallDistance));
 		world.addProperty("verticalVelocity", round(player.getDeltaMovement().y));
+		long dayTime = client.level.getDayTime();
+		world.addProperty("timeOfDay", (int) Math.floorMod(dayTime, 24_000L));
+		world.addProperty("day", (int) Math.floorDiv(dayTime, 24_000L));
+		world.addProperty("sleeping", player.isSleeping());
 		world.addProperty("screenOpen", client.screen != null);
 		BlockPos feet = player.blockPosition();
 		BlockState floor = client.level.getBlockState(feet.below());
@@ -168,6 +185,7 @@ public final class GameActions {
 			hotbar.add(entry);
 		}
 		world.add("hotbar", hotbar);
+		world.add("inventory", inventory(client, player));
 		JsonArray entities = new JsonArray();
 		client.level.getEntitiesOfClass(Entity.class, player.getBoundingBox().inflate(16.0)).stream()
 			.filter(entity -> entity != player && entity.isAlive())
@@ -183,6 +201,36 @@ public final class GameActions {
 		world.add("entities", entities);
 		world.add("nearbyBlocks", nearbyBlocks(client, player));
 		return world;
+	}
+
+	/**
+	 * Every non-empty inventory slot, including armor and offhand. The hotbar
+	 * alone cannot answer "do I have a pickaxe and food?" once the backpack is
+	 * full, so the planner gets the same stack view the player sees.
+	 */
+	private static JsonArray inventory(Minecraft client, LocalPlayer player) {
+		JsonArray entries = new JsonArray();
+		Inventory inventory = player.getInventory();
+		for (int slot = 0; slot <= InventorySnapshot.LAST_SLOT; slot++) {
+			ItemStack stack = inventory.getItem(slot);
+			if (stack.isEmpty()) continue;
+			String section = InventorySnapshot.section(slot);
+			if (section == null) continue;
+			JsonObject entry = new JsonObject();
+			entry.addProperty("section", section);
+			entry.addProperty("slot", slot);
+			entry.addProperty("item", BuiltInRegistries.ITEM.getKey(stack.getItem()).toString());
+			entry.addProperty("count", stack.getCount());
+			if (stack.isDamageableItem()) {
+				entry.addProperty(
+					"durability",
+					InventorySnapshot.remainingDurability(stack.getDamageValue(), stack.getMaxDamage())
+				);
+				entry.addProperty("maxDurability", stack.getMaxDamage());
+			}
+			entries.add(entry);
+		}
+		return entries;
 	}
 
 	static void showStatus(Minecraft client, String text) {
@@ -242,6 +290,7 @@ public final class GameActions {
 				case "eat" -> new EatTask(id, optional(args, "item"));
 				case "use_block" -> new UseBlockTask(id, optional(args, "block"));
 				case "place_block" -> new PlaceTask(id, required(args, "block"), integer(args, "count", 1));
+				case "sleep" -> new SleepTask(id);
 				default -> null;
 			};
 		} catch (RuntimeException error) {
@@ -3086,6 +3135,399 @@ public final class GameActions {
 		}
 	}
 
+	/**
+	 * Sleeping only exists if the player is actually in bed and the world
+	 * moved to the next day. Right-clicking a bed is a submission; a server
+	 * can reject it because it is daytime, the bed is occupied, a monster is
+	 * nearby, or the bed is outside the player's respawn area.
+	 */
+	private static final class SleepTask extends Task {
+		private static final int WALK_BUDGET_TICKS = 20 * 15;
+		private static final int APPROACH_STALL_TICKS = 20 * 3;
+		private BlockPos bedHead;
+		private boolean walking;
+		private int walkingAge;
+		private int lastWalkProgressAge;
+		private double lastApproachDistance = Double.POSITIVE_INFINITY;
+		private List<Vec3> approachWaypoints = List.of();
+		private int approachWaypoint;
+		private BlockPos approachTarget;
+		private int nextApproachPlanAt;
+		private int submittedAt = -1;
+		private int dayBefore;
+		private int timeBefore;
+		private int sleepingSince = -1;
+		private int wokeAt = -1;
+		private boolean wasSleeping;
+		/** A successful finish must not wake the body it just put to bed. */
+		private boolean finishedNormally;
+
+		SleepTask(String id) {
+			super(id);
+		}
+
+		@Override
+		void start(Minecraft client) {
+			LocalPlayer player = client.player;
+			if (player.isSleeping()) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"player is already sleeping",
+					evidence(client, "already in bed")
+				);
+				return;
+			}
+			bedHead = nearestBed(client);
+			if (bedHead == null) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"no bed within " + SLEEP_SEARCH_RADIUS + " blocks",
+					evidence(client, "no bed to sleep in")
+				);
+				return;
+			}
+			BedRule rule = client.level.environmentAttributes()
+				.getValue(EnvironmentAttributes.BED_RULE, bedHead);
+			String blocked = SleepEvidence.blockedReason(
+				false,
+				true,
+				occupied(client, bedHead),
+				rule.explodes(),
+				rule.canSleep(client.level)
+			);
+			if (blocked != null) {
+				finish(id, "failed", "E_PRECONDITION", blocked, evidence(client, blocked));
+				return;
+			}
+			dayBefore = day(client);
+			timeBefore = timeOfDay(client);
+			walking = interactionPart(client) == null;
+			send.accept(progress(id, walking ? "walking" : "opening", 0, 1));
+		}
+
+		@Override
+		void tick(Minecraft client) {
+			LocalPlayer player = client.player;
+			if (player.isSleeping()) {
+				if (sleepingSince < 0) {
+					sleepingSince = age;
+					wasSleeping = true;
+					send.accept(progress(id, "sleeping", 0, 1));
+				}
+				int today = day(client);
+				if (SleepEvidence.nextDayReached(dayBefore, today)) {
+					finishedNormally = true;
+					finish(id, "completed", null, null, evidence(client, null));
+				} else if (age - sleepingSince > SLEEP_OBSERVE_TICKS) {
+					finish(
+						id,
+						"timeout",
+						"E_TIMEOUT",
+						"player stayed in bed but the day did not advance",
+						evidence(client, "the night was not skipped (another player may still be awake)")
+					);
+				}
+				return;
+			}
+			if (
+				submittedAt >= 0
+					&& client.screen != null
+					&& !(client.screen instanceof InBedChatScreen)
+			) {
+				// An inventory, pause menu or chat screen opened between the
+				// click and the server's answer is a conflict, not something
+				// the agent may dismiss for the player.
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"a player screen interrupted the bed interaction",
+					evidence(client, "the player opened another screen")
+				);
+				return;
+			}
+			if (wasSleeping) {
+				if (wokeAt < 0) wokeAt = age;
+				if (SleepEvidence.nextDayReached(dayBefore, day(client))) {
+					finishedNormally = true;
+					finish(id, "completed", null, null, evidence(client, null));
+				} else if (age - wokeAt > SLEEP_WAKE_GRACE_TICKS) {
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"player woke up before the next day",
+						evidence(client, "woke up without the night being skipped")
+					);
+				}
+				return;
+			}
+			if (submittedAt >= 0) {
+				if (age - submittedAt > SLEEP_CONFIRM_TICKS) {
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"bed interaction did not put the player to sleep",
+						evidence(client, "the server did not confirm sleeping")
+					);
+				}
+				return;
+			}
+			BlockPos part = interactionPart(client);
+			if (part == null) {
+				if (!(client.level.getBlockState(bedHead).getBlock() instanceof BedBlock)) {
+					finish(
+						id,
+						"failed",
+						"E_WORLD_CHANGED",
+						"the bed disappeared before it could be used",
+						evidence(client, "the bed was removed")
+					);
+					return;
+				}
+				walking = true;
+				approach(client);
+				return;
+			}
+			walking = false;
+			releaseWalkInput(client);
+			MineTask.aimAt(player, Vec3.atCenterOf(part));
+			BlockHitResult hit = MineTask.clip(client, player, Vec3.atCenterOf(part));
+			if (hit.getType() != HitResult.Type.BLOCK || !isThisBed(client, hit.getBlockPos())) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"the bed is outside reach or view",
+					evidence(client, "could not aim at the bed")
+				);
+				return;
+			}
+			submittedAt = age;
+			client.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+			send.accept(progress(id, "confirming", 0, 1));
+		}
+
+		@Override
+		boolean keepScreen(Minecraft client) {
+			// Vanilla opens the in-bed chat screen as part of sleeping.
+			return sleepingSince >= 0 || client.screen instanceof InBedChatScreen;
+		}
+
+		private void approach(Minecraft client) {
+			LocalPlayer player = client.player;
+			MineTask.aimAt(player, Vec3.atCenterOf(bedHead));
+			walkingAge++;
+			if (walkingAge > WALK_BUDGET_TICKS) {
+				finish(
+					id,
+					"timeout",
+					"E_TIMEOUT",
+					"could not reach the bed in time",
+					evidence(client, "bed approach timed out")
+				);
+				return;
+			}
+			Vec3 center = Vec3.atCenterOf(bedHead);
+			if (!bedHead.equals(approachTarget) || walkingAge >= nextApproachPlanAt) {
+				ApproachRoute.Route route = ApproachRoute.to(client, bedHead);
+				if (route != null && route.waypoints().size() > 1) {
+					approachWaypoints = route.waypoints();
+					approachWaypoint = 1;
+				} else {
+					approachWaypoints = List.of();
+					approachWaypoint = 0;
+				}
+				approachTarget = bedHead;
+				nextApproachPlanAt = walkingAge + 20;
+			}
+			Vec3 step = approachWaypoints.size() > approachWaypoint
+				? approachWaypoints.get(approachWaypoint)
+				: center;
+			while (
+				approachWaypoint < approachWaypoints.size() - 1
+					&& Math.hypot(step.x - player.getX(), step.z - player.getZ()) < 0.75
+					&& Math.abs(step.y - player.getY()) < 1.25
+			) {
+				approachWaypoint++;
+				step = approachWaypoints.get(approachWaypoint);
+			}
+			double progressDistance = player.position().distanceTo(step);
+			if (progressDistance + 0.1 < lastApproachDistance) {
+				lastApproachDistance = progressDistance;
+				lastWalkProgressAge = walkingAge;
+			} else if (walkingAge - lastWalkProgressAge > APPROACH_STALL_TICKS) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"bed approach made no progress for 3 seconds",
+					evidence(client, "could not reach a safe interaction spot beside the bed")
+				);
+				return;
+			}
+			double heading = Math.atan2(-(step.x - player.getX()), step.z - player.getZ());
+			player.setYRot((float) Math.toDegrees(heading));
+			Vec3 ahead = player.position().add(-Math.sin(heading) * 0.6, 0, Math.cos(heading) * 0.6);
+			BlockPos foot = BlockPos.containing(ahead.x, player.getY() - 0.5, ahead.z);
+			boolean ledge = client.level.getBlockState(foot).isAir()
+				&& client.level.getBlockState(foot.below()).isAir();
+			if (ledge && player.onGround()) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"dangerous drop on the route to the bed",
+					evidence(client, "refused an unsafe bed approach")
+				);
+				return;
+			}
+			if (player.horizontalCollision && player.onGround()) player.jumpFromGround();
+			if (player.input != null) setWalkInput(client, true);
+			if (walkingAge % 20 == 0) {
+				send.accept(progress(id, "walking", (int) Math.round(player.position().distanceTo(center)), 0));
+			}
+		}
+
+		private BlockPos interactionPart(Minecraft client) {
+			LocalPlayer player = client.player;
+			for (BlockPos candidate : bedParts(client, bedHead)) {
+				if (
+					player.isWithinBlockInteractionRange(candidate, 0.0)
+						&& MineTask.clip(client, player, Vec3.atCenterOf(candidate)).getBlockPos().equals(candidate)
+				) {
+					return candidate;
+				}
+			}
+			return null;
+		}
+
+		private boolean isThisBed(Minecraft client, BlockPos pos) {
+			return bedParts(client, bedHead).contains(pos);
+		}
+
+		private static List<BlockPos> bedParts(Minecraft client, BlockPos head) {
+			List<BlockPos> parts = new ArrayList<>(2);
+			if (head == null) return parts;
+			BlockState state = client.level.getBlockState(head);
+			if (!(state.getBlock() instanceof BedBlock)) return parts;
+			Direction facing = state.getValue(BedBlock.FACING);
+			BlockPos other = state.getValue(BedBlock.PART) == BedPart.HEAD
+				? head.relative(facing.getOpposite())
+				: head.relative(facing);
+			parts.add(head);
+			if (client.level.getBlockState(other).getBlock() instanceof BedBlock) parts.add(other);
+			return parts;
+		}
+
+		private static BlockPos nearestBed(Minecraft client) {
+			BlockPos origin = client.player.blockPosition();
+			List<BlockPos> found = new ArrayList<>();
+			for (BlockPos pos : BlockPos.betweenClosed(
+				origin.offset(-SLEEP_SEARCH_RADIUS, -8, -SLEEP_SEARCH_RADIUS),
+				origin.offset(SLEEP_SEARCH_RADIUS, 8, SLEEP_SEARCH_RADIUS)
+			)) {
+				BlockState state = client.level.getBlockState(pos);
+				if (!(state.getBlock() instanceof BedBlock)) continue;
+				double distance = pos.distSqr(origin);
+				if (distance > (double) SLEEP_SEARCH_RADIUS * SLEEP_SEARCH_RADIUS) continue;
+				found.add(pos.immutable());
+			}
+			found.sort((left, right) -> Double.compare(left.distSqr(origin), right.distSqr(origin)));
+			BlockPos nearestHead = null;
+			for (BlockPos candidate : found) {
+				BlockState state = client.level.getBlockState(candidate);
+				BlockPos head = state.getValue(BedBlock.PART) == BedPart.FOOT
+					? candidate.relative(state.getValue(BedBlock.FACING))
+					: candidate;
+				if (!(client.level.getBlockState(head).getBlock() instanceof BedBlock)) continue;
+				if (nearestHead == null) nearestHead = head;
+				// Prefer a usable bed, but keep the nearest head so a start
+				// failure can name the real reason instead of claiming that
+				// the player owns no bed at all.
+				BedRule rule = client.level.environmentAttributes()
+					.getValue(EnvironmentAttributes.BED_RULE, head);
+				if (rule.explodes() || occupied(client, head)) continue;
+				return head;
+			}
+			return nearestHead;
+		}
+
+		private static boolean occupied(Minecraft client, BlockPos head) {
+			BlockState state = client.level.getBlockState(head);
+			return state.getBlock() instanceof BedBlock && state.getValue(BedBlock.OCCUPIED);
+		}
+
+		private static int day(Minecraft client) {
+			return (int) Math.floorDiv(client.level.getDayTime(), 24_000L);
+		}
+
+		private static int timeOfDay(Minecraft client) {
+			return (int) Math.floorMod(client.level.getDayTime(), 24_000L);
+		}
+
+		private JsonObject evidence(Minecraft client, String problem) {
+			int dayAfter = day(client);
+			int timeAfter = timeOfDay(client);
+			JsonObject outcome = new JsonObject();
+			outcome.addProperty(
+				"summary",
+				problem == null
+					? "slept through the night: day " + dayBefore + " -> " + dayAfter
+					: "sleep was not confirmed"
+			);
+			JsonArray changes = new JsonArray();
+			if (problem == null) {
+				JsonObject change = new JsonObject();
+				change.addProperty("kind", "slept");
+				change.addProperty("detail", "day " + dayBefore + " -> " + dayAfter);
+				if (bedHead != null) change.add("position", position(bedHead));
+				changes.add(change);
+			}
+			outcome.add("changes", changes);
+			if (bedHead != null) {
+				JsonObject bed = position(bedHead);
+				outcome.add("bed", bed);
+			}
+			outcome.addProperty("dayBefore", dayBefore);
+			outcome.addProperty("dayAfter", dayAfter);
+			outcome.addProperty("timeOfDayBefore", timeBefore);
+			outcome.addProperty("timeOfDayAfter", timeAfter);
+			if (problem != null) {
+				outcome.addProperty("problem", problem);
+				JsonArray unconfirmed = new JsonArray();
+				unconfirmed.add("the bed interaction was not confirmed by a new day");
+				outcome.add("unconfirmed", unconfirmed);
+			}
+			return outcome;
+		}
+
+		@Override
+		void stop(Minecraft client) {
+			releaseWalkInput(client);
+			CameraController.release();
+			LocalPlayer player = client.player;
+			if (!finishedNormally && player != null && player.isSleeping()) {
+				// Do not leave the body in bed after a cancel, takeover or
+				// disconnect: the operator must get the controls back awake.
+				player.connection.send(
+					new ServerboundPlayerCommandPacket(
+						player,
+						ServerboundPlayerCommandPacket.Action.STOP_SLEEPING
+					)
+				);
+			}
+			if (client.screen instanceof InBedChatScreen && (player == null || !player.isSleeping())) {
+				client.setScreen(null);
+			}
+		}
+	}
+
 	private static final class EatTask extends Task {
 		private final String itemId;
 		private int ticks;
@@ -3323,6 +3765,8 @@ public final class GameActions {
 		private InteractionEvidence.BlockSnapshot beforeBlock;
 		private int beforeCount;
 		private int submittedAt = -1;
+		/** Set when the body turned toward another bed heading this tick. */
+		private boolean awaitingRotation;
 
 		PlaceTask(String id, String blockId, int count) {
 			super(id);
@@ -3374,7 +3818,6 @@ public final class GameActions {
 			targetPos = hit.getBlockPos().relative(hit.getDirection());
 			beforeBlock = blockSnapshot(client, targetPos);
 			beforeCount = client.player.getInventory().getSelectedItem().getCount();
-			submittedAt = age;
 			if (beforeBlock != null && !beforeBlock.replaceable()) {
 				finish(
 					id,
@@ -3387,12 +3830,72 @@ public final class GameActions {
 				);
 				return;
 			}
+			if (isBedItem(blockId)) {
+				BedRoom room = bedRoom(client, targetPos);
+				if (room == BedRoom.BLOCKED) {
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"no room to place the bed: both cells must be free",
+						placeEvidence("the bed's second cell is not replaceable")
+					);
+					return;
+				}
+				if (room == BedRoom.TURNED) {
+					send.accept(progress(id, "turning", placed, count));
+					return;
+				}
+			}
+			submittedAt = age;
 			client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, hit);
 			send.accept(progress(id, "confirming", placed, count));
 		}
 
+		private static boolean isBedItem(String itemId) {
+			Identifier id = Identifier.tryParse(itemId);
+			return id != null && BuiltInRegistries.ITEM.getValue(id) instanceof BedItem;
+		}
+
+		private enum BedRoom {
+			READY,
+			TURNED,
+			BLOCKED,
+		}
+
+		/**
+		 * A bed occupies the clicked cell and the cell in front of the player.
+		 * Vanilla derives that second cell from the player's heading, and the
+		 * server applies the heading sent in the movement packet, which lags
+		 * `setYRot` by a tick. Turning toward a free heading and placing on
+		 * the next tick keeps the client prediction and the server's
+		 * placement from disagreeing about which half of the bed goes where.
+		 */
+		private BedRoom bedRoom(Minecraft client, BlockPos foot) {
+			if (!cellFree(client, foot)) return BedRoom.BLOCKED;
+			Direction start = client.player.getDirection();
+			if (cellFree(client, foot.relative(start))) return BedRoom.READY;
+			for (Direction candidate : Direction.Plane.HORIZONTAL) {
+				if (candidate == start) continue;
+				if (!cellFree(client, foot.relative(candidate))) continue;
+				client.player.setYRot(Direction.getYRot(candidate));
+				awaitingRotation = true;
+				return BedRoom.TURNED;
+			}
+			return BedRoom.BLOCKED;
+		}
+
+		private static boolean cellFree(Minecraft client, BlockPos pos) {
+			return client.level.getBlockState(pos).canBeReplaced();
+		}
+
 		@Override
 		void tick(Minecraft client) {
+			if (awaitingRotation) {
+				awaitingRotation = false;
+				beginPlacement(client);
+				return;
+			}
 			if (submittedAt < 0) return;
 			int afterCount = client.player.getInventory().getSelectedItem().getCount();
 			if (
