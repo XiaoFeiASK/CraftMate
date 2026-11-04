@@ -54,6 +54,8 @@ public final class GameActions {
 	 * terrain.
 	 */
 	private static final int TARGET_SEARCH_RADIUS = 48;
+	private static final int PATH_STEP_UP = 1;
+	private static final int PATH_STEP_DOWN = 1;
 	private static final Map<String, Task> TASKS = new ConcurrentHashMap<>();
 	private static int clientTick;
 	private static Reflexes reflexes;
@@ -517,17 +519,23 @@ public final class GameActions {
 
 	private static final class GotoTask extends Task {
 		private static final int STUCK_TICKS = 20 * 3;
+		private static final int MAX_REPLANS = 3;
+		private static final int REPLAN_COOLDOWN_TICKS = 10;
 		private static final double ARRIVE_DISTANCE = 0.75;
 		private static final double ARRIVE_HEIGHT = 1.25;
-		private static final double ROUTE_STEP = 0.5;
-		private static final int MAX_STEP_UP = 1;
-		private static final int MAX_DROP = 1;
+		private static final int MAX_PATH_NODES = 4_000;
+		private static final double MAX_PATH_RADIUS = 64.0;
 		private final Vec3 target;
+		private List<Vec3> waypoints = List.of();
+		private int waypointIndex;
 		private Vec3 destination;
 		private boolean routeComplete;
 		private int lastProgressTick;
-		private double lastHorizontal;
+		private int lastWaypointIndex;
+		private double lastWaypointDistance;
 		private int stuckTicks;
+		private int replans;
+		private int nextReplanAt;
 
 		GotoTask(String id, JsonObject args) {
 			super(id);
@@ -541,7 +549,6 @@ public final class GameActions {
 			// death tick. Reset it only when the body is actually on ground;
 			// an airborne body must keep the real fall for the safety reflex.
 			if (client.player.onGround()) client.player.resetFallDistance();
-			lastHorizontal = horizontalDistance(client.player);
 			Route route = safeRouteEnd(client, client.player);
 			if (route == null) {
 				finish(id, "failed", "E_PRECONDITION", "no safe route from the current position");
@@ -549,7 +556,11 @@ public final class GameActions {
 			}
 			destination = route.destination();
 			routeComplete = route.complete();
-			lastHorizontal = horizontalDistance(client.player);
+			waypoints = route.waypoints();
+			waypointIndex = waypoints.size() > 1 ? 1 : 0;
+			lastWaypointIndex = waypointIndex;
+			lastWaypointDistance = playerDistance(client.player);
+			nextReplanAt = 0;
 			CraftMateBodyClient.LOGGER.info(
 				"CraftMate goto start target={} destination={} position={}",
 				target,
@@ -562,15 +573,30 @@ public final class GameActions {
 		@Override
 		void tick(Minecraft client) {
 			LocalPlayer player = client.player;
-			Vec3 offset = destination.subtract(player.position());
+			if (waypointIndex >= waypoints.size()) {
+				stop(client);
+				finish(id, "failed", "E_INTERNAL", "route has no current waypoint");
+				return;
+			}
+			Vec3 waypoint = waypoints.get(waypointIndex);
+			Vec3 offset = waypoint.subtract(player.position());
 			double horizontal = horizontalDistance(player);
+			if (
+				waypointIndex < waypoints.size() - 1
+					&& Math.hypot(waypoint.x - player.getX(), waypoint.z - player.getZ()) < ARRIVE_DISTANCE
+					&& Math.abs(waypoint.y - player.getY()) <= ARRIVE_HEIGHT
+			) {
+				waypointIndex++;
+				return;
+			}
 			boolean arrived = horizontal < ARRIVE_DISTANCE
 				&& Math.abs(player.getY() - destination.y) <= ARRIVE_HEIGHT;
-			if (arrived || horizontal < ARRIVE_DISTANCE || age > 20 * 60) {
+			boolean finalWaypoint = waypointIndex >= waypoints.size() - 1;
+			if (arrived && finalWaypoint) {
 				stop(client);
 				if (arrived && routeComplete && atTarget()) {
 					finish(id, "completed", null, null);
-				} else if (arrived) {
+				} else {
 					JsonObject evidence = partialRoute(horizontal);
 					finish(
 						id,
@@ -581,16 +607,21 @@ public final class GameActions {
 							: "safe route stopped short of the requested target",
 						evidence
 					);
-				} else if (age > 20 * 60) {
-					finish(id, "timeout", "E_TIMEOUT", "bounded walk did not reach target");
-				} else {
+				}
+				return;
+			}
+			if (age > 20 * 60) {
+				stop(client);
+				if (!routeComplete) {
 					finish(
 						id,
 						"failed",
 						"E_PRECONDITION",
-						"stopped at the requested column's edge",
+						"safe route stopped short of the requested target",
 						partialRoute(horizontal)
 					);
+				} else {
+					finish(id, "timeout", "E_TIMEOUT", "bounded walk did not reach target");
 				}
 				return;
 			}
@@ -602,15 +633,49 @@ public final class GameActions {
 			if (player.horizontalCollision && player.onGround()) {
 				player.jumpFromGround();
 			}
-			if (horizontal + 0.05 < lastHorizontal) {
-				lastHorizontal = horizontal;
+			double waypointDistance = playerDistance(player);
+			if (
+				waypointIndex > lastWaypointIndex
+					|| waypointDistance + 0.05 < lastWaypointDistance
+			) {
+				lastWaypointIndex = waypointIndex;
+				lastWaypointDistance = waypointDistance;
 				stuckTicks = 0;
 			} else {
 				stuckTicks++;
 			}
 			if (stuckTicks > STUCK_TICKS) {
-				stop(client);
-				finish(id, "failed", "E_PRECONDITION", "walk made no progress for 3 seconds");
+				stuckTicks = 0;
+				if (age < nextReplanAt || replans >= MAX_REPLANS) {
+					stop(client);
+					if (!routeComplete) {
+						finish(
+							id,
+							"failed",
+							"E_PRECONDITION",
+							"safe route stopped short of the requested target",
+							partialRoute(horizontal)
+						);
+						return;
+					}
+					finish(id, "failed", "E_PRECONDITION", "walk made no progress after bounded replanning");
+					return;
+				}
+				Route replanned = safeRouteEnd(client, player);
+				if (replanned == null) {
+					stop(client);
+					finish(id, "failed", "E_PRECONDITION", "no safe route after replanning");
+					return;
+				}
+				replans++;
+				nextReplanAt = age + REPLAN_COOLDOWN_TICKS;
+				destination = replanned.destination();
+				routeComplete = replanned.complete();
+				waypoints = replanned.waypoints();
+				waypointIndex = waypoints.size() > 1 ? 1 : 0;
+				lastWaypointIndex = waypointIndex;
+				lastWaypointDistance = playerDistance(player);
+				send.accept(progress(id, "replanning", replans, MAX_REPLANS));
 				return;
 			}
 			player.setYRot((float) Math.toDegrees(Math.atan2(-offset.x, offset.z)));
@@ -639,6 +704,16 @@ public final class GameActions {
 
 		private double horizontalDistance(LocalPlayer player) {
 			return Math.hypot(destination.x - player.getX(), destination.z - player.getZ());
+		}
+
+		/**
+		 * Progress is measured against the current waypoint, not the final
+		 * target: a valid U-shaped detour initially walks away from the
+		 * target and must not look like a stall.
+		 */
+		private double playerDistance(LocalPlayer player) {
+			Vec3 waypoint = waypoints.get(waypointIndex);
+			return player.position().distanceTo(waypoint);
 		}
 
 		private boolean atTarget() {
@@ -697,57 +772,37 @@ public final class GameActions {
 		 */
 		private Route safeRouteEnd(Minecraft client, LocalPlayer player) {
 			if (!player.onGround()) return null;
-			Vec3 start = player.position();
-			double distance = Math.hypot(target.x - start.x, target.z - start.z);
-			int samples = Math.max(1, (int) Math.ceil(distance / ROUTE_STEP));
-			int feetY = player.blockPosition().getY();
-			double lastSafeProgress = 0;
-			for (int index = 1; index <= samples; index++) {
-				double progress = (double) index / samples;
-				int x = (int) Math.floor(start.x + (target.x - start.x) * progress);
-				int z = (int) Math.floor(start.z + (target.z - start.z) * progress);
-				int nextY = standingY(client, new BlockPos(x, feetY, z));
-				if (nextY == Integer.MIN_VALUE) {
-					if (lastSafeProgress <= 0) return null;
-					return new Route(
-						new Vec3(
-							start.x + (target.x - start.x) * lastSafeProgress,
-							start.y,
-							start.z + (target.z - start.z) * lastSafeProgress
-						),
-						false
-					);
-				}
-				feetY = nextY;
-				lastSafeProgress = progress;
+			BoundedPathfinder.Cell start = new BoundedPathfinder.Cell(
+				player.blockPosition().getX(),
+				player.blockPosition().getY(),
+				player.blockPosition().getZ()
+			);
+			BoundedPathfinder.Cell goal = new BoundedPathfinder.Cell(
+				(int) Math.floor(target.x),
+				(int) Math.floor(target.y),
+				(int) Math.floor(target.z)
+			);
+			BoundedPathfinder.Result found = BoundedPathfinder.find(
+				start,
+				goal,
+					(x, y, z) -> standingY(client, new BlockPos(x, y, z)) == y,
+				(x, y, z) -> x == goal.x()
+					&& z == goal.z()
+					&& Math.abs(y - goal.y()) <= 1,
+				MAX_PATH_NODES,
+				MAX_PATH_RADIUS
+			);
+			if (found == null) return null;
+			List<Vec3> points = new ArrayList<>();
+			for (BoundedPathfinder.Cell cell : found.path()) {
+				points.add(new Vec3(cell.x() + 0.5, cell.y(), cell.z() + 0.5));
 			}
-			boolean vertical = Math.abs(feetY - target.y) <= ARRIVE_HEIGHT;
-			return new Route(vertical ? target : new Vec3(target.x, start.y, target.z), vertical);
+			if (found.complete()) points.add(target);
+			Vec3 end = points.get(points.size() - 1);
+			return new Route(found.complete() ? target : end, found.complete(), points);
 		}
 
-		private record Route(Vec3 destination, boolean complete) {
-		}
-
-		/**
-		 * Returns the feet Y of a standable column within one block of the
-		 * expected level, or `Integer.MIN_VALUE` for a gap, fluid, or wall.
-		 * The caller advances its expected level one sample at a time, so a
-		 * staircase is allowed but a two-block drop never is.
-		 */
-		private int standingY(Minecraft client, BlockPos at) {
-			for (int offset = -MAX_STEP_UP; offset <= MAX_STEP_UP; offset++) {
-				BlockPos candidate = at.above(offset);
-				BlockState floor = client.level.getBlockState(candidate.below());
-				BlockState feet = client.level.getBlockState(candidate);
-				BlockState head = client.level.getBlockState(candidate.above());
-				if (floor.blocksMotion()
-					&& floor.getFluidState().isEmpty()
-					&& (feet.isAir() || !feet.blocksMotion())
-					&& (head.isAir() || !head.blocksMotion())) {
-					return candidate.getY();
-				}
-			}
-			return Integer.MIN_VALUE;
+		private record Route(Vec3 destination, boolean complete, List<Vec3> waypoints) {
 		}
 
 		@Override
@@ -775,6 +830,10 @@ public final class GameActions {
 		private int lastWalkProgressAge;
 		private int approachTicks;
 		private double lastApproachDistance = Double.POSITIVE_INFINITY;
+		private List<Vec3> approachWaypoints = List.of();
+		private int approachWaypoint;
+		private BlockPos approachTarget;
+		private int nextApproachPlanAt;
 		private boolean destroying;
 		private int lastReportedPercent = -1;
 		private BlockState blockBeforeDestroy;
@@ -914,14 +973,42 @@ public final class GameActions {
 						target = visible;
 						center = Vec3.atCenterOf(target);
 						distance = player.position().distanceTo(center);
+						lastApproachDistance = Double.POSITIVE_INFINITY;
 						walkingAge = 0;
 					}
 				}
-				if (distance + 0.1 < lastApproachDistance) {
-					lastApproachDistance = distance;
+				if (!target.equals(approachTarget) || approachTicks >= nextApproachPlanAt) {
+					ApproachRoute.Route route = ApproachRoute.to(client, target);
+					if (route != null && route.waypoints().size() > 1) {
+						approachWaypoints = route.waypoints();
+						approachWaypoint = approachWaypoints.size() > 1 ? 1 : 0;
+					} else {
+						approachWaypoints = List.of();
+						approachWaypoint = 0;
+					}
+					approachTarget = target;
+					nextApproachPlanAt = approachTicks + 20;
+				}
+				Vec3 step = approachWaypoints.size() > approachWaypoint
+					? approachWaypoints.get(approachWaypoint)
+					: center;
+				while (
+					approachWaypoint < approachWaypoints.size() - 1
+						&& Math.hypot(step.x - player.getX(), step.z - player.getZ()) < 0.75
+						&& Math.abs(step.y - player.getY()) < 1.25
+				) {
+					approachWaypoint++;
+					step = approachWaypoints.get(approachWaypoint);
+				}
+				double progressDistance = approachWaypoints.isEmpty()
+					? distance
+					: player.position().distanceTo(step);
+				if (progressDistance + 0.1 < lastApproachDistance) {
+					lastApproachDistance = progressDistance;
 					lastWalkProgressAge = walkingAge;
 				}
-				double heading = Math.toRadians(player.getYRot());
+				double heading = Math.atan2(-(step.x - player.getX()), step.z - player.getZ());
+				player.setYRot((float) Math.toDegrees(heading));
 				Vec3 ahead = player.position().add(
 					-Math.sin(heading) * 0.6,
 					0,
@@ -1504,6 +1591,29 @@ public final class GameActions {
 
 	private static void releaseWalkInput(Minecraft client) {
 		setWalkInput(client, false);
+	}
+
+	/**
+	 * Returns the feet Y of a standable column within one block of the
+	 * expected level, or `Integer.MIN_VALUE` for a gap, fluid, or wall.
+	 * Movement is limited to one-block steps up and one-block drops.
+	 */
+	static int standingY(Minecraft client, BlockPos at) {
+		for (int offset = -PATH_STEP_DOWN; offset <= PATH_STEP_UP; offset++) {
+			BlockPos candidate = at.above(offset);
+			BlockState floor = client.level.getBlockState(candidate.below());
+			BlockState feet = client.level.getBlockState(candidate);
+			BlockState head = client.level.getBlockState(candidate.above());
+			if (floor.blocksMotion()
+				&& floor.getFluidState().isEmpty()
+				&& feet.getFluidState().isEmpty()
+				&& (feet.isAir() || !feet.blocksMotion())
+				&& head.getFluidState().isEmpty()
+				&& (head.isAir() || !head.blocksMotion())) {
+				return candidate.getY();
+			}
+		}
+		return Integer.MIN_VALUE;
 	}
 
 	/**
