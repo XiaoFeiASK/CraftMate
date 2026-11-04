@@ -170,6 +170,7 @@ craftmate/
 | --- | --- |
 | [架构总览](docs/reference/architecture.md) | 系统怎么分层、边界在哪、哪些不变量不能破 |
 | [技术设计](docs/reference/technical-design.md) | 协议、参数、状态机、人格、记忆、存储的细节 |
+| [相关项目调研](docs/research/related-projects.md) | 同类项目有哪些值得持续观察的技术方案 |
 | [外部集成](docs/guides/integrations.md) | 模型、语音、抖音评论和游戏身体怎么接 |
 | [Bridge 设计](docs/reference/bridge.md) | `/bridge` 协议、队列、控制权与真机约束 |
 | [验证清单](docs/operations/verification.md) | 现在能跑什么、哪些是部分实现、还缺什么 |
@@ -193,5 +194,10 @@ craftmate/
 - [SeekMemory](https://github.com/NeverENG/SeekMemory)（MIT / Apache-2.0）：注意力闸门、后续回复窗口、取消语义、人格版本链。
 - [AstrBot](https://github.com/AstrBotDevs/AstrBot)（AGPL-3.0）：仅参考阶段编排与策略选择器结构，不引用其代码。
 - [dafeiyu-astrbot](https://github.com/whyever77/dafeiyu-astrbot)（MIT）：大肥鱼社区人格的性格参考。
+- [MaiBot](https://github.com/Mai-with-u/MaiBot)（GPL-3.0）：关注自然对话节奏、观众关系与长期记忆、插件生态。
+- [MaiCraftMod](https://github.com/Mai-with-u/MaiCraftMod)（GPL-3.0-only）：关注 MCP 游戏能力目录、目标生命周期、可中断长任务和带证据的执行结果。
+- [Amaidesu](https://github.com/Mai-with-u/Amaidesu)（MIT）：关注主动节目编排、Planner/Replyer 分工、场次回顾，以及虚拟形象和演播设备协同。
+
+以上项目用于技术方案和功能方向参考，不代表复制或引入其代码。对比结论与后续观察点见[相关项目调研](docs/research/related-projects.md)。
 
 项目采用 MIT OR Apache-2.0 双许可，可任选其一。完整文本见 [licenses/](licenses/README.md)。
