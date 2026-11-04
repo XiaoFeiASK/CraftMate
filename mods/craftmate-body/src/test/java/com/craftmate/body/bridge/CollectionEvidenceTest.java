@@ -28,6 +28,10 @@ class CollectionEvidenceTest {
 	@Test
 	void blockedReasonDistinguishesFullInventoryFromNoApproach() {
 		assertNull(CollectionEvidence.blockedReason(true, 2, 60));
+		assertNull(
+			CollectionEvidence.blockedReason(false, 0, 80),
+			"a body still walking toward the item has not been blocked yet"
+		);
 		assertEquals(
 			"item is within reach but the inventory did not change",
 			CollectionEvidence.blockedReason(true, 60, 60)
