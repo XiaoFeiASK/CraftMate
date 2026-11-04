@@ -5,11 +5,11 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.client.player.AbstractClientPlayer;
@@ -23,14 +23,17 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.level.ClipContext;
-import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -42,8 +45,8 @@ import net.minecraft.world.phys.Vec3;
  */
 public final class GameActions {
 	private static final List<String> SKILLS = List.of(
-		"goto", "look_at", "mine_block", "chop_tree", "collect_items", "say", "wait", "attack", "equip", "eat",
-		"use_block", "place_block"
+		"goto", "look_at", "mine_block", "chop_tree", "collect_items", "deposit", "say", "wait", "attack", "equip",
+		"eat", "use_block", "place_block"
 	);
 	private static final List<String> CAPABILITIES = List.of(
 		"sensor", "move", "mine", "container", "attack", "use", "build", "camera", "hud"
@@ -58,6 +61,11 @@ public final class GameActions {
 	private static final int TARGET_SEARCH_RADIUS = 48;
 	private static final int COLLECT_SEARCH_RADIUS = 16;
 	private static final int COLLECT_STALL_TICKS = 20 * 4;
+	private static final int CONTAINER_SEARCH_RADIUS = 16;
+	private static final int CONTAINER_TRANSFER_TIMEOUT = 20 * 5;
+	private static final int CONTAINER_TOTAL_TIMEOUT = 20 * 60;
+	/** Let one predicted menu update settle long enough to be rolled back. */
+	private static final int CONTAINER_STABLE_TICKS = 10;
 	private static final int PATH_STEP_UP = 1;
 	private static final int PATH_STEP_DOWN = 1;
 	private static final Map<String, Task> TASKS = new ConcurrentHashMap<>();
@@ -197,6 +205,11 @@ public final class GameActions {
 					optional(args, "item"),
 					integer(args, "count", 1)
 				);
+				case "deposit" -> new DepositTask(
+					id,
+					optional(args, "item"),
+					optionalBlockPos(args, "container")
+				);
 				case "attack" -> new AttackTask(id, required(args, "target"));
 				case "equip" -> new EquipTask(id, required(args, "item"));
 				case "eat" -> new EatTask(id, optional(args, "item"));
@@ -293,7 +306,9 @@ public final class GameActions {
 		// restores the same instance afterwards. A task runs inside that
 		// window, so closing once at command acceptance is not enough: the
 		// menu would come back and freeze walking or mining on the next frame.
-		closeBlockingScreen(client);
+		boolean keepScreen = TASKS.values().stream()
+			.anyMatch(task -> task.started && task.keepScreen(client));
+		if (!keepScreen) closeBlockingScreen(client);
 		for (Task task : new ArrayList<>(TASKS.values())) {
 			if (!task.started || !TASKS.containsKey(task.id)) continue;
 			try {
@@ -308,6 +323,7 @@ public final class GameActions {
 	private static void finish(String id, String status, String code, String detail) {
 		Task task = TASKS.remove(id);
 		if (task == null) return;
+		task.stop(Minecraft.getInstance());
 		if (task.send != null) task.send.accept(result(id, status, code, detail));
 	}
 
@@ -316,6 +332,7 @@ public final class GameActions {
 	) {
 		Task task = TASKS.remove(id);
 		if (task == null) return;
+		task.stop(Minecraft.getInstance());
 		if (task.send != null) task.send.accept(result(id, status, code, detail, data));
 	}
 
@@ -377,6 +394,13 @@ public final class GameActions {
 		return found.getAsDouble();
 	}
 
+	private static BlockPos optionalBlockPos(JsonObject args, String name) {
+		if (!args.has(name) || args.get(name).isJsonNull()) return null;
+		JsonObject point = args.getAsJsonObject(name);
+		if (point == null) throw new IllegalArgumentException("invalid point " + name);
+		return BlockPos.containing(number(point, "x"), number(point, "y"), number(point, "z"));
+	}
+
 	private static String message(Throwable error) {
 		String message = error.getMessage();
 		return message == null || message.isBlank() ? error.getClass().getSimpleName() : message;
@@ -415,6 +439,14 @@ public final class GameActions {
 		abstract void tick(Minecraft client);
 
 		void stop(Minecraft client) {
+		}
+
+		/**
+		 * A task that needs a screen (for example the container it just
+		 * opened) must keep it across the normal "close blocking GUI" pass.
+		 */
+		boolean keepScreen(Minecraft client) {
+			return false;
 		}
 	}
 
@@ -1383,7 +1415,7 @@ public final class GameActions {
 			return false;
 		}
 
-		private static BlockHitResult clip(Minecraft client, LocalPlayer player, Vec3 center) {
+		static BlockHitResult clip(Minecraft client, LocalPlayer player, Vec3 center) {
 			return client.level.clip(
 				new ClipContext(
 					player.getEyePosition(),
@@ -1401,7 +1433,7 @@ public final class GameActions {
 		 * hit test so the body cannot keep walking or swinging while looking
 		 * somewhere else.
 		 */
-		private static void aimAt(LocalPlayer player, Vec3 center) {
+		static void aimAt(LocalPlayer player, Vec3 center) {
 			Vec3 direction = center.subtract(player.getEyePosition()).normalize();
 			player.setYRot((float) Math.toDegrees(Math.atan2(-direction.x, direction.z)));
 			player.setXRot((float) Math.toDegrees(-Math.asin(direction.y)));
@@ -1620,6 +1652,579 @@ public final class GameActions {
 		@Override
 		void stop(Minecraft client) {
 			releaseWalkInput(client);
+		}
+	}
+
+	private static final class DepositTask extends Task {
+		private static final int WALK_BUDGET_TICKS = 20 * 15;
+		private static final int APPROACH_STALL_TICKS = 20 * 3;
+		private static final int MENU_TIMEOUT_TICKS = 20;
+		private final String itemId;
+		private final BlockPos requestedContainer;
+		private BlockPos containerPos;
+		private BaseContainerBlockEntity container;
+		private AbstractContainerMenu menu;
+		private boolean openedByTask;
+		private boolean walking;
+		private int walkingAge;
+		private int lastWalkProgressAge;
+		private double lastApproachDistance = Double.POSITIVE_INFINITY;
+		private List<Vec3> approachWaypoints = List.of();
+		private int approachWaypoint;
+		private BlockPos approachTarget;
+		private int nextApproachPlanAt;
+		private int menuSubmittedAt = -1;
+		private int stableTicks;
+		private Map<String, Integer> settledInventory;
+		private Map<String, Integer> settledContainer;
+		private Map<String, Integer> lastInventory;
+		private Map<String, Integer> lastContainer;
+		private boolean transferSubmitted;
+		private int transferStartedAt = -1;
+		private int lastConfirmedAt = -1;
+		private int moved;
+		private final Map<String, Integer> deposited = new java.util.LinkedHashMap<>();
+
+		DepositTask(String id, String itemId, BlockPos requestedContainer) {
+			super(id);
+			this.itemId = itemId;
+			this.requestedContainer = requestedContainer;
+		}
+
+		@Override
+		boolean validate(Minecraft client) {
+			if (!super.validate(client)) return false;
+			if (itemId != null) {
+				Identifier id = Identifier.tryParse(itemId);
+				if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
+					validationError = "unknown item " + itemId;
+					return false;
+				}
+			}
+			return true;
+		}
+
+		@Override
+		void start(Minecraft client) {
+			if (!hasEligibleItems(client)) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					itemId == null
+						? "inventory has no items that can be deposited"
+						: "no " + itemId + " in the inventory",
+					evidence(null)
+				);
+				return;
+			}
+			containerPos = requestedContainer == null
+				? nearestContainer(client)
+				: requestedContainer.immutable();
+			if (containerPos == null) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"no container with storage within " + CONTAINER_SEARCH_RADIUS + " blocks",
+					evidence(null)
+				);
+				return;
+			}
+			container = containerAt(client, containerPos);
+			if (container == null) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					requestedContainer == null
+						? "nearest block entity is not a usable storage container"
+						: "requested position has no usable storage container",
+					evidence(null)
+				);
+				return;
+			}
+			if (!client.level.getBlockState(containerPos).getFluidState().isEmpty()) {
+				finish(id, "failed", "E_PRECONDITION", "container is in a fluid", evidence(null));
+				return;
+			}
+			walking = !canInteract(client, client.player, containerPos);
+			lastApproachDistance = Double.POSITIVE_INFINITY;
+			send.accept(progress(id, walking ? "walking" : "opening", 0, 1));
+		}
+
+		@Override
+		void tick(Minecraft client) {
+			if (containerPos == null) {
+				finish(id, "failed", "E_PRECONDITION", "container position is missing", evidence(null));
+				return;
+			}
+			if (menu == null) {
+				if (walking) {
+					approach(client);
+					return;
+				}
+				open(client);
+				return;
+			}
+			transfer(client);
+		}
+
+		@Override
+		boolean keepScreen(Minecraft client) {
+			return openedByTask || menuSubmittedAt >= 0;
+		}
+
+		private void approach(Minecraft client) {
+			LocalPlayer player = client.player;
+			MineTask.aimAt(player, Vec3.atCenterOf(containerPos));
+			if (canInteract(client, player, containerPos)) {
+				walking = false;
+				releaseWalkInput(client);
+				send.accept(progress(id, "opening", 0, 1));
+				return;
+			}
+			walkingAge++;
+			if (walkingAge > WALK_BUDGET_TICKS) {
+				stop(client);
+				finish(
+					id,
+					"timeout",
+					"E_TIMEOUT",
+					"could not reach the container in time",
+					evidence("container approach timed out")
+				);
+				return;
+			}
+			Vec3 center = Vec3.atCenterOf(containerPos);
+			if (!containerPos.equals(approachTarget) || walkingAge >= nextApproachPlanAt) {
+				ApproachRoute.Route route = ApproachRoute.to(client, containerPos);
+				if (route != null && route.waypoints().size() > 1) {
+					approachWaypoints = route.waypoints();
+					approachWaypoint = 1;
+				} else {
+					approachWaypoints = List.of();
+					approachWaypoint = 0;
+				}
+				approachTarget = containerPos;
+				nextApproachPlanAt = walkingAge + 20;
+			}
+			Vec3 step = approachWaypoints.size() > approachWaypoint
+				? approachWaypoints.get(approachWaypoint)
+				: center;
+			while (
+				approachWaypoint < approachWaypoints.size() - 1
+					&& Math.hypot(step.x - player.getX(), step.z - player.getZ()) < 0.75
+					&& Math.abs(step.y - player.getY()) < 1.25
+			) {
+				approachWaypoint++;
+				step = approachWaypoints.get(approachWaypoint);
+			}
+			double progressDistance = player.position().distanceTo(step);
+			if (progressDistance + 0.1 < lastApproachDistance) {
+				lastApproachDistance = progressDistance;
+				lastWalkProgressAge = walkingAge;
+			} else if (walkingAge - lastWalkProgressAge > APPROACH_STALL_TICKS) {
+				stop(client);
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"container approach made no progress for 3 seconds",
+					evidence("could not reach a safe interaction spot beside the container")
+				);
+				return;
+			}
+			double heading = Math.atan2(-(step.x - player.getX()), step.z - player.getZ());
+			player.setYRot((float) Math.toDegrees(heading));
+			Vec3 ahead = player.position().add(
+				-Math.sin(heading) * 0.6,
+				0,
+				Math.cos(heading) * 0.6
+			);
+			BlockPos foot = BlockPos.containing(ahead.x, player.getY() - 0.5, ahead.z);
+			boolean ledge = client.level.getBlockState(foot).isAir()
+				&& client.level.getBlockState(foot.below()).isAir();
+			if (ledge && player.onGround()) {
+				stop(client);
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"dangerous drop on the route to the container",
+					evidence("refused an unsafe container approach")
+				);
+				return;
+			}
+			if (player.horizontalCollision && player.onGround()) player.jumpFromGround();
+			if (player.input != null) setWalkInput(client, true);
+			if (walkingAge % 20 == 0) {
+				send.accept(progress(id, "walking", (int) Math.round(player.position().distanceTo(center)), 0));
+			}
+		}
+
+		private void open(Minecraft client) {
+			BlockPos current = containerPos;
+			if (current == null || containerAt(client, current) == null) {
+				finish(id, "failed", "E_WORLD_CHANGED", "container disappeared", evidence("container was removed"));
+				return;
+			}
+			if (!canInteract(client, client.player, current)) {
+				walking = true;
+				lastApproachDistance = Double.POSITIVE_INFINITY;
+				lastWalkProgressAge = walkingAge;
+				return;
+			}
+			if (menuSubmittedAt >= 0) {
+				AbstractContainerScreen<?> screen = client.screen instanceof AbstractContainerScreen<?> value
+					? value
+					: null;
+				if (screen != null) {
+					openedByTask = true;
+					menu = screen.getMenu();
+					if (!menu.stillValid(client.player)) {
+						closeOwnMenu(client);
+						finish(
+							id,
+							"failed",
+							"E_PRECONDITION",
+							"container is no longer reachable after opening",
+							evidence("menu became invalid")
+						);
+						return;
+					}
+					lastInventory = inventoryCounts(client.player);
+					lastContainer = containerCounts(menu, containerSlotCount(menu));
+					settledInventory = lastInventory;
+					settledContainer = lastContainer;
+					stableTicks = 0;
+					menuSubmittedAt = -1;
+					transferStartedAt = age;
+					lastConfirmedAt = age;
+					walking = false;
+					send.accept(progress(id, "transferring", 0, 1));
+					return;
+				}
+				if (age - menuSubmittedAt > MENU_TIMEOUT_TICKS) {
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"right-click did not open a container screen",
+						evidence("no menu opened")
+					);
+				}
+				return;
+			}
+			Vec3 center = Vec3.atCenterOf(current);
+			MineTask.aimAt(client.player, center);
+			BlockHitResult hit = MineTask.clip(client, client.player, center);
+			if (hit.getType() != HitResult.Type.BLOCK || !hit.getBlockPos().equals(current)) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"container is outside reach or not visible",
+					evidence("could not aim at the container")
+				);
+				return;
+			}
+			releaseWalkInput(client);
+			menuSubmittedAt = age;
+			client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, hit);
+		}
+
+		private void transfer(Minecraft client) {
+			if (!openedByTask) {
+				finish(id, "failed", "E_PRECONDITION", "container menu was not opened by this task", evidence("unowned menu"));
+				return;
+			}
+			if (client.screen == null || !(client.screen instanceof AbstractContainerScreen<?> screen)) {
+				closeOwnMenu(client);
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					moved > 0
+						? "only " + moved + " items were deposited before the menu closed"
+						: "container screen closed before any transfer was confirmed",
+					evidence("the container screen closed")
+				);
+				return;
+			}
+			AbstractContainerMenu currentMenu = screen.getMenu();
+			if (currentMenu != menu) {
+				finish(id, "failed", "E_WORLD_CHANGED", "a different container menu replaced the deposit menu", evidence("menu identity changed"));
+				closeOwnMenu(client);
+				return;
+			}
+			if (!currentMenu.stillValid(client.player)) {
+				closeOwnMenu(client);
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"container is no longer reachable",
+					evidence("menu became invalid")
+				);
+				return;
+			}
+			Map<String, Integer> inventory = inventoryCounts(client.player);
+			Map<String, Integer> stored = containerCounts(currentMenu, containerSlotCount(currentMenu));
+			if (
+				age - transferStartedAt > CONTAINER_TOTAL_TIMEOUT
+					|| age - lastConfirmedAt > CONTAINER_TRANSFER_TIMEOUT
+			) {
+				complete(client, "container transfer timed out before all matching items were stored");
+				return;
+			}
+			if (transferSubmitted) {
+				if (!inventory.equals(lastInventory) || !stored.equals(lastContainer)) {
+					stableTicks = 0;
+					lastInventory = inventory;
+					lastContainer = stored;
+					return;
+				}
+				stableTicks++;
+				if (stableTicks < CONTAINER_STABLE_TICKS) return;
+				Map<String, Integer> confirmed = ContainerEvidence.moves(
+					settledInventory,
+					inventory,
+					settledContainer,
+					stored
+				);
+				if (!confirmed.isEmpty()) {
+					for (var entry : confirmed.entrySet()) {
+						deposited.merge(entry.getKey(), entry.getValue(), Integer::sum);
+					}
+					moved += confirmed.values().stream().mapToInt(Integer::intValue).sum();
+					settledInventory = inventory;
+					settledContainer = stored;
+					lastConfirmedAt = age;
+					send.accept(progress(id, "transferring", moved, 0));
+				}
+				transferSubmitted = false;
+				lastInventory = inventory;
+				lastContainer = stored;
+				stableTicks = 0;
+				if (!hasEligibleItems(client)) {
+					complete(client, null);
+					return;
+				}
+				return;
+			}
+			if (!inventory.equals(lastInventory) || !stored.equals(lastContainer) || stableTicks < CONTAINER_STABLE_TICKS) {
+				if (!inventory.equals(lastInventory) || !stored.equals(lastContainer)) stableTicks = 0;
+				else stableTicks++;
+				lastInventory = inventory;
+				lastContainer = stored;
+				if (stableTicks < CONTAINER_STABLE_TICKS) return;
+			}
+			int slot = findDepositSlot(client.player, currentMenu);
+			if (slot < 0) {
+				String reason = hasEligibleItems(client)
+					? ContainerEvidence.incompleteReason(true, true, false)
+					: ContainerEvidence.incompleteReason(true, false, false);
+				complete(client, reason);
+				return;
+			}
+			Slot menuSlot = currentMenu.getSlot(slot);
+			if (menuSlot.getItem().isEmpty()) return;
+			client.gameMode.handleInventoryMouseClick(
+				currentMenu.containerId,
+				slot,
+				0,
+				ClickType.QUICK_MOVE,
+				client.player
+			);
+			transferSubmitted = true;
+			lastInventory = inventory;
+			lastContainer = stored;
+			stableTicks = 0;
+		}
+
+		private boolean hasEligibleItems(Minecraft client) {
+			Inventory inventory = client.player.getInventory();
+			for (int slot = 0; slot < Inventory.INVENTORY_SIZE; slot++) {
+				if (eligible(inventory.getItem(slot))) return true;
+			}
+			return false;
+		}
+
+		private boolean eligible(ItemStack stack) {
+			if (stack.isEmpty()) return false;
+			if (itemId != null) {
+				return BuiltInRegistries.ITEM.getKey(stack.getItem()).toString().equals(itemId);
+			}
+			return !stack.isDamageableItem();
+		}
+
+		private BlockPos nearestContainer(Minecraft client) {
+			BlockPos origin = client.player.blockPosition();
+			BlockPos best = null;
+			double bestDistance = Double.POSITIVE_INFINITY;
+			for (BlockPos pos : BlockPos.betweenClosed(
+				origin.offset(-CONTAINER_SEARCH_RADIUS, -8, -CONTAINER_SEARCH_RADIUS),
+				origin.offset(CONTAINER_SEARCH_RADIUS, 8, CONTAINER_SEARCH_RADIUS)
+			)) {
+				BlockPos candidate = pos.immutable();
+				if (candidate.distSqr(origin) > (double) CONTAINER_SEARCH_RADIUS * CONTAINER_SEARCH_RADIUS) continue;
+				if (containerAt(client, candidate) == null) continue;
+				double distance = client.player.distanceToSqr(
+					candidate.getX() + 0.5,
+					candidate.getY() + 0.5,
+					candidate.getZ() + 0.5
+				);
+				if (distance < bestDistance) {
+					bestDistance = distance;
+					best = candidate;
+				}
+			}
+			return best;
+		}
+
+		private BaseContainerBlockEntity containerAt(Minecraft client, BlockPos pos) {
+			return client.level.getBlockEntity(pos) instanceof BaseContainerBlockEntity entity
+				? entity
+				: null;
+		}
+
+		private int findDepositSlot(LocalPlayer player, AbstractContainerMenu current) {
+			int containerSlots = containerSlotCount(current);
+			for (int index = containerSlots; index < current.slots.size(); index++) {
+				Slot slot = current.getSlot(index);
+				if (!(slot.container instanceof Inventory)) continue;
+				// Armour and off-hand slots also use Inventory, while the
+				// evidence maps cover the main inventory only. Transferring
+				// from those slots could never be confirmed.
+				if (slot.getContainerSlot() >= Inventory.INVENTORY_SIZE) continue;
+				ItemStack stack = slot.getItem();
+				if (!eligible(stack)) continue;
+				if (slot.isFake() || !slot.mayPickup(player)) continue;
+				if (!hasRoom(current, slot.getItem())) continue;
+				return index;
+			}
+			return -1;
+		}
+
+		private boolean hasRoom(AbstractContainerMenu current, ItemStack stack) {
+			int containerSlots = containerSlotCount(current);
+			for (int index = 0; index < containerSlots; index++) {
+				Slot slot = current.getSlot(index);
+				if (!slot.mayPlace(stack)) continue;
+				ItemStack existing = slot.getItem();
+				if (existing.isEmpty()) return true;
+				if (
+					ItemStack.isSameItemSameComponents(existing, stack)
+						&& existing.getCount() < Math.min(existing.getMaxStackSize(), slot.getMaxStackSize(stack))
+				) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		private Map<String, Integer> inventoryCounts(LocalPlayer player) {
+			Map<String, Integer> counts = new java.util.TreeMap<>();
+			Inventory inventory = player.getInventory();
+			for (int slot = 0; slot < Inventory.INVENTORY_SIZE; slot++) {
+				ItemStack stack = inventory.getItem(slot);
+				if (stack.isEmpty()) continue;
+				String item = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+				counts.merge(item, stack.getCount(), Integer::sum);
+			}
+			return counts;
+		}
+
+		private int containerSlotCount(AbstractContainerMenu current) {
+			for (int index = 0; index < current.slots.size(); index++) {
+				if (current.getSlot(index).container instanceof Inventory) return index;
+			}
+			return 0;
+		}
+
+		private Map<String, Integer> containerCounts(AbstractContainerMenu current, int containerSlots) {
+			Map<String, Integer> counts = new java.util.TreeMap<>();
+			for (int index = 0; index < Math.min(containerSlots, current.slots.size()); index++) {
+				Slot slot = current.getSlot(index);
+				if (slot.container instanceof Inventory) continue;
+				ItemStack stack = slot.getItem();
+				if (stack.isEmpty()) continue;
+				String item = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+				counts.merge(item, stack.getCount(), Integer::sum);
+			}
+			return counts;
+		}
+
+		private void complete(Minecraft client, String problem) {
+			closeOwnMenu(client);
+			JsonObject data = evidence(problem);
+			if (problem == null && moved > 0) {
+				finish(id, "completed", null, null, data);
+			} else {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					moved > 0
+						? "only " + moved + " items were confirmed in the container"
+						: problem == null ? "no transfer was confirmed" : problem,
+					data
+				);
+			}
+		}
+
+		private JsonObject evidence(String problem) {
+			JsonObject outcome = new JsonObject();
+			outcome.addProperty(
+				"summary",
+				moved > 0
+					? "deposited " + moved + " items into the container"
+					: "no deposit was confirmed"
+			);
+			JsonArray changes = new JsonArray();
+			for (var entry : deposited.entrySet()) {
+				JsonObject change = new JsonObject();
+				change.addProperty("kind", "item_deposited");
+				change.addProperty("detail", entry.getValue() + " x " + entry.getKey());
+				if (containerPos != null) change.add("position", position(containerPos));
+				changes.add(change);
+			}
+			outcome.add("changes", changes);
+			if (problem != null) {
+				outcome.addProperty("problem", problem);
+				JsonArray unconfirmed = new JsonArray();
+				unconfirmed.add("container transfer was not confirmed by matching inventory and container counts");
+				outcome.add("unconfirmed", unconfirmed);
+			}
+			return outcome;
+		}
+
+		private void closeOwnMenu(Minecraft client) {
+			if (!openedByTask && menuSubmittedAt < 0) return;
+			openedByTask = false;
+			menuSubmittedAt = -1;
+			menu = null;
+			if (client.player != null && client.screen instanceof AbstractContainerScreen<?>) {
+				client.player.closeContainer();
+			} else if (client.screen instanceof AbstractContainerScreen<?>) {
+				client.setScreen(null);
+			}
+		}
+
+		private boolean reachesContainer(LocalPlayer player, BlockPos target) {
+			return player.isWithinBlockInteractionRange(target, 0.0);
+		}
+
+		private boolean canInteract(Minecraft client, LocalPlayer player, BlockPos target) {
+			return reachesContainer(player, target)
+				&& MineTask.clip(client, player, Vec3.atCenterOf(target)).getBlockPos().equals(target);
+		}
+
+		@Override
+		void stop(Minecraft client) {
+			releaseWalkInput(client);
+			closeOwnMenu(client);
 		}
 	}
 
