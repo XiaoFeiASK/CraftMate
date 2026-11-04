@@ -202,6 +202,26 @@ describe("event gate under burst", () => {
     assert.ok(gate.dropCounts()["rate limited"] !== undefined || gate.dropCounts()["queue full"] !== undefined);
   });
 
+  test("a rate-limited event can still arrive on a later replay", () => {
+    const gate = new EventGate({ perSecond: 1, capacity: 4 });
+    const first: AudienceEvent = {
+      id: "burst-a",
+      source: "douyin",
+      kind: "comment",
+      userId: "viewer-a",
+      nickname: "观众",
+      text: "冲",
+      ts: 1_000,
+    };
+    const shed: AudienceEvent = { ...first, id: "burst-b" };
+
+    assert.equal(gate.admit(first, 1_000), true);
+    assert.equal(gate.admit(shed, 1_000), false, "over the per-second limit");
+    // The upstream replays the dropped comment after reconnecting. It was never
+    // delivered, so the dedupe window must not swallow it.
+    assert.equal(gate.admit(shed, 3_000), true);
+  });
+
   test("gifts survive a burst that sheds chat", () => {
     const gate = new EventGate({ perSecond: 1, capacity: 1 });
     const gift: AudienceEvent = {

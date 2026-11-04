@@ -335,19 +335,18 @@ export class Planner {
       };
     }
     if (context.decision.intent === "move" && supports("goto")) {
-      const target = context.world && typeof context.world === "object"
-        ? (context.world as { position?: { x?: unknown; y?: unknown; z?: unknown } }).position
-        : undefined;
-      if (target && Number.isFinite(target.x) && Number.isFinite(target.y) && Number.isFinite(target.z)) {
+      const target = worldPosition(context.world);
+      if (target !== null) {
+        const step = forwardOffset(context.world, 4);
         return {
           speech: "模型没接上，我先往前面走一段。",
           skill: {
             name: "goto",
             args: {
               target: {
-                x: Number(target.x) + 4,
-                y: Number(target.y),
-                z: Number(target.z),
+                x: target.x + step.x,
+                y: target.y,
+                z: target.z + step.z,
               },
             },
             idempotencyKey,
@@ -376,15 +375,16 @@ export class Planner {
       const position = worldPosition(context.world);
       if (position !== null && supports("goto")) {
         const distance = forwardDistance(context.decision.text);
+        const step = forwardOffset(context.world, distance);
         return {
           speech: "好，我往前走几步。",
           skill: {
             name: "goto",
             args: {
               target: {
-                x: position.x + distance,
+                x: position.x + step.x,
                 y: position.y,
-                z: position.z,
+                z: position.z + step.z,
               },
             },
             idempotencyKey: crypto.randomUUID(),
@@ -480,6 +480,21 @@ function worldPosition(world: unknown): { x: number; y: number; z: number } | nu
   return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)
     ? { x: Number(x), y: Number(y), z: Number(z) }
     : null;
+}
+
+/**
+ * Forward vector for "walk on" requests. Minecraft reports yaw in degrees with
+ * 0 facing +Z and 90 facing -X, so forward is (-sin, cos) — the same convention
+ * `nextAutonomousAction` uses. A snapshot without a yaw keeps the historical
+ * +X assumption instead of inventing a heading.
+ */
+function forwardOffset(world: unknown, distance: number): { x: number; z: number } {
+  const yaw = world !== null && typeof world === "object"
+    ? (world as { yaw?: unknown }).yaw
+    : undefined;
+  if (!Number.isFinite(yaw)) return { x: distance, z: 0 };
+  const radians = (Number(yaw) * Math.PI) / 180;
+  return { x: -Math.sin(radians) * distance, z: Math.cos(radians) * distance };
 }
 
 function forwardDistance(text: string): number {

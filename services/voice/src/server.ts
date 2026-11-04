@@ -137,6 +137,12 @@ export function createVoiceServer({
       }
     });
 
+    socket.on("error", (error) => {
+      clients.delete(socket);
+      console.warn(
+        `voice: socket error — ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
     socket.on("close", () => clients.delete(socket));
   });
 

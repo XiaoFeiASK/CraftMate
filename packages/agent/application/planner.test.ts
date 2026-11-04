@@ -217,6 +217,24 @@ describe("stage C planner", () => {
     assert.match(planned.speech, /走/);
   });
 
+  test("walking forward follows the body yaw instead of a fixed +X", async () => {
+    const planner = new Planner({ provider: hanging });
+
+    const planned = await planner.plan({
+      decision: decision({ text: "往前走两步", intent: "move" }),
+      goal: "盖房",
+      persona,
+      availableSkills: ["goto"],
+      // Yaw 90 faces -X in Minecraft's convention; 0 would face +Z.
+      world: { position: { x: 10, y: 64, z: 20 }, yaw: 90 },
+    });
+
+    assert.equal(planned.skill?.name, "goto");
+    const target = (planned.skill?.args as { target: { x: number; z: number } }).target;
+    assert.ok(Math.abs(target.x - 8) < 1e-9, `x was ${target.x}`);
+    assert.ok(Math.abs(target.z - 20) < 1e-9, `z was ${target.z}`);
+  });
+
   test("fast planning still requires an approved EXECUTE decision", async () => {
     let called = false;
     const planner = new Planner({
