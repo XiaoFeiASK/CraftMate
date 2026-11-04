@@ -2,8 +2,8 @@ import type { BridgeHealth } from "@craftmate/contracts";
 import { useEffect, useRef, useState } from "react";
 
 /** Bundled scene used as the stage backdrop until real game frames arrive. */
-const SCENE_VIDEO = "/scene/pond-loop.mp4";
-const SCENE_POSTER = "/scene/pond-poster.jpg";
+const SCENE_VIDEO = `${import.meta.env.BASE_URL}scene/pond-loop.mp4`;
+const SCENE_POSTER = `${import.meta.env.BASE_URL}scene/pond-poster.jpg`;
 
 /**
  * The body serves JPEG frames from loopback. It is deliberately outside the
