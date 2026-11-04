@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { prioritySchema, skillNameSchema } from "./decision.ts";
+import { skillOutcomeSchema } from "./outcome.ts";
 
 export { skillNameSchema, type SkillName } from "./decision.ts";
 
@@ -80,9 +81,42 @@ export const worldSnapshotSchema = z.object({
   })).max(16).optional(),
   nearbyBlocks: z.array(z.object({
     id: z.string().min(1).max(160),
+    count: z.number().int().positive().optional(),
   })).max(32).optional(),
 });
 export type WorldSnapshot = z.infer<typeof worldSnapshotSchema>;
+
+/**
+ * Body-observed danger that outranks any queued skill. These are facts about
+ * the player, not decisions: the body reports one when it is about to take
+ * damage and the orchestrator decides what to cancel. A new kind may be added
+ * without a protocol bump because the wire carries a plain string.
+ */
+export const reflexEventSchema = z.object({
+  kind: z.enum([
+    "lava",
+    "low_health",
+    "falling",
+    "drowning",
+    "on_fire",
+    "starving",
+    "creeper",
+  ]),
+  /** One sentence an operator or model can read without knowing the body. */
+  detail: z.string().min(1).max(240),
+  /** Player health after the observation, so the console can show severity. */
+  health: z.number().nonnegative().optional(),
+});
+export type ReflexEvent = z.infer<typeof reflexEventSchema>;
+
+export { skillOutcomeSchema, type SkillOutcome } from "./outcome.ts";
+
+/**
+ * Event names the body may publish over the existing `event` frame. Unknown
+ * names stay valid on purpose: an older orchestrator must ignore a newer
+ * body's events instead of dropping the connection.
+ */
+export const REFLEX_EVENT_NAME = "reflex" as const;
 
 export const actionStatusSchema = z.enum([
   "queued",

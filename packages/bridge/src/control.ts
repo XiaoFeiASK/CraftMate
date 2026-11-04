@@ -13,6 +13,8 @@ export interface ControlSnapshot {
   readonly generation: number;
   readonly reason: string;
   readonly at: number;
+  /** A watchdog safety stop may resume once the body proves it is alive. */
+  readonly recoverable: boolean;
 }
 
 export interface ControlAuthorityOptions {
@@ -45,6 +47,7 @@ export class ControlAuthority {
   private generation = 1;
   private reason: string;
   private at: number;
+  private recoverable = false;
 
   constructor(options: ControlAuthorityOptions = {}) {
     this.clock = options.clock ?? DEFAULT_CLOCK;
@@ -59,6 +62,7 @@ export class ControlAuthority {
       generation: this.generation,
       reason: this.reason,
       at: this.at,
+      recoverable: this.recoverable,
     };
   }
 
@@ -75,6 +79,16 @@ export class ControlAuthority {
   }
 
   /**
+   * Stop because the body stopped proving it is alive. Unlike an operator
+   * emergency stop, this clears itself when the body heartbeats again.
+   */
+  safetyStop(reason = "body heartbeat missed"): ControlSnapshot {
+    const snapshot = this.set("stopped", reason);
+    this.recoverable = true;
+    return snapshot;
+  }
+
+  /**
    * A dropped socket invalidates in-flight authorisations but keeps the
    * operator's intent. Reconnecting after a normal transport failure can
    * resume agent control; reconnecting after takeover or stop cannot.
@@ -85,6 +99,7 @@ export class ControlAuthority {
 
   private set(permission: ControlPermission, reason: string): ControlSnapshot {
     this.permission = permission;
+    this.recoverable = false;
     return this.bump(reason);
   }
 

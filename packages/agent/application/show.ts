@@ -102,6 +102,17 @@ interface ShowOptions {
   readonly memoryBudgetTokens?: number;
 }
 
+/**
+ * Something the body lived through that is worth a line of speech. It is a
+ * fact from the game, never an instruction, so it can only add context to a
+ * plan; it cannot authorise a skill.
+ */
+export interface WorldIncident {
+  readonly kind: string;
+  readonly detail: string;
+  readonly at: number;
+}
+
 export function defaultSettings(persona: Persona, goalText = "盖一间带床和箱子的海崖小屋"): ShowSettings {
   return {
     goal: goalText,
@@ -155,6 +166,7 @@ export class Show {
   private readonly memoryBudgetTokens: number;
   /** Decisions waiting on Stage C. Only the newest one may still speak. */
   private readonly pendingPlans = new Set<string>();
+  private readonly incidents: WorldIncident[] = [];
 
   constructor(options: ShowOptions) {
     this.personaId = options.persona.id;
@@ -235,6 +247,7 @@ export class Show {
       decision,
       goal: this.settings.goal,
       persona: this.personaSummary(),
+      ...(this.incidents.length > 0 ? { incidents: this.incidents.slice(-4) } : {}),
       ...(this.world ? { world: this.world() } : {}),
       ...(this.availableSkills
         ? { availableSkills: this.availableSkills() }
@@ -287,6 +300,34 @@ export class Show {
 
   currentSettings(): ShowSettings {
     return structuredClone(this.settings);
+  }
+
+  /**
+   * Reflexes arrive between comments. Keeping only the recent few means the
+   * next reply can react to "I just got knocked into lava" without replaying
+   * an hour of scrapes, and the show never grows with the session.
+   */
+  recordIncident(incident: WorldIncident): void {
+    this.incidents.push(incident);
+    if (this.incidents.length > 8) this.incidents.splice(0, this.incidents.length - 8);
+  }
+
+  currentIncidents(): readonly WorldIncident[] {
+    return [...this.incidents];
+  }
+
+  /**
+   * The bridge settles the skill after the decision was already shown. Writing
+   * the terminal status back onto that decision is what lets the console say
+   * "it broke two logs" instead of only "it decided to chop".
+   */
+  settleDecision(decisionId: string, outcome: NonNullable<Decision["outcome"]>): Decision | null {
+    const index = this.decisions.findIndex((item) => item.id === decisionId);
+    if (index < 0) return null;
+    const next: Decision = { ...this.decisions[index]!, outcome };
+    this.decisions[index] = next;
+    this.recorder?.updateDecision?.(next);
+    return next;
   }
 
   /** The settings are replaced wholesale so a partial edit can never drop a field. */

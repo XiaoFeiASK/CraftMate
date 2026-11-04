@@ -50,6 +50,9 @@ public final class BridgeClient {
 		this.uri = uri;
 		this.token = token;
 		this.executor = new MinecraftExecutor(Minecraft.getInstance());
+		// Reflex events travel on the same socket as command results so the
+		// orchestrator sees one ordered account of what happened to the body.
+		GameActions.bindSender(this::send);
 		this.heartbeats = Executors.newSingleThreadScheduledExecutor(runnable -> {
 			Thread thread = new Thread(runnable, "craftmate-bridge-heartbeat");
 			thread.setDaemon(true);
@@ -163,7 +166,7 @@ public final class BridgeClient {
 			send(reject(id, "E_PERMISSION", "agent control is not granted"));
 			return;
 		}
-		if (!executor.ready()) {
+		if (!GameActions.ready(Minecraft.getInstance())) {
 			send(reject(id, "E_PRECONDITION", "game screen is open or no world is loaded"));
 			return;
 		}

@@ -10,6 +10,7 @@ import { createIngressSupervisor } from "./ingress-supervisor.ts";
 import { readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { skillOutcomeSchema } from "@craftmate/contracts";
 
 const port = Number(process.env.CRAFTMATE_PORT ?? 4321);
 // Loopback by default. Set CRAFTMATE_HOST=0.0.0.0 only when another device
@@ -113,6 +114,62 @@ bridge = createBridgeUpgrade({
         `bridge: ${event.type} ${event.op} ${event.status ?? ""} ${event.detail ?? ""}`.trim(),
       );
     },
+  },
+  onOutcome: (outcome) => {
+    // The decision id is the join between "it was asked to" and "what happened".
+    // Without it the console would show two unrelated rows.
+    const decision = persistent.show
+      .recent()
+      .find((entry) => entry.id === outcome.decisionId);
+    // The body is untrusted input even after the bridge validated its frame.
+    // Keep a malformed result as a bare outcome instead of persisting it.
+    const parsedOutcome = outcome.outcome
+      ? skillOutcomeSchema.safeParse(outcome.outcome)
+      : null;
+    const settled = decision
+      ? persistent.show.settleDecision(decision.id, {
+          status: outcome.status,
+          ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
+          ...(outcome.detail === undefined ? {} : { detail: outcome.detail }),
+          outcome: parsedOutcome?.success ? parsedOutcome.data : null,
+          at: outcome.at,
+        })
+      : null;
+    if (settled) server.publishDecision(settled);
+    // A body-originated failure is the only place some reasons survive. Give
+    // the planner the game fact so the next line can be about what actually
+    // happened rather than a generic apology.
+    if (outcome.status !== "failed" || outcome.detail === undefined) return;
+    persistent.show.recordIncident({
+      kind: "blocked",
+      detail: outcome.detail,
+      at: outcome.at,
+    });
+    // The console must not wait for the 2-second health poll: a safety stop is
+    // exactly the moment an operator wants to see the reason.
+    server.publishBridgeHealth(bridge.health());
+  },
+  onEvent: (event) => {
+    persistent.worldEvents.append(persistent.context.sessionId, {
+      name: event.name,
+      tick: bridge.health().tick,
+      data: event.data,
+      at: Date.now(),
+    });
+    server.publishWorldEvent({
+      name: event.name,
+      data: event.data,
+      at: Date.now(),
+    });
+    if (event.name !== "reflex") return;
+    const data = event.data as { kind?: unknown; detail?: unknown };
+    if (typeof data.kind !== "string" || typeof data.detail !== "string") return;
+    persistent.show.recordIncident({
+      kind: data.kind,
+      detail: data.detail,
+      at: Date.now(),
+    });
+    server.publishBridgeHealth(bridge.health());
   },
 });
 

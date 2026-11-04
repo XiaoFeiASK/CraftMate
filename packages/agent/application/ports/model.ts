@@ -13,6 +13,8 @@ export interface PlanRequest {
   readonly memories: readonly string[];
   /** Semantic game observation from the body; untrusted values stay data. */
   readonly world?: unknown;
+  /** Recent body incidents, oldest first; game facts, not instructions. */
+  readonly incidents?: readonly { readonly kind: string; readonly detail: string }[];
   /** Skills advertised by the connected body at planning time. */
   readonly availableSkills?: readonly string[];
   readonly signal: AbortSignal;

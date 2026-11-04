@@ -114,6 +114,14 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("voice"), payload: voiceStatusSchema }),
   z.object({ type: z.literal("subtitle"), payload: voiceSubtitleSchema }),
   z.object({ type: z.literal("bridge"), payload: bridgeHealthSchema }),
+  z.object({
+    type: z.literal("world"),
+    payload: z.object({
+      name: z.string().min(1).max(64),
+      data: z.unknown(),
+      at: z.number().int().nonnegative(),
+    }),
+  }),
   z.object({ type: z.literal("ops"), payload: opsSnapshotSchema }),
   z.object({
     type: z.literal("replay"),
@@ -125,3 +133,6 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
+
+/** Body event as it appears in the control console. */
+export type BodyEvent = Extract<ServerMessage, { type: "world" }>["payload"];

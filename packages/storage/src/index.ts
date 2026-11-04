@@ -11,6 +11,8 @@ export {
   SettingsStore,
   SessionStore,
   SourceStore,
+  WorldEventStore,
   type AppendSourceResult,
   type SessionContext,
+  type WorldEvent,
 } from "./stores.ts";

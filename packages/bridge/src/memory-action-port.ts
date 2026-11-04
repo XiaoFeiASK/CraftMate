@@ -10,6 +10,7 @@ interface Attempt {
   createdAt: number;
   settledAt: number | null;
   errorCode: BridgeErrorCode | null;
+  result: Readonly<Record<string, unknown>> | undefined;
 }
 
 /**
@@ -32,6 +33,7 @@ export class MemoryActionPort implements ActionPort {
       createdAt: Date.now(),
       settledAt: null,
       errorCode: null,
+      result: undefined,
     };
     this.byKey.set(command.idempotencyKey, attempt);
     this.byId.set(attempt.id, attempt);
@@ -42,12 +44,14 @@ export class MemoryActionPort implements ActionPort {
     attemptId: string,
     status: BridgeTerminalStatus,
     errorCode?: BridgeErrorCode,
+    result?: Readonly<Record<string, unknown>>,
   ): void {
     const attempt = this.byId.get(attemptId);
     if (!attempt || attempt.settledAt !== null) return;
     attempt.status = status;
     attempt.settledAt = Date.now();
     attempt.errorCode = errorCode ?? null;
+    attempt.result = result;
   }
 
   snapshot(): readonly Attempt[] {

@@ -73,6 +73,23 @@ final class BridgeMessages {
 		return progress;
 	}
 
+	/**
+	 * A reflex event uses the generic event frame so an older orchestrator
+	 * ignores the unknown name instead of dropping the connection.
+	 */
+	static JsonObject reflex(String kind, String detail, float health) {
+		JsonObject data = new JsonObject();
+		data.addProperty("kind", kind);
+		data.addProperty("detail", detail);
+		data.addProperty("health", health);
+		JsonObject event = base("event");
+		event.addProperty("seq", 0);
+		event.addProperty("tick", 0);
+		event.addProperty("name", "reflex");
+		event.add("data", data);
+		return event;
+	}
+
 	private static JsonObject base(String type) {
 		JsonObject object = new JsonObject();
 		object.addProperty("v", 1);

@@ -30,6 +30,11 @@ import {
   type TimerScheduler,
 } from "./types.ts";
 import { systemTimers } from "./types.ts";
+import {
+  REFLEX_EVENT_NAME,
+  reflexEventSchema,
+  type BridgeHealth,
+} from "@craftmate/contracts";
 
 export const BRIDGE_LIMITS = {
   /** The body declares the heartbeat period; the coordinator enforces a ceiling. */
@@ -43,21 +48,13 @@ export interface BodyTransport {
   close(code: number, reason: string): void;
 }
 
-export interface BodyHealth {
-  readonly connected: boolean;
-  readonly client: string | null;
-  readonly owner: Ownership;
-  readonly capabilities: readonly BridgeCapability[];
-  readonly skills: readonly SkillName[];
-  readonly world: WorldSnapshot | null;
-  readonly queued: number;
-  readonly running: number;
-  readonly tick: number;
-  readonly lastSeenAt: number;
-  readonly watchdogMs: number;
-  readonly permission: ControlPermission;
-  readonly generation: number;
-}
+/**
+ * The console contract is the single definition of this shape. Deriving it
+ * here means a new incident kind cannot compile on one side and fail to parse
+ * on the other.
+ */
+export type BodyHealth = BridgeHealth;
+export type BodyIncident = BridgeHealth["incidents"][number];
 
 export interface BodySessionOptions {
   readonly token: string;
@@ -74,6 +71,8 @@ export interface BodySessionOptions {
   readonly control?: ControlAuthority;
   readonly onOwnership?: (state: OwnershipState) => void;
   readonly onOutcome?: (outcome: CommandOutcome) => void;
+  /** Every body event, before the coordinator reacts to it. */
+  readonly onEvent?: (event: { readonly name: string; readonly data: unknown }) => void;
 }
 
 export interface IssueOptions {
@@ -104,6 +103,7 @@ export class BodySession {
   private readonly skills = new Set<SkillName>();
   private readonly sentCommands = new Set<string>();
   private readonly outcomes = new Set<string>();
+  private readonly incidents: BodyIncident[] = [];
   private heartbeatTimer: unknown = null;
   private tickTimer: unknown = null;
   private watchdogTimer: unknown = null;
@@ -139,7 +139,6 @@ export class BodySession {
       connected: !this.closed && this.body !== null,
       client: this.body?.client ?? null,
       owner: this.ownership.owner,
-      capabilities: [...this.capabilities],
       skills: [...this.skills],
       world: this.world,
       queued: this.queue.queuedCount(),
@@ -149,6 +148,7 @@ export class BodySession {
       watchdogMs: this.options.watchdogMs ?? BRIDGE_LIMITS.watchdogMs,
       permission: this.authority.current.permission,
       generation: this.authority.current.generation,
+      incidents: [...this.incidents],
     };
   }
 
@@ -201,12 +201,14 @@ export class BodySession {
         // Events are acknowledged by sequence in the transport layer; the
         // coordinator keeps only the last tick for deadline checks.
         this.tick = Math.max(this.tick, parsed.data.tick);
+        this.onBodyEvent(parsed.data);
         break;
       case "ownership":
         this.onBodyOwnership(parsed.data.owner, parsed.data.reason);
         break;
       case "heartbeat":
         this.tick = Math.max(this.tick, parsed.data.tick);
+        this.resumeAfterLivenessStop();
         // A null/omitted world is an explicit delta, not evidence that no
         // snapshot exists. Only a fresh snapshot replaces the planner view.
         if (parsed.data.world !== null && parsed.data.world !== undefined) {
@@ -266,7 +268,12 @@ export class BodySession {
 
     let accepted: ReturnType<CommandQueue["accept"]>;
     try {
-      accepted = this.queue.accept({ ...command, deadlineTick }, attempt.id, this.clock.now());
+      accepted = this.queue.accept(
+        { ...command, deadlineTick },
+        attempt.id,
+        this.clock.now(),
+        command.deadlineTick === undefined,
+      );
     } catch (error) {
       // The action port may have created a row before the queue rejected the
       // command. Closing it as failed is honest: no body side effect happened.
@@ -415,7 +422,52 @@ export class BodySession {
     const record = this.task(frame.taskId);
     if (!record || isTerminal(record.status)) return;
     this.queue.progress(record.taskId, this.clock.now());
+    this.queue.extend(record.taskId, this.tick + 20 * 30);
     this.audit("progress", record, undefined, `${frame.phase} ${frame.done}/${frame.total ?? "?"}`);
+  }
+
+  /**
+   * A reflex event means the body is taking damage now. Continuing a queued
+   * walk or dig through that would be the same mistake a human player makes
+   * when they keep mining while standing in lava, so it outranks every skill
+   * the agent issued. The body has already stopped its own input; this only
+   * keeps the orchestrator's book honest and visible.
+   */
+  private onBodyEvent(frame: Extract<BridgeClientFrame, { type: "event" }>): void {
+    this.options.onEvent?.({ name: frame.name, data: frame.data });
+    if (frame.name !== REFLEX_EVENT_NAME) return;
+    // A body that has not been granted control is not allowed to make the
+    // orchestrator cancel an operator's work under the name "safety".
+    if (this.ownership.owner === "operator" || this.authority.current.permission !== "agent") {
+      return;
+    }
+    const parsed = reflexEventSchema.safeParse(frame.data);
+    if (!parsed.success) {
+      this.fail("E_SCHEMA", `invalid reflex event: ${parsed.error.issues[0]?.message ?? "unknown"}`, undefined);
+      return;
+    }
+    const detail = parsed.data.detail;
+    this.rememberIncident(parsed.data.kind, detail);
+    for (const record of this.queue.active()) {
+      const reachedBody = record.status === "running" || this.sentCommands.has(record.command.id);
+      this.settle(record, "failed", "E_PRECONDITION", `safety: ${detail}`, true);
+      if (reachedBody) {
+        this.transport.send({
+          v: 1,
+          type: "cancel",
+          taskId: record.taskId,
+          id: record.command.id,
+          reason: `safety: ${detail}`,
+        });
+      }
+    }
+  }
+
+  private rememberIncident(kind: BodyIncident["kind"], detail: string): void {
+    this.incidents.push({ kind, detail, at: this.clock.now() });
+    // The console only needs the recent past; an unbounded list would grow
+    // for the whole show and make every health broadcast heavier.
+    if (this.incidents.length > 24) this.incidents.splice(0, this.incidents.length - 24);
   }
 
   private onResult(frame: Extract<BridgeClientFrame, { type: "result" }>): void {
@@ -489,14 +541,21 @@ export class BodySession {
       const oldest = this.outcomes.keys().next().value as string | undefined;
       if (oldest !== undefined) this.outcomes.delete(oldest);
     }
-    this.options.actions.settle(settled.attemptId, status, code, result);
+    const evidence = withFailureDetail(result, status, detail);
+    this.options.actions.settle(settled.attemptId, status, code, evidence);
     if (status !== "completed") this.sentCommands.delete(settled.command.id);
     this.audit("settled", settled, status, detail);
     this.options.onOutcome?.({
       commandId: settled.command.id,
       taskId: settled.taskId,
+      ...(settled.command.decisionId === undefined
+        ? {}
+        : { decisionId: settled.command.decisionId }),
       status,
+      ...(code === undefined ? {} : { errorCode: code }),
       at: this.clock.now(),
+      ...(detail === undefined ? {} : { detail }),
+      ...(result === undefined ? {} : { outcome: result }),
     });
     // `notifyBody` is used by the orchestrator path. A body-originated result
     // must not receive its own cancel echo.
@@ -571,8 +630,22 @@ export class BodySession {
     }
     this.lastSeenAt = this.clock.now();
     this.cancelAuthorisedWork(reason);
-    this.authority.emergencyStop(reason);
+    this.authority.safetyStop(reason);
     this.installOwnership(ownerFor("stopped"), reason);
+  }
+
+  private resumeAfterLivenessStop(): void {
+    if (
+      this.authority.current.permission !== "stopped" ||
+      !this.authority.current.recoverable
+    ) {
+      return;
+    }
+    // A missed heartbeat is a safety stop, not an operator decision. Once
+    // the body proves it is alive again, resume agent control so the next
+    // comment can act without a manual reset.
+    this.authority.release("heartbeat resumed");
+    this.setOwnership(ownerFor("agent"), "heartbeat resumed", "orchestrator");
   }
 
   private startTimers(): void {
@@ -663,6 +736,20 @@ function safeTokenEqual(given: string, expected: string): boolean {
     diff |= given.charCodeAt(index) ^ expected.charCodeAt(index);
   }
   return diff === 0;
+}
+
+/**
+ * A terminal failure must survive in the durable attempt row. The body's
+ * result data carries success evidence; when there is none, preserve the
+ * coordinator's reason instead of leaving only an opaque error code.
+ */
+function withFailureDetail(
+  result: Readonly<Record<string, unknown>> | undefined,
+  status: BridgeTerminalStatus,
+  detail: string | undefined,
+): Readonly<Record<string, unknown>> | undefined {
+  if (status === "completed" || detail === undefined) return result;
+  return { ...result, detail };
 }
 
 export { CLOSE_PROTOCOL, CLOSE_REPLACED, CLOSE_UNAUTHORIZED };

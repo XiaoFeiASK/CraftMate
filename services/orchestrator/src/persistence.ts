@@ -19,6 +19,7 @@ import {
   SettingsStore,
   SessionStore,
   SourceStore,
+  WorldEventStore,
   SqliteRecorder,
   openDatabase,
   type SessionContext,
@@ -33,6 +34,7 @@ export interface PersistentShow {
   readonly personas: PersonaVersionStore;
   readonly replay: ReplayStore;
   readonly costs: CostStore;
+  readonly worldEvents: WorldEventStore;
   readonly runtimeConfig: RuntimeConfigStore;
   /** Persists a settings edit, then applies it to the running show. */
   saveSettings(next: unknown): ReturnType<Show["currentSettings"]> | null;
@@ -76,6 +78,7 @@ export function createPersistentShow(options: {
   const personas = new PersonaVersionStore(db);
   const replay = new ReplayStore(db);
   const costs = new CostStore(db);
+  const worldEvents = new WorldEventStore(db);
   const runtimeConfig = options.env?.CRAFTMATE_INTEGRATIONS_FILE
     ? createRuntimeConfigStore({
         env: options.env,
@@ -157,6 +160,7 @@ export function createPersistentShow(options: {
     personas,
     replay,
     costs,
+    worldEvents,
     runtimeConfig,
     saveSettings: (next) => {
       const parsed = showSettingsSchema.safeParse(next);

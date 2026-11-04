@@ -734,6 +734,88 @@
 .drawer__decisions .stream__head { padding-top: 19px; }
 .drawer__decisions .stream__list { overflow: visible; }
 
+.world-events {
+  padding: 15px 27px 16px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--linen);
+}
+
+.world-events__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.world-events__head h3 {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: calc(12px * var(--ui-scale));
+  font-weight: 550;
+}
+
+.world-events__head span {
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--ui-scale));
+}
+
+.world-events__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.world-events__item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  color: var(--ink-soft);
+  font-size: calc(11px * var(--ui-scale));
+}
+
+.world-events__badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 5px;
+  color: var(--ink-soft);
+  background: var(--paper);
+  font-size: calc(9px * var(--ui-scale));
+}
+
+.world-events__item[data-name="reflex"] .world-events__badge {
+  color: var(--amber);
+  border-color: rgba(179, 119, 59, 0.24);
+}
+
+.world-events__item p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.world-events__item small {
+  flex-shrink: 0;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: calc(9px * var(--ui-scale));
+}
+
+.world-events__item time {
+  flex-shrink: 0;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: calc(9px * var(--ui-scale));
+}
+
 .stream {
   display: flex;
   flex-direction: column;
@@ -845,6 +927,33 @@
   color: var(--ink-faint);
   font-family: var(--font-mono);
   font-size: calc(10px * var(--ui-scale));
+}
+
+/* Outcome is evidence, not another opinion: keep it quieter than speech. */
+.decided__outcome {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 5px;
+  color: var(--ink-soft, var(--ink-faint));
+  font-size: calc(11px * var(--ui-scale));
+}
+
+.decided__outcome > span:first-child {
+  font-weight: 600;
+}
+
+.decided__outcome[data-status="failed"] > span:first-child,
+.decided__outcome[data-status="timeout"] > span:first-child {
+  color: var(--danger, #c0523f);
+}
+
+.decided__outcome[data-status="completed"] > span:first-child {
+  color: var(--ok, #3f7a52);
+}
+
+.decided__unconfirmed {
+  color: var(--warn, #a6741f);
 }
 
 .ops-view,

@@ -14,8 +14,13 @@ const PRIORITY_RANK: Record<SkillCommand["priority"], number> = {
 };
 
 interface TaskRecord {
-  readonly command: SkillCommand;
+  command: SkillCommand;
   readonly attemptId: string;
+  /**
+   * Progress may extend the orchestrator's default window, but never a
+   * deadline the caller supplied. An explicit deadline is a contract.
+   */
+  readonly deadlineExtensible: boolean;
   taskId: string;
   status: BridgeTerminalStatus | "accepted" | "running";
   readonly acceptedAt: number;
@@ -51,7 +56,12 @@ export class CommandQueue {
    * Idempotency is checked before capacity. Replaying a known command returns
    * its original task so a reconnecting client never executes it twice.
    */
-  accept(command: SkillCommand, attemptId: string, now: number): {
+  accept(
+    command: SkillCommand,
+    attemptId: string,
+    now: number,
+    deadlineExtensible = command.deadlineTick === undefined,
+  ): {
     readonly record: TaskRecord;
     readonly duplicate: boolean;
     readonly preempted: readonly TaskRecord[];
@@ -78,6 +88,7 @@ export class CommandQueue {
     const record: TaskRecord = {
       command,
       attemptId,
+      deadlineExtensible,
       taskId: `task-${this.nextTask++}`,
       status: "accepted",
       acceptedAt: now,
@@ -131,6 +142,20 @@ export class CommandQueue {
       record.startedAt = now;
     }
     return record;
+  }
+
+  /**
+   * A long task that keeps reporting progress is not stalled. Extend only the
+   * recorded deadline; an explicit body result still wins and an absent
+   * progress stream still expires on the original window.
+   */
+  extend(taskId: string, deadlineTick: number): void {
+    const record = this.byTask.get(taskId);
+    if (!record || isTerminal(record.status)) return;
+    const command = record.command;
+    if (!record.deadlineExtensible) return;
+    if (command.deadlineTick === undefined || deadlineTick <= command.deadlineTick) return;
+    record.command = { ...command, deadlineTick };
   }
 
   /**
@@ -205,11 +230,16 @@ export class CommandQueue {
     return expired;
   }
 
-  /** Running tasks past their tick deadline; the caller must send cancel. */
+  /**
+   * Accepted or running tasks past their tick deadline; the caller must send
+   * cancel. An accepted task has already been handed to the body but has not
+   * started, and its deadline still has to be honoured: otherwise a body that
+   * never acks leaves the row queued forever.
+   */
   overdue(tick: number): readonly TaskRecord[] {
     return this.active().filter(
       (record) =>
-        record.status === "running" &&
+        (record.status === "running" || record.status === "accepted") &&
         record.command.deadlineTick !== undefined &&
         record.command.deadlineTick < tick,
     );

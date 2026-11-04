@@ -7,7 +7,7 @@ import type {
   ShowSettings,
   SkillCall,
 } from "@craftmate/contracts";
-import { skillCallSchema } from "@craftmate/contracts";
+import { decisionOutcomeSchema, skillCallSchema } from "@craftmate/contracts";
 import type {
   Commitment,
   CommitmentJournal,
@@ -454,7 +454,7 @@ export class DecisionStore {
       .prepare(
         `UPDATE decision_log
          SET stage = ?, priority = ?, reason = ?, speech_text = ?, skill_json = ?,
-             provider = ?, model = ?, latency_ms = ?
+             provider = ?, model = ?, latency_ms = ?, outcome_json = ?
          WHERE id = ?`,
       )
       .run(
@@ -466,6 +466,10 @@ export class DecisionStore {
         trace?.provider ?? null,
         trace?.model ?? null,
         trace?.latencyMs ?? null,
+        // `undefined` means "not settled yet" on the in-memory decision, but
+        // DatabaseSync rejects undefined parameters. NULL is the durable
+        // representation of the same fact.
+        decision.outcome == null ? null : JSON.stringify(decision.outcome),
         decision.id,
       );
   }
@@ -474,7 +478,7 @@ export class DecisionStore {
     const rows = this.db
       .prepare(
         `SELECT d.id, d.intent, d.decision, d.priority, d.score, d.reason, d.stage,
-                d.created_at_ms, d.trace_json, d.speech_text, d.skill_json,
+                d.created_at_ms, d.trace_json, d.speech_text, d.skill_json, d.outcome_json,
                 d.provider, d.model, d.latency_ms, s.raw_text
          FROM decision_log d
          JOIN source s ON s.id = d.source_id
@@ -492,6 +496,7 @@ export class DecisionStore {
       trace_json: string;
       speech_text: string;
       skill_json: string | null;
+      outcome_json: string | null;
       provider: string | null;
       model: string | null;
       latency_ms: number | null;
@@ -506,6 +511,8 @@ export class DecisionStore {
       };
       const skill = row.skill_json === null ? null : JSON.parse(row.skill_json);
       const parsed = skill === null ? null : skillCallSchema.safeParse(skill);
+      const outcome = row.outcome_json === null ? null : JSON.parse(row.outcome_json);
+      const parsedOutcome = outcome === null ? null : decisionOutcomeSchema.safeParse(outcome);
       return {
         id: row.id,
         eventId: trace.eventId ?? "",
@@ -518,6 +525,7 @@ export class DecisionStore {
         score: row.score,
         stage: row.stage,
         skill: parsed?.success ? parsed.data : null,
+        outcome: parsedOutcome?.success ? parsedOutcome.data : null,
         speech: row.speech_text,
         audienceRef: trace.audienceRef ?? "",
         trace:
@@ -572,6 +580,73 @@ export class DecisionStore {
       observed: row.observed ?? 0,
     };
   }
+}
+
+/**
+ * Append-only log of what happened to the body. `world_event` existed from the
+ * first schema but nothing wrote to it, so the console could only show what
+ * was decided, never what the character lived through. Sequence is per
+ * session and must keep increasing even across restarts.
+ */
+export class WorldEventStore {
+  private readonly db: DatabaseSync;
+
+  constructor(db: DatabaseSync) {
+    this.db = db;
+  }
+
+  append(
+    sessionId: string,
+    event: { readonly name: string; readonly tick: number; readonly data: unknown; readonly at: number },
+  ): void {
+    const row = this.db
+      .prepare("SELECT coalesce(max(seq), -1) AS seq FROM world_event WHERE session_id = ?")
+      .get(sessionId) as { seq: number };
+    this.db
+      .prepare(
+        `INSERT INTO world_event (id, session_id, seq, tick, name, data_json, created_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        crypto.randomUUID(),
+        sessionId,
+        row.seq + 1,
+        Math.max(0, Math.floor(event.tick)),
+        event.name,
+        JSON.stringify(event.data ?? {}),
+        event.at,
+      );
+  }
+
+  recent(sessionId: string, limit: number): WorldEvent[] {
+    const rows = this.db
+      .prepare(
+        `SELECT seq, tick, name, data_json, created_at_ms
+         FROM world_event WHERE session_id = ? ORDER BY seq DESC LIMIT ?`,
+      )
+      .all(sessionId, limit) as {
+      seq: number;
+      tick: number;
+      name: string;
+      data_json: string;
+      created_at_ms: number;
+    }[];
+    return rows.reverse().map((row) => ({
+      seq: row.seq,
+      tick: row.tick,
+      name: row.name,
+      data: JSON.parse(row.data_json) as unknown,
+      at: row.created_at_ms,
+    }));
+  }
+}
+
+export interface WorldEvent {
+  readonly seq: number;
+  readonly tick: number;
+  readonly name: string;
+  readonly data: unknown;
+  readonly at: number;
 }
 
 export class ActionStore {

@@ -75,8 +75,16 @@ function checkCompletedAction() {
       return;
     }
     if (action.status !== "completed") {
+      let detail = "";
+      try {
+        detail = action.result_json === null ? "" : JSON.parse(action.result_json)?.detail ?? "";
+      } catch {
+        // The status and error code already identify the failed action.
+      }
       fail(
-        `action ${action.skill} ended as ${action.status} ${action.error_code ?? ""}`.trim(),
+        `action ${action.skill} ended as ${action.status} ${action.error_code ?? ""}${
+          detail ? `: ${detail}` : ""
+        }`.trim(),
       );
       return;
     }

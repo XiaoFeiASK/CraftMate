@@ -12,6 +12,7 @@ import {
   type ShowSnapshot,
   type TimelineEntry,
   type VoiceSubtitle,
+  type BodyEvent,
 } from "@craftmate/contracts";
 import { reconnectDelay, type WireState } from "./connection.ts";
 
@@ -47,6 +48,7 @@ export interface ControlLink {
   readonly timeline: readonly TimelineEntry[];
   readonly timelineTraceId: string | null;
   readonly timelinePending: boolean;
+  readonly worldEvents: readonly BodyEvent[];
   sendComment(nickname: string, text: string): void;
   sendOperator(kind: OperatorKind, text?: string): void;
   saveSettings(next: ShowSettings): void;
@@ -75,6 +77,7 @@ export function useControlLink(): ControlLink {
   const [timeline, setTimeline] = useState<readonly TimelineEntry[]>([]);
   const [timelineTraceId, setTimelineTraceId] = useState<string | null>(null);
   const [timelinePending, setTimelinePending] = useState(false);
+  const [worldEvents, setWorldEvents] = useState<readonly BodyEvent[]>([]);
   const sequence = useRef(0);
 
   useEffect(() => {
@@ -133,6 +136,11 @@ export function useControlLink(): ControlLink {
           break;
         case "bridge":
           setSnapshot((current) => ({ ...current, bridge: message.payload }));
+          break;
+        case "world":
+          // Body events are append-only facts; the console keeps the newest
+          // window so a long show does not grow this list without bound.
+          setWorldEvents((current) => [message.payload, ...current].slice(0, 40));
           break;
         case "ops":
           setOps(message.payload);
@@ -292,6 +300,7 @@ export function useControlLink(): ControlLink {
       timeline,
       timelineTraceId,
       timelinePending,
+      worldEvents,
       sendComment,
       sendOperator,
       saveSettings,

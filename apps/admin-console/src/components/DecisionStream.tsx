@@ -57,6 +57,7 @@ export function DecisionStream({ decisions }: DecisionStreamProps): React.JSX.El
               </div>
               <p className="decided__reason">{decision.reason}</p>
               {decision.speech ? <p className="decided__speech">「{decision.speech}」</p> : null}
+              <Outcome outcome={decision.outcome} />
               {decision.trace ? (
                 <p className="decided__trace">
                   {decision.trace.provider} / {decision.trace.model} · {decision.trace.latencyMs}ms
@@ -68,5 +69,40 @@ export function DecisionStream({ decisions }: DecisionStreamProps): React.JSX.El
         </ol>
       )}
     </aside>
+  );
+}
+
+const OUTCOME_LABELS: Record<string, string> = {
+  completed: "已完成",
+  failed: "失败",
+  timeout: "超时",
+  cancelled: "已取消",
+  preempted: "被顶替",
+};
+
+/**
+ * "It decided to chop" and "it chopped two logs" are different claims. The
+ * outcome block only appears once the body has settled the skill, so a missing
+ * block means the result is still unknown rather than successful.
+ */
+function Outcome({
+  outcome,
+}: {
+  readonly outcome: Decision["outcome"];
+}): React.JSX.Element | null {
+  if (!outcome) return null;
+  const detail = outcome.outcome;
+  const changes = detail?.changes?.length ?? 0;
+  return (
+    <div className="decided__outcome" data-status={outcome.status}>
+      <span>{OUTCOME_LABELS[outcome.status] ?? outcome.status}</span>
+      {detail?.summary ? <span>{detail.summary}</span> : null}
+      {changes > 0 ? <span>{changes} 处变化</span> : null}
+      {detail?.unconfirmed?.length ? (
+        <span className="decided__unconfirmed">{detail.unconfirmed.length} 项待确认</span>
+      ) : null}
+      {outcome.detail && !detail?.summary ? <span>{outcome.detail}</span> : null}
+      {detail?.problem ? <span>{detail.problem}</span> : null}
+    </div>
   );
 }
