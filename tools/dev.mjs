@@ -12,9 +12,16 @@ try {
 
 const mode = process.argv[2] === "desktop" ? "desktop" : "web";
 const detach = process.platform !== "win32";
+// Windows 上没有无扩展名的 `npm` 可执行文件，直接 spawn 会 ENOENT。
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
 const run = (name, command, args) => {
-  const child = spawn(command, args, { stdio: "inherit", shell: false, detached: detach });
+  const child = spawn(command, args, {
+    stdio: "inherit",
+    // Windows 上 .cmd 需要经 shell 启动，否则新版 Node 会抛 EINVAL。
+    shell: process.platform === "win32",
+    detached: detach,
+  });
   child.on("exit", (code) => {
     if (code !== null && code !== 0) console.error(`[${name}] exited with ${code}`);
   });
@@ -24,14 +31,14 @@ const run = (name, command, args) => {
 const children =
   mode === "desktop"
     ? [
-        run("orchestrator", "npm", ["run", "dev:orchestrator"]),
-        run("voice", "npm", ["run", "dev:voice"]),
-        run("desktop", "npm", ["run", "dev:desktop"]),
+        run("orchestrator", npm, ["run", "dev:orchestrator"]),
+        run("voice", npm, ["run", "dev:voice"]),
+        run("desktop", npm, ["run", "dev:desktop"]),
       ]
     : [
-        run("orchestrator", "npm", ["run", "dev:orchestrator"]),
-        run("voice", "npm", ["run", "dev:voice"]),
-        run("admin-console", "npm", ["run", "dev:console"]),
+        run("orchestrator", npm, ["run", "dev:orchestrator"]),
+        run("voice", npm, ["run", "dev:voice"]),
+        run("admin-console", npm, ["run", "dev:console"]),
       ];
 
 const stop = () => {
