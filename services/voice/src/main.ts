@@ -50,7 +50,8 @@ const engine = new VoiceEngine({
   commitmentGate: gate,
   sink: new CommandAudioSink(process.env.AUDIO_PLAYER ?? "afplay"),
   synthesisTimeoutMs,
-  onEvent: (event) => server.publish(event),
+  // The voice server subscribes to the engine itself (see createVoiceServer),
+  // so forwarding here as well published every event twice.
 });
 
 const server = createVoiceServer({

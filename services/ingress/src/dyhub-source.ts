@@ -102,7 +102,12 @@ export class DyhubSource implements CommentSource {
       });
 
       socket.on("close", () => {
-        if (this.socket === socket) this.socket = null;
+        // A close belonging to a socket that was already replaced (room change)
+        // must not clear the live connection or schedule a second one; the
+        // `disposed` flag cannot cover it because it is false again by the time
+        // this handler runs.
+        if (this.socket !== socket) return;
+        this.socket = null;
         if (this.disposed) return;
         this.setHealth({ state: "error", detail: "dyhub 断开，正在重连", lastEventAt: null });
         this.scheduleReconnect();

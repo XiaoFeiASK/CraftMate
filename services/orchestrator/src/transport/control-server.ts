@@ -411,6 +411,13 @@ export function createControlServer({
   wss.on("connection", (socket) => {
     const connection: Connection = { socket, greeted: false };
     connections.add(connection);
+    // A protocol error is emitted on the socket itself. Node re-throws an
+    // unhandled `error` event, which would take the whole orchestrator down on
+    // one malformed frame.
+    socket.on("error", (error) => {
+      connections.delete(connection);
+      console.warn(`orchestrator: control socket error — ${describeError(error)}`);
+    });
 
     send(socket, {
       type: "ready",
@@ -588,6 +595,16 @@ export function createControlServer({
           });
           return;
         }
+        // Validate both halves before writing anything: a rejected integrations
+        // block must not leave the show settings half-applied.
+        const desired = showSettingsSchema.safeParse(parsed.data.payload.settings);
+        if (!desired.success) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_SETTINGS", detail: desired.error.message },
+          });
+          return;
+        }
         const validated = integrationSettingsUpdateSchema.safeParse(parsed.data.payload.integrations);
         if (!validated.success) {
           send(socket, {
@@ -595,6 +612,22 @@ export function createControlServer({
             payload: { code: "E_SETTINGS", detail: validated.error.message },
           });
           return;
+        }
+        // The console sends both halves of the form in one frame. Persisting
+        // only `integrations` silently dropped every goal / persona edit the
+        // operator had just made, so the show settings go first and the
+        // integration merge then builds on top of them.
+        if (settings.saveSettings) {
+          const applied = settings.saveSettings(desired.data);
+          if (!applied) {
+            send(socket, {
+              type: "error",
+              payload: { code: "E_SETTINGS", detail: "设置未保存，请检查后重试" },
+            });
+            return;
+          }
+        } else {
+          show.updateSettings(desired.data);
         }
         const update: IntegrationSettingsUpdate = validated.data;
         const saved = settings.saveIntegrationSettings(update);
@@ -705,6 +738,9 @@ export function createControlServer({
   ingress.on("connection", (socket, request) => {
     let greeted = false;
     const remote = request.socket.remoteAddress ?? "unknown";
+    socket.on("error", (error) => {
+      console.warn(`orchestrator: ingress socket error from ${remote} — ${describeError(error)}`);
+    });
 
     if (ingressThrottled()) {
       socket.close(INGRESS_CLOSE_UNAUTHORIZED, "too many failed handshakes");
@@ -835,6 +871,11 @@ function parseJson(text: string): unknown {
   } catch {
     return null;
   }
+}
+
+/** Readable one-liner for a caught value, used by socket `error` handlers. */
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function disabledIntegrations(): IntegrationSettingsView {

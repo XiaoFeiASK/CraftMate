@@ -558,7 +558,10 @@ export class BodySession {
     }
     const evidence = withFailureDetail(result, status, detail);
     this.options.actions.settle(settled.attemptId, status, code, evidence);
-    if (status !== "completed") this.sentCommands.delete(settled.command.id);
+    // `peek()` only ever returns queued work and `settle` removes it from that
+    // queue, so a settled command can never be sent again. Keeping completed
+    // ids around made this Set grow for the whole session.
+    this.sentCommands.delete(settled.command.id);
     this.audit("settled", settled, status, detail);
     this.options.onOutcome?.({
       commandId: settled.command.id,

@@ -44,8 +44,6 @@ export class EventGate {
       this.report(event.kind, "duplicate");
       return false;
     }
-    this.seen.set(key, now);
-    if (this.seen.size > 20_000) this.prune(now);
 
     if (now - this.windowStart >= 1000) {
       this.windowStart = now;
@@ -67,6 +65,11 @@ export class EventGate {
       this.dropped += 1;
     }
     this.queue.push(event);
+    // Only an admitted event counts as "seen". Marking it first swallowed the
+    // upstream replay of anything this gate dropped, so a rate-limited comment
+    // could never be delivered after a reconnect.
+    this.seen.set(key, now);
+    if (this.seen.size > 20_000) this.prune(now);
     return true;
   }
 

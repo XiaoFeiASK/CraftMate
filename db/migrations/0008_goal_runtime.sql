@@ -13,9 +13,7 @@ CREATE TABLE goal_runtime (
   last_failure_strategy  TEXT,
   consecutive_failures   INTEGER NOT NULL DEFAULT 0 CHECK (consecutive_failures >= 0),
   retry_at_ms            INTEGER NOT NULL DEFAULT 0 CHECK (retry_at_ms >= 0),
-  updated_at_ms          INTEGER NOT NULL CHECK (updated_at_ms >= 0),
-  failures_json          TEXT NOT NULL DEFAULT '[]'
-                         CHECK (json_valid(failures_json) AND json_type(failures_json) = 'array')
+  updated_at_ms          INTEGER NOT NULL CHECK (updated_at_ms >= 0)
 ) STRICT;
 
 CREATE TABLE proposal (
