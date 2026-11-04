@@ -42,6 +42,10 @@ describe("intent", () => {
   test("falls back to chat for ordinary talk", () => {
     assert.equal(classifyIntent(comment("今天过得还行")).intent, "chat");
   });
+
+  test("recognises an explicit walk command", () => {
+    assert.equal(classifyIntent(comment("往前走几步")).intent, "move");
+  });
 });
 
 describe("stage A rules", () => {
@@ -99,5 +103,11 @@ describe("stage B scoring", () => {
   test("a cautious persona still refuses danger before scoring", () => {
     const { decision } = createArbiter().evaluate(comment("帮我跳岩浆"));
     assert.equal(decision.decision, "REFUSE");
+  });
+
+  test("an explicit walk command is executable", () => {
+    const { decision } = createArbiter().evaluate(comment("往前走几步"));
+    assert.equal(decision.decision, "EXECUTE");
+    assert.equal(decision.priority, "command");
   });
 });

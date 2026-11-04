@@ -1,6 +1,8 @@
 package com.craftmate.body;
 
 import com.craftmate.body.bridge.BridgeClient;
+import com.craftmate.body.bridge.CameraController;
+import com.craftmate.body.bridge.GameActions;
 import com.craftmate.body.stream.FrameServer;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -26,6 +28,8 @@ public final class CraftMateBodyClient implements ClientModInitializer {
 	private int acceptanceScreenTicks;
 	private boolean acceptanceWorldRequested;
 	private boolean acceptancePressed;
+	private boolean acceptanceRecovered;
+	private long lastRespawnRequestAt;
 
 	@Override
 	public void onInitializeClient() {
@@ -33,9 +37,17 @@ public final class CraftMateBodyClient implements ClientModInitializer {
 		frames = FrameServer.start(() -> Minecraft.getInstance().level != null);
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			bridge.tick(client);
-			if (!acceptanceEnabled()) return;
-			recoverAcceptanceDeath(client);
-			tickAcceptance(client);
+			CameraController.worldChanged(client);
+			if (!acceptanceEnabled() && !bridge.agentControlled()) {
+				// The body can outlive a dead orchestrator. Refuse to keep
+				// walking or mining after control is gone, even if the last
+				// task never received its terminal result.
+				CameraController.reset(client);
+				GameActions.releaseInputs(client);
+				return;
+			}
+			recoverAcceptanceDeath(client, this);
+			if (acceptanceEnabled()) tickAcceptance(client);
 		});
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
 			if (frames != null) frames.close();
@@ -111,16 +123,28 @@ public final class CraftMateBodyClient implements ClientModInitializer {
 	 * same lethal spot. This path is local-acceptance only: it clears the
 	 * saved death state and puts the player on the configured test spawn.
 	 */
-	private static void recoverAcceptanceDeath(Minecraft client) {
-		if (client.player == null || client.level == null || client.player.isAlive()) return;
-		double x = Double.parseDouble(System.getProperty("craftmate.acceptance.spawn.x", "16.5"));
-		double y = Double.parseDouble(System.getProperty("craftmate.acceptance.spawn.y", "80.0"));
-		double z = Double.parseDouble(System.getProperty("craftmate.acceptance.spawn.z", "160.5"));
-		client.player.setHealth(client.player.getMaxHealth());
-		client.player.getFoodData().setFoodLevel(20);
-		client.player.setPos(x, y, z);
-		client.setScreen(null);
-		LOGGER.info("CraftMate acceptance: recovered dead body to {}, {}, {}", x, y, z);
+	private static void recoverAcceptanceDeath(Minecraft client, CraftMateBodyClient body) {
+		if (client.player == null || client.level == null) return;
+		// Never "recover" a living, jumping or falling body: a respawn packet
+		// there would teleport it back to spawn in the middle of an action.
+		boolean dead = !client.player.isAlive() || client.player.getHealth() <= 0.0f;
+		if (!dead) {
+			body.acceptanceRecovered = false;
+			return;
+		}
+		long now = System.currentTimeMillis();
+		if (body.acceptanceRecovered && now - body.lastRespawnRequestAt < 5_000L) return;
+		body.acceptanceRecovered = true;
+		body.lastRespawnRequestAt = now;
+		// A local setPos/teleport is rejected by the server for a live body and
+		// left the player at health 0. Use the same respawn packet a human's
+		// Respawn button sends, then release control back to the agent.
+		client.player.respawn();
+		if (client.screen instanceof DeathScreen) client.setScreen(null);
+		LOGGER.info(
+			"CraftMate acceptance: requested respawn at health {}",
+			client.player.getHealth()
+		);
 	}
 
 	private static boolean acceptanceEnabled() {

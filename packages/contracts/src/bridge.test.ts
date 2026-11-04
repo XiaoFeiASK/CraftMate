@@ -97,12 +97,16 @@ describe("bridge wire protocol", () => {
       inWorld: true,
       world: "minecraft:overworld",
       position: { x: 10.25, y: 64, z: -8.5 },
+      cameraYaw: 145,
+      cameraPitch: -12.5,
       health: 20,
       food: 18,
       hotbar: [{ slot: 0, item: "minecraft:stone", count: 32 }],
       nearbyBlocks: [{ id: "minecraft:stone", count: 12 }],
     });
     assert.equal(snapshot.position?.x, 10.25);
+    assert.equal(snapshot.cameraYaw, 145);
+    assert.equal(snapshot.cameraPitch, -12.5);
     assert.equal(snapshot.hotbar?.[0]?.count, 32);
     assert.equal(snapshot.nearbyBlocks?.[0]?.count, 12);
     assert.equal(

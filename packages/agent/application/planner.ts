@@ -371,6 +371,29 @@ export class Planner {
     const available = context.availableSkills;
     const supports = (name: SkillCall["name"]): boolean =>
       available === undefined ? true : available.includes(name);
+
+    if (context.decision.intent === "move") {
+      const position = worldPosition(context.world);
+      if (position !== null && supports("goto")) {
+        const distance = forwardDistance(context.decision.text);
+        return {
+          speech: "好，我往前走几步。",
+          skill: {
+            name: "goto",
+            args: {
+              target: {
+                x: position.x + distance,
+                y: position.y,
+                z: position.z,
+              },
+            },
+            idempotencyKey: crypto.randomUUID(),
+          },
+          reason: "确定性快速规划：移动意图已获执行批准",
+        };
+      }
+    }
+
     if (context.decision.intent !== "mine") return null;
 
     const text = context.decision.text;
@@ -438,6 +461,28 @@ function parseCount(value: string): number {
   const tens = digits.indexOf(value[0] ?? "");
   const ones = digits.indexOf(value[2] ?? "");
   return tens * 10 + Math.max(0, ones);
+}
+
+/**
+ * The wire `goto` target is an absolute point. Use the body's last observed
+ * position instead of asking a language model to invent coordinates; a model
+ * that restates a walk as another skill would otherwise silently cancel the
+ * user's intent.
+ */
+function worldPosition(world: unknown): { x: number; y: number; z: number } | null {
+  if (world === null || typeof world !== "object") return null;
+  const position = (world as { position?: unknown }).position;
+  if (position === null || typeof position !== "object") return null;
+  const { x, y, z } = position as { x?: unknown; y?: unknown; z?: unknown };
+  return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)
+    ? { x: Number(x), y: Number(y), z: Number(z) }
+    : null;
+}
+
+function forwardDistance(text: string): number {
+  const numeral = /([0-9]+|[一二两三四五六七八九十]+)\s*(?:步|格|米)/u.exec(text)?.[1];
+  const requested = numeral === undefined ? 4 : parseCount(numeral);
+  return Number.isInteger(requested) ? Math.min(16, Math.max(1, requested)) : 4;
 }
 
 function skillCorrectionInstructions(availableSkills: readonly string[] | undefined): string {

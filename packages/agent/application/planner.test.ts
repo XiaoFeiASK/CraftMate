@@ -162,6 +162,35 @@ describe("stage C planner", () => {
     assert.deepEqual(planned.skill?.args, { block: "minecraft:dirt", count: 1 });
   });
 
+  test("a clear walk request becomes goto without letting the model change the action", async () => {
+    let calls = 0;
+    const planner = new Planner({
+      provider: provider(async () => {
+        calls += 1;
+        return {
+          speech: "去砍树。",
+          skill: { name: "chop_tree", args: { count: 1 }, idempotencyKey: "bad" },
+          reason: "",
+          provider: "fake",
+          model: "fake-1",
+        };
+      }),
+    });
+
+    const planned = await planner.plan({
+      decision: decision({ text: "往前走几步", intent: "move" }),
+      goal: "盖房",
+      persona,
+      availableSkills: ["goto", "chop_tree"],
+      world: { position: { x: 10, y: 64, z: 20 } },
+    });
+
+    assert.equal(calls, 0);
+    assert.equal(planned.skill?.name, "goto");
+    assert.deepEqual(planned.skill?.args, { target: { x: 14, y: 64, z: 20 } });
+    assert.match(planned.speech, /走/);
+  });
+
   test("fast planning still requires an approved EXECUTE decision", async () => {
     let called = false;
     const planner = new Planner({

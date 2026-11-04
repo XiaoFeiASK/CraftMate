@@ -312,6 +312,45 @@ export class Show {
     if (this.incidents.length > 8) this.incidents.splice(0, this.incidents.length - 8);
   }
 
+  /**
+   * A bounded action chosen by the local autonomy loop. It bypasses audience
+   * arbitration because no audience event authorised it, but it still obeys
+   * the same mode gate and appears in the live decision stream.
+   */
+  recordAutonomous(input: {
+    readonly intent: "mine" | "move";
+    readonly text: string;
+    readonly reason: string;
+    readonly skill: NonNullable<Decision["skill"]>;
+    readonly recorder?: {
+      record(decision: Decision): void;
+    };
+  }): Decision | null {
+    if (this.mode !== "agent") return null;
+    const id = this.clock.newId();
+    const decision: Decision = {
+      id,
+      eventId: `autonomous-${id}`,
+      nickname: this.settings.persona.name,
+      text: input.text,
+      intent: input.intent,
+      decision: "EXECUTE",
+      priority: "plan",
+      reason: input.reason,
+      score: 1,
+      stage: "planned",
+      skill: input.skill,
+      speech: "",
+      audienceRef: "",
+      trace: null,
+      at: this.clock.now(),
+    };
+    this.remember(decision);
+    input.recorder?.record(decision);
+    this.count(decision);
+    return decision;
+  }
+
   currentIncidents(): readonly WorldIncident[] {
     return [...this.incidents];
   }
