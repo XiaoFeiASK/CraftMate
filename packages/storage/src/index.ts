@@ -2,6 +2,7 @@ export { openDatabase, loadMigrations, type Migration, type OpenOptions } from "
 export { SqliteRecorder } from "./recorder.ts";
 export { CostStore } from "./cost.ts";
 export { SqliteCommitmentGate } from "./commitment-gate.ts";
+export { GoalRuntimeSqliteStore, SqliteProposalRepository } from "./goals.ts";
 export { MemoryStore, ReplayStore } from "./memory.ts";
 export { PersonaVersionStore } from "./persona.ts";
 export {

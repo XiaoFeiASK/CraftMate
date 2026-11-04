@@ -10,6 +10,7 @@ import type {
   TimelineEntry,
   VoiceSubtitle,
   BodyEvent,
+  ProposalStatus,
 } from "@craftmate/contracts";
 import { useState } from "react";
 import { DecisionStream } from "../DecisionStream.tsx";
@@ -20,12 +21,14 @@ import { OpsView } from "../ops/OpsView.tsx";
 import { ReplayView } from "../ops/ReplayView.tsx";
 import type { WireState } from "../../lib/connection.ts";
 import type { Preferences } from "../../lib/preferences.ts";
+import { clock } from "../../lib/format.ts";
 
 export type DrawerMode =
   | "decisions"
   | "persona"
   | "connections"
   | "settings"
+  | "proposals"
   | "memory"
   | "replay";
 
@@ -60,6 +63,14 @@ interface OperationsDrawerProps {
   readonly onForgetMemory: (memoryId: string) => void;
   readonly onActivatePersona: (versionId: string) => void;
   readonly onLookupTrace: (traceId: string) => void;
+  readonly onSetGoal: (title: string, description: string) => void;
+  readonly onPauseGoal: () => void;
+  readonly onResumeGoal: () => void;
+  readonly onDecideProposal: (
+    proposalId: string,
+    status: Exclude<ProposalStatus, "pending">,
+    reason: string,
+  ) => void;
 }
 
 const TITLES: Record<DrawerMode, { readonly title: string; readonly detail: string }> = {
@@ -67,6 +78,7 @@ const TITLES: Record<DrawerMode, { readonly title: string; readonly detail: stri
   persona: { title: "角色与人格", detail: "当前以单一人格运行，可在这里查看设定" },
   connections: { title: "接入与语音", detail: "抖音评论、模型与语音的连接状态" },
   settings: { title: "设置", detail: "直播资料、人格权重与界面偏好" },
+  proposals: { title: "观众提议", detail: "三层闸门后的收件箱与决定理由" },
   memory: { title: "记忆与版本", detail: "审核经验、回滚人格版本、查看模型成本" },
   replay: { title: "回放", detail: "按 traceId 查看来源、决策、承诺与动作" },
 };
@@ -99,6 +111,10 @@ export function OperationsDrawer({
   onForgetMemory,
   onActivatePersona,
   onLookupTrace,
+  onSetGoal,
+  onPauseGoal,
+  onResumeGoal,
+  onDecideProposal,
 }: OperationsDrawerProps): React.JSX.Element {
   const title = TITLES[mode];
 
@@ -151,6 +167,13 @@ export function OperationsDrawer({
           {mode === "replay" ? (
             <ReplayView entries={timeline} pending={timelinePending} onLookup={onLookupTrace} />
           ) : null}
+          {mode === "proposals" ? (
+            <ProposalsView
+              proposals={snapshot.proposals}
+              disabled={state !== "open"}
+              onDecide={onDecideProposal}
+            />
+          ) : null}
           {mode === "settings" ? (
             <SettingsView
               settings={settings}
@@ -161,6 +184,10 @@ export function OperationsDrawer({
               onSave={onSaveSettings}
               integrations={integrations}
               onSaveIntegrations={onSaveIntegrationSettings}
+              goal={snapshot.goal}
+              onSetGoal={onSetGoal}
+              onPauseGoal={onPauseGoal}
+              onResumeGoal={onResumeGoal}
             />
           ) : null}
         </div>
@@ -522,6 +549,133 @@ function ConnectionRow({ label, value, tone }: ConnectionRowProps): React.JSX.El
       <span className="connection-row__dot" data-tone={tone} aria-hidden="true" />
       <span>{label}</span>
       <strong>{value}</strong>
+    </div>
+  );
+}
+
+const PROPOSAL_TABS = [
+  ["pending", "待处理"],
+  ["accepted", "已采纳"],
+  ["deferred", "已延后"],
+  ["rejected", "已拒绝"],
+] as const;
+
+const RISK_LABELS: Record<string, string> = {
+  low: "低风险",
+  medium: "中风险",
+  high: "高风险",
+  blocked: "安全拦截",
+};
+
+const ALIGNMENT_LABELS: Record<string, string> = {
+  aligned: "符合目标",
+  neutral: "中性",
+  off_goal: "偏离目标",
+  unknown: "目标未验证",
+};
+
+/**
+ * A read/decide surface over the inbox. It deliberately has no skill button:
+ * accepting a proposal still goes through the operator's three gates.
+ */
+function ProposalsView({
+  proposals,
+  disabled,
+  onDecide,
+}: {
+  readonly proposals: readonly ShowSnapshot["proposals"][number][];
+  readonly disabled: boolean;
+  readonly onDecide: (
+    proposalId: string,
+    status: "accepted" | "deferred" | "rejected" | "clarify",
+    reason: string,
+  ) => void;
+}): React.JSX.Element {
+  const [tab, setTab] = useState<(typeof PROPOSAL_TABS)[number][0]>("pending");
+  const [clarifications, setClarifications] = useState<Record<string, string>>({});
+  const visible = proposals.filter((proposal) => proposal.status === tab);
+
+  return (
+    <div className="proposal-view">
+      <div className="proposal-tabs" role="tablist" aria-label="提议状态">
+        {PROPOSAL_TABS.map(([status, label]) => (
+          <button
+            key={status}
+            type="button"
+            role="tab"
+            aria-selected={tab === status}
+            data-selected={tab === status}
+            onClick={() => setTab(status)}
+          >
+            {label}
+            <span>{proposals.filter((proposal) => proposal.status === status).length}</span>
+          </button>
+        ))}
+      </div>
+      {visible.length === 0 ? (
+        <p className="panel-note">这个分组里还没有提议。目标模式开启后，评论会先入箱再评估。</p>
+      ) : (
+        <ol className="proposal-list">
+          {visible.map((proposal) => (
+            <li key={proposal.id} className="proposal-item" data-status={proposal.status}>
+              <div className="proposal-item__head">
+                <span className="proposal-item__votes">{proposal.votes} 票</span>
+                <span data-risk={proposal.risk}>{RISK_LABELS[proposal.risk] ?? proposal.risk}</span>
+                <span data-alignment={proposal.goalAlignment}>
+                  {ALIGNMENT_LABELS[proposal.goalAlignment] ?? proposal.goalAlignment}
+                </span>
+                <time>{clock(proposal.createdAt)}</time>
+              </div>
+              <p className="proposal-item__text">{proposal.text}</p>
+              <p className="proposal-item__reason">{proposal.reason}</p>
+              {proposal.status === "pending" ? (
+                <div className="proposal-item__actions">
+                  <input
+                    className="input"
+                    value={clarifications[proposal.id] ?? ""}
+                    placeholder="决定理由（必填）"
+                    maxLength={600}
+                    disabled={disabled}
+                    onChange={(event) =>
+                      setClarifications((current) => ({
+                        ...current,
+                        [proposal.id]: event.target.value,
+                      }))
+                    }
+                  />
+                  {(
+                    [
+                      ["accepted", "采纳"],
+                      ["clarify", "澄清"],
+                      ["deferred", "延后"],
+                      ["rejected", "拒绝"],
+                    ] as const
+                  ).map(([status, label]) => (
+                    <button
+                      key={status}
+                      type="button"
+                      className="action action--ghost"
+                      disabled={disabled || (clarifications[proposal.id] ?? "").trim().length === 0}
+                      onClick={() => {
+                        onDecide(
+                          proposal.id,
+                          status,
+                          (clarifications[proposal.id] ?? "").trim(),
+                        );
+                        setClarifications((current) => ({ ...current, [proposal.id]: "" }));
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              ) : proposal.decidedAt ? (
+                <small className="proposal-item__time">决定于 {clock(proposal.decidedAt)}</small>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }

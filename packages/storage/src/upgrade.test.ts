@@ -65,7 +65,7 @@ describe("schema upgrade", () => {
       const versions = (db.prepare("SELECT version FROM schema_migration ORDER BY version").all() as {
         version: number;
       }[]).map((row) => row.version);
-      assert.deepEqual(versions, [1, 2, 3, 4, 5, 6, 7]);
+      assert.deepEqual(versions, [1, 2, 3, 4, 5, 6, 7, 8]);
 
       const row = db
         .prepare("SELECT speech_text, skill_json FROM decision_log WHERE id = 'upgrade-d1'")
