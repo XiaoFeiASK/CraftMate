@@ -94,6 +94,10 @@ interface ShowOptions {
   readonly planner?: Planner;
   /** Approved-memory recall; absent means "no memory", never "all memory". */
   readonly memory?: MemoryPort;
+  /** Live semantic observation supplied by the game body, when connected. */
+  readonly world?: () => unknown;
+  /** Exact skills advertised by the connected body at planning time. */
+  readonly availableSkills?: () => readonly string[];
   /** Recall budget per decision, in approximate tokens. */
   readonly memoryBudgetTokens?: number;
 }
@@ -146,6 +150,8 @@ export class Show {
   private bridge: BridgeHealth | null = null;
   private readonly planner: Planner | null;
   private readonly memory: MemoryPort | null;
+  private readonly world: (() => unknown) | null;
+  private readonly availableSkills: (() => readonly string[]) | null;
   private readonly memoryBudgetTokens: number;
   /** Decisions waiting on Stage C. Only the newest one may still speak. */
   private readonly pendingPlans = new Set<string>();
@@ -165,6 +171,8 @@ export class Show {
     this.seenLimit = options.seenLimit ?? MAX_SEEN_IDS;
     this.planner = options.planner ?? null;
     this.memory = options.memory ?? null;
+    this.world = options.world ?? null;
+    this.availableSkills = options.availableSkills ?? null;
     this.memoryBudgetTokens = options.memoryBudgetTokens ?? 1_200;
     if (options.history) this.decisions.push(...options.history);
     this.received = options.totals?.received ?? 0;
@@ -209,7 +217,16 @@ export class Show {
    */
   async plan(decision: Decision): Promise<Decision> {
     if (!this.planner) return decision;
-    if (decision.decision !== "EXECUTE" && decision.decision !== "ACK_ONLY" && decision.decision !== "REFUSE") {
+    // QUEUE is a model-worthy candidate: it may speak or explain the queued
+    // intent, while Planner.validate still forbids it from carrying a skill.
+    // OBSERVE and IGNORE stay deterministic so ordinary chat cannot invoke the
+    // provider or acquire a side effect.
+    if (
+      decision.decision !== "EXECUTE" &&
+      decision.decision !== "ACK_ONLY" &&
+      decision.decision !== "REFUSE" &&
+      decision.decision !== "QUEUE"
+    ) {
       return decision;
     }
 
@@ -218,6 +235,10 @@ export class Show {
       decision,
       goal: this.settings.goal,
       persona: this.personaSummary(),
+      ...(this.world ? { world: this.world() } : {}),
+      ...(this.availableSkills
+        ? { availableSkills: this.availableSkills() }
+        : {}),
       ...(this.memory
         ? {
             memories: this.memory
@@ -277,6 +298,16 @@ export class Show {
       clock: this.clock,
     });
     return this.currentSettings();
+  }
+
+  /** Swaps the live model connection without replacing the show or its history. */
+  updatePlannerProvider(provider: Parameters<Planner["updateProvider"]>[0]): void {
+    this.planner?.updateProvider(provider);
+  }
+
+  /** Applies a newly saved provider timeout without recreating the show. */
+  updatePlannerDeadline(deadlineMs: number): void {
+    this.planner?.updateDeadline(deadlineMs);
   }
 
   applyOperator(command: OperatorCommand): ShowMode {
@@ -374,6 +405,12 @@ export class Show {
       sourceHealth: this.sourceHealth,
       voiceStatus: this.voiceStatus,
       bridge: this.bridge,
+      model: this.planner?.status ?? {
+        state: "disabled",
+        provider: null,
+        model: null,
+        detail: "未配置模型",
+      },
     };
   }
 

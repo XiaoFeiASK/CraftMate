@@ -6,6 +6,7 @@ import {
   bridgeServerFrameSchema,
   skillCommandSchema,
   worldEventSchema,
+  worldSnapshotSchema,
 } from "./bridge.ts";
 
 describe("bridge wire protocol", () => {
@@ -17,7 +18,7 @@ describe("bridge wire protocol", () => {
       { v: 1, type: "result", taskId: "t-1", status: "completed", ticks: 4 },
       { v: 1, type: "event", seq: 1, tick: 2, name: "block_broken", data: {} },
       { v: 1, type: "ownership", owner: "operator", reason: "keyboard" },
-      { v: 1, type: "heartbeat", tick: 2, owner: "agent" },
+      { v: 1, type: "heartbeat", tick: 2, owner: "agent", worldGeneration: 2, world: null },
     ];
     for (const frame of frames) {
       assert.equal(bridgeClientFrameSchema.safeParse(frame).success, true, JSON.stringify(frame));
@@ -80,6 +81,27 @@ describe("bridge wire protocol", () => {
     );
     assert.equal(
       worldEventSchema.safeParse({ v: 2, type: "event", seq: 1, tick: 1, name: "x", data: {} }).success,
+      false,
+    );
+  });
+
+  test("validates bounded semantic world snapshots carried by heartbeats", () => {
+    const snapshot = worldSnapshotSchema.parse({
+      inWorld: true,
+      world: "minecraft:overworld",
+      position: { x: 10.25, y: 64, z: -8.5 },
+      health: 20,
+      food: 18,
+      hotbar: [{ slot: 0, item: "minecraft:stone", count: 32 }],
+      nearbyBlocks: [{ id: "minecraft:stone" }],
+    });
+    assert.equal(snapshot.position?.x, 10.25);
+    assert.equal(snapshot.hotbar?.[0]?.count, 32);
+    assert.equal(
+      worldSnapshotSchema.safeParse({
+        inWorld: true,
+        hotbar: [{ slot: 9, item: "minecraft:stone", count: 1 }],
+      }).success,
       false,
     );
   });

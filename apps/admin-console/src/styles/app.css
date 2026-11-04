@@ -536,6 +536,58 @@
   animation: scene-fade 600ms ease-out both;
 }
 
+.hero__offline,
+.hero__live {
+  position: absolute;
+  z-index: 1;
+  left: 20px;
+  bottom: 20px;
+  display: grid;
+  max-width: min(460px, calc(100% - 40px));
+  gap: 4px;
+  padding: 15px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius-soft);
+  background: rgba(25, 31, 29, 0.88);
+  box-shadow: var(--shadow-2);
+  color: var(--scene-ink);
+}
+
+.hero__offline strong,
+.hero__live strong {
+  font-family: var(--font-display);
+  font-size: var(--step-2);
+}
+
+.hero__offline small,
+.hero__live small,
+.hero__live > span:not(.hero__live-badge) {
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.hero__offline-badge,
+.hero__live-badge {
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.14);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.hero__live {
+  inset: 20px;
+  bottom: auto;
+  width: fit-content;
+  background: rgba(30, 60, 45, 0.92);
+}
+
+.hero__live-badge {
+  background: var(--mint);
+}
+
 @keyframes scene-fade {
   from { opacity: 0; }
   to { opacity: 1; }

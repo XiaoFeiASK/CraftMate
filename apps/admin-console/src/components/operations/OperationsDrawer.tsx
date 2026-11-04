@@ -1,4 +1,6 @@
 import type {
+  IntegrationSettingsUpdate,
+  IntegrationSettingsView,
   OpsSnapshot,
   OperatorKind,
   ShowMode,
@@ -34,13 +36,17 @@ interface OperationsDrawerProps {
   readonly lastError: string | null;
   readonly subtitles: readonly VoiceSubtitle[];
   readonly settings: ShowSettings | null;
+  readonly integrations: IntegrationSettingsView | null;
   readonly preferences: Preferences;
   readonly onClose: () => void;
   readonly onComment: (nickname: string, text: string) => void;
   readonly onOperator: (kind: OperatorKind, text?: string) => void;
-  readonly onBurst: () => void;
   readonly onSpeak: (text: string) => void;
   readonly onSaveSettings: (next: ShowSettings) => void;
+  readonly onSaveIntegrationSettings: (
+    settings: ShowSettings,
+    integrations: IntegrationSettingsUpdate,
+  ) => void;
   readonly onPreferences: (patch: Partial<Preferences>) => void;
   readonly onResetPreferences: () => void;
   readonly ops: OpsSnapshot | null;
@@ -71,13 +77,14 @@ export function OperationsDrawer({
   lastError,
   subtitles,
   settings,
+  integrations,
   preferences,
   onClose,
   onComment,
   onOperator,
-  onBurst,
   onSpeak,
   onSaveSettings,
+  onSaveIntegrationSettings,
   onPreferences,
   onResetPreferences,
   ops,
@@ -117,6 +124,7 @@ export function OperationsDrawer({
               state={state}
               mode={showMode}
               settings={settings}
+              integrations={integrations}
               snapshot={snapshot}
               lastError={lastError}
               subtitles={subtitles}
@@ -145,6 +153,8 @@ export function OperationsDrawer({
               onPreferences={onPreferences}
               onResetPreferences={onResetPreferences}
               onSave={onSaveSettings}
+              integrations={integrations}
+              onSaveIntegrations={onSaveIntegrationSettings}
             />
           ) : null}
         </div>
@@ -154,7 +164,6 @@ export function OperationsDrawer({
             personaName={personaName}
             onComment={onComment}
             onOperator={onOperator}
-            onBurst={onBurst}
             disabled={state !== "open"}
           />
         ) : null}
@@ -226,7 +235,7 @@ function PersonaView({
             ))
           : null}
       </div>
-      <p className="panel-note">人格修改在「设置」里保存后立即影响仲裁；试听要等 TTS 接入。</p>
+      <p className="panel-note">人格修改在「设置」里保存后立即影响仲裁；录音色前可在「接入与语音」试听。</p>
     </div>
   );
 }
@@ -235,6 +244,7 @@ function ConnectionsView({
   state,
   mode,
   settings,
+  integrations,
   snapshot,
   lastError,
   subtitles,
@@ -243,13 +253,14 @@ function ConnectionsView({
   readonly state: WireState;
   readonly mode: ShowMode;
   readonly settings: ShowSettings | null;
+  readonly integrations: IntegrationSettingsView | null;
   readonly snapshot: ShowSnapshot;
   readonly lastError: string | null;
   readonly subtitles: readonly VoiceSubtitle[];
   readonly onSpeak: (text: string) => void;
 }): React.JSX.Element {
   const room = settings?.integrations.douyinRoomId;
-  const model = settings?.integrations.deepseekModel;
+  const model = integrations?.model;
   const source = snapshot.sourceHealth;
   const voice = snapshot.voiceStatus;
 
@@ -268,14 +279,53 @@ function ConnectionsView({
         tone={snapshot.bridge?.connected ? "good" : "quiet"}
       />
       <ConnectionRow
+        label="游戏世界"
+        value={worldLabel(snapshot)}
+        tone={
+          snapshot.bridge?.world?.inWorld
+            ? "good"
+            : snapshot.bridge?.connected
+              ? "warn"
+              : "quiet"
+        }
+      />
+      {snapshot.bridge?.world?.inWorld ? (
+        <dl className="decision-summary">
+          <div><dt>生命</dt><dd>{formatStat(snapshot.bridge.world.health)}</dd></div>
+          <div><dt>饥饿</dt><dd>{formatStat(snapshot.bridge.world.food)}</dd></div>
+          <div><dt>快捷栏</dt><dd>{snapshot.bridge.world.hotbar?.length ?? 0}</dd></div>
+        </dl>
+      ) : null}
+      <ConnectionRow
         label="抖音直播"
-        value={source ? `${source.detail}${room ? ` · 房间 ${room}` : ""}` : room ? `房间 ${room}（未联调）` : "待配置"}
+        value={source ? `${source.detail}${room ? ` · 房间 ${room}` : ""}` : room ? `房间 ${room}（等待 Ingress）` : "待配置"}
         tone={sourceTone(source?.state)}
       />
-      <ConnectionRow label="模型" value={model ? `${model}（未接 Key）` : "待配置 API Key"} tone="quiet" />
+      <ConnectionRow
+        label="模型"
+        value={snapshot.model?.state === "ready"
+          ? `${snapshot.model.provider} / ${snapshot.model.model} · 正常`
+          : snapshot.model?.state === "error"
+            ? `${snapshot.model.provider} / ${snapshot.model.model} · 最近请求失败`
+            : snapshot.model?.state === "unverified"
+              ? `${snapshot.model.provider} / ${snapshot.model.model} · 已配置，等待请求`
+              : model?.model
+                ? `${model.model}（未配置 API Key）`
+                : "待配置模型"}
+        tone={snapshot.model?.state === "ready"
+          ? "good"
+          : snapshot.model?.state === "error"
+            ? "bad"
+            : snapshot.model?.state === "unverified"
+              ? "warn"
+              : "quiet"}
+      />
+      {snapshot.model?.state === "error" && snapshot.model.detail
+        ? <p className="connection-error" role="status">模型错误：{snapshot.model.detail}</p>
+        : null}
       <ConnectionRow
         label="语音合成"
-        value={voiceLabel(voice, settings)}
+        value={voiceLabel(voice, integrations, settings)}
         tone={voiceTone(voice)}
       />
       {voice ? (
@@ -293,6 +343,9 @@ function ConnectionsView({
             <p key={`${subtitle.id}-${subtitle.state}`} data-state={subtitle.state}>
               <span>{subtitle.state === "spoken" ? "已播" : subtitle.state === "speaking" ? "正在说" : "未播出"}</span>
               {subtitle.text}
+              {subtitle.state === "failed" && subtitle.detail ? (
+                <small>播放器错误：{subtitle.detail}</small>
+              ) : null}
             </p>
           ))}
         </section>
@@ -342,6 +395,31 @@ function bridgeLabel(snapshot: ShowSnapshot): string {
   return `${bridge.client ?? "未知身体"} · ${bridge.owner} · 队列 ${bridge.queued}`;
 }
 
+function worldLabel(snapshot: ShowSnapshot): string {
+  const bridge = snapshot.bridge;
+  if (!bridge?.connected) return "游戏客户端未连接";
+  const world = bridge.world;
+  if (!world?.inWorld) return "客户端已连接，等待进入世界";
+  const dimension =
+    world.world === "minecraft:overworld"
+      ? "主世界"
+      : world.world === "minecraft:the_nether"
+        ? "下界"
+        : world.world === "minecraft:the_end"
+          ? "末地"
+          : world.world ?? "未知维度";
+  const position = world.position
+    ? ` · ${Math.round(world.position.x)}, ${Math.round(world.position.y)}, ${Math.round(world.position.z)}`
+    : "";
+  const item = world.selectedItem ? ` · ${world.selectedItem}` : "";
+  return `${dimension}${position}${item}`;
+}
+
+function formatStat(value: number | null | undefined): string {
+  if (value == null) return "—";
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
 function sourceTone(state: string | undefined): "good" | "warn" | "bad" | "quiet" {
   if (state === "open") return "good";
   if (state === "connecting") return "warn";
@@ -349,12 +427,20 @@ function sourceTone(state: string | undefined): "good" | "warn" | "bad" | "quiet
   return "quiet";
 }
 
-function voiceLabel(status: VoiceStatus | null, settings: ShowSettings | null): string {
+function voiceLabel(
+  status: VoiceStatus | null,
+  integrations: IntegrationSettingsView | null,
+  settings: ShowSettings | null,
+): string {
   if (!status) {
-    return settings ? `${settings.persona.voice.provider} / ${settings.persona.voice.voiceId}（未连接）` : "待配置音色";
+    return integrations?.voice.voiceId
+      ? `${integrations.voice.voiceId}（Voice 未连接）`
+      : settings
+        ? `${settings.persona.voice.voiceId}（未连接）`
+        : "待配置音色";
   }
   if (status.state === "speaking") return `正在说话 · 队列 ${status.queued}`;
-  if (status.state === "degraded") return `仅字幕 · ${status.detail}`;
+  if (status.state === "degraded") return `语音异常 · ${status.detail}`;
   if (status.state === "disabled") return "已停用";
   return `待命 · 已说 ${status.spoken}`;
 }

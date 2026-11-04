@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { prioritySchema } from "./decision.ts";
+import { voiceRuntimeConfigSchema } from "./settings.ts";
 
 /** Short spoken units keep first-word latency and preemption predictable. */
 export const MAX_UTTERANCE_CHARS = 35;
@@ -93,6 +94,10 @@ export const voiceSubtitleSchema = z.object({
   decisionId: z.string().min(1).nullable(),
   /** Links a playback failure back to the commitment it cannot satisfy. */
   commitmentId: z.string().min(1).nullable().default(null),
+  /** Machine-readable failure such as E_AUDIO_PLAYBACK; never audio bytes. */
+  code: z.string().min(1).nullable().default(null),
+  /** Safe diagnostic detail, e.g. the local player's stderr summary. */
+  detail: z.string().max(2_000).default(""),
   at: z.number().int().nonnegative(),
 });
 export type VoiceSubtitle = z.infer<typeof voiceSubtitleSchema>;
@@ -109,6 +114,10 @@ export const voiceCommandSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("limit"),
     maxBufferMs: z.number().int().nonnegative().optional(),
+  }),
+  z.object({
+    type: z.literal("configure"),
+    config: voiceRuntimeConfigSchema,
   }),
 ]);
 export type VoiceCommand = z.infer<typeof voiceCommandSchema>;

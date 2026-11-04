@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ownershipSchema } from "./bridge.ts";
+import { ownershipSchema, worldSnapshotSchema } from "./bridge.ts";
 import { budgetSchema, memorySchema, reviewCandidateSchema, personaVersionSchema } from "./memory.ts";
 import { personaProfileSchema } from "./settings.ts";
 import { timelineEntrySchema } from "./replay.ts";
@@ -8,6 +8,7 @@ export const bridgeHealthSchema = z.object({
   connected: z.boolean(),
   client: z.string().nullable(),
   owner: ownershipSchema,
+  world: worldSnapshotSchema.nullable().default(null),
   permission: z.enum(["agent", "operator", "stopped"]),
   generation: z.number().int().positive(),
   skills: z.array(z.string()).readonly(),

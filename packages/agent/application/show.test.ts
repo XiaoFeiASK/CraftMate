@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import { dafeiyu } from "../domain/index.ts";
 import type { AudienceEvent } from "@craftmate/contracts";
 import type { Clock } from "./ports/clock.ts";
+import { Planner } from "./planner.ts";
 import { MemoryAudienceStore, Show } from "./show.ts";
 
 const comment = (id: string, at: number): AudienceEvent => ({
@@ -97,6 +98,44 @@ describe("show settings", () => {
     assert.equal(show.personaSummary().weights.obedience, 0.1);
     assert.notEqual(before, show.personaSummary().weights.obedience);
     assert.equal(show.currentSettings().goal, "去钓鱼");
+  });
+});
+
+describe("show model planning", () => {
+  test("sent skill-bearing commentary to the planner without granting it a skill", async () => {
+    const requests: string[] = [];
+    const show = new Show({
+      persona: dafeiyu,
+      clock: { now: () => 1_000, newId: () => "id" },
+      planner: new Planner({
+        provider: {
+          id: "fake",
+          model: "fake-1",
+          async plan(request) {
+            requests.push(`${request.world === undefined ? "no-world" : "world"}:${request.audienceText}`);
+            return {
+              speech: "我听见啦。",
+              skill: null,
+              reason: "chat",
+              provider: "fake",
+              model: "fake-1",
+            };
+          },
+        },
+      }),
+      world: () => ({ inWorld: true, position: { x: 1, y: 2, z: 3 } }),
+    });
+    const scored = show.ingest({
+      ...comment("c1", 1_000),
+      text: "请说：大肥鱼已经进入世界了。",
+    });
+    assert.ok(scored);
+    assert.equal(scored.decision, "QUEUE");
+    const planned = await show.plan(scored);
+    assert.deepEqual(requests, ["world:请说：大肥鱼已经进入世界了。"]);
+    assert.equal(planned.stage, "planned");
+    assert.equal(planned.skill, null);
+    assert.equal(planned.speech, "我听见啦。");
   });
 });
 

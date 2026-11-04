@@ -36,7 +36,7 @@ export function DecisionStream({ decisions }: DecisionStreamProps): React.JSX.El
       {decisions.length === 0 ? (
         <div className="stream__empty">
           <p>还没有评论进来。</p>
-          <small>点右下角「模拟一波」可以先看效果。</small>
+          <small>接入抖音评论后，真实数据会显示在这里。</small>
         </div>
       ) : (
         <ol className="stream__list">

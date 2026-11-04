@@ -5,7 +5,6 @@ interface OperatorBarProps {
   readonly personaName: string;
   readonly onComment: (nickname: string, text: string) => void;
   readonly onOperator: (kind: OperatorKind, text?: string) => void;
-  readonly onBurst: () => void;
   readonly disabled: boolean;
 }
 
@@ -13,7 +12,6 @@ export function OperatorBar({
   personaName,
   onComment,
   onOperator,
-  onBurst,
   disabled,
 }: OperatorBarProps): React.JSX.Element {
   const [text, setText] = useState("");
@@ -90,9 +88,6 @@ export function OperatorBar({
         </button>
         <button type="button" className="action action--stop" onClick={() => onOperator("stop", "急停")} disabled={disabled}>
           急停
-        </button>
-        <button type="button" className="action action--quiet" onClick={onBurst} disabled={disabled}>
-          模拟一波
         </button>
       </div>
     </footer>

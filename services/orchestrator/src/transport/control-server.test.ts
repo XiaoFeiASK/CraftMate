@@ -77,6 +77,119 @@ test("a settings frame updates the show and is broadcast", async () => {
   }
 });
 
+test("saving integrations persists through the control protocol and exposes only redacted keys", async () => {
+  const show = new Show({ persona: dafeiyu });
+  let applied = false;
+  let runtimeApplied = false;
+  const savedView = {
+    model: {
+      provider: "deepseek",
+      baseUrl: "https://www.yyapi.cloud/v1",
+      model: "deepseek-v4.1-flash",
+      apiKeyConfigured: true,
+      timeoutMs: 10_000,
+    },
+    voice: {
+      provider: "volcengine-realtime" as const,
+      url: "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
+      voiceId: "zh_female_vv_uranus_bigtts",
+      apiKeyConfigured: true,
+      instructions: "忠实朗读。",
+      timeoutMs: 300_000,
+    },
+    douyin: { roomId: "12345", dyhubUrl: "ws://127.0.0.1:8757" },
+  };
+  const server = createControlServer({
+    show,
+    port: 0,
+    ingressToken: TEST_TOKEN,
+    settings: {
+      saveSettings: (next) => show.updateSettings(next as ReturnType<Show["currentSettings"]>),
+      saveIntegrationSettings: (next) => {
+        assert.equal((next as { model: { apiKey?: string } }).model.apiKey, "model-secret");
+        applied = true;
+        const settings = show.updateSettings({
+          ...show.currentSettings(),
+          integrations: {
+            douyinRoomId: "12345",
+            deepseekModel: "deepseek-v4.1-flash",
+          },
+        });
+        return {
+          settings,
+          runtime: {
+            model: {
+              provider: "deepseek",
+              baseUrl: "https://www.yyapi.cloud/v1",
+              model: "deepseek-v4.1-flash",
+              apiKey: "model-secret",
+              timeoutMs: 10_000,
+            },
+            voice: {
+              provider: "volcengine-realtime",
+              url: "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
+              apiKey: "voice-secret",
+              voiceId: "zh_female_vv_uranus_bigtts",
+              instructions: "忠实朗读。",
+              timeoutMs: 300_000,
+            },
+            douyin: { roomId: "12345", dyhubUrl: "ws://127.0.0.1:8757" },
+          },
+        };
+      },
+      readIntegrations: () => savedView,
+    },
+    onIntegrationsChanged: (config) => {
+      assert.equal(config.model.apiKey, "model-secret");
+      runtimeApplied = true;
+    },
+  });
+  try {
+    const socket = await openControl(await server.listening);
+    const messages: unknown[] = [];
+    socket.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
+    socket.send(
+      JSON.stringify({
+        type: "settingsSave",
+        payload: {
+          settings: show.currentSettings(),
+          integrations: {
+            model: {
+              provider: "deepseek",
+              baseUrl: "https://www.yyapi.cloud/v1",
+              model: "deepseek-v4.1-flash",
+              apiKey: "model-secret",
+              timeoutMs: 10_000,
+            },
+            voice: {
+              provider: "volcengine-realtime",
+              url: "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
+              voiceId: "zh_female_vv_uranus_bigtts",
+              apiKey: "voice-secret",
+              instructions: "忠实朗读。",
+              timeoutMs: 300_000,
+            },
+            douyin: { roomId: "12345", dyhubUrl: "ws://127.0.0.1:8757" },
+          },
+        },
+      }),
+    );
+    await delay(100);
+    socket.close();
+
+    assert.equal(applied, true);
+    assert.equal(runtimeApplied, true);
+    const integrationFrame = messages.find(
+      (message) => (message as { type?: string }).type === "integrations",
+    );
+    assert.ok(integrationFrame);
+    assert.equal(JSON.stringify(messages).includes("model-secret"), false);
+    assert.equal(JSON.stringify(messages).includes("voice-secret"), false);
+  } finally {
+    await server.close();
+  }
+});
+
 function openIngress(port: number): Promise<WebSocket> {
   const socket = new WebSocket(`ws://127.0.0.1:${port}/ingress`);
   return new Promise((resolve, reject) => {
@@ -429,6 +542,8 @@ describe("voice bridge", () => {
         state: "speaking",
         decisionId: null,
         commitmentId: null,
+        code: null,
+        detail: "",
         at: 1_000,
       });
       await new Promise((resolve) => setTimeout(resolve, 80));

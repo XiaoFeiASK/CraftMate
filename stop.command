@@ -23,9 +23,9 @@ for arg in "$@"; do
   4322  Ingress 健康检查
   4323  Voice / Bridge 默认端口
   5173  管理端 Vite
-  4391  Bridge 模拟身体示例端口
 
-设置了 CRAFTMATE_PORT、VOICE_PORT、INGRESS_HEALTH_PORT 或 BRIDGE_PORT
+设置了 CRAFTMATE_PORT、VOICE_PORT、INGRESS_HEALTH_PORT、CRAFTMATE_CONSOLE_PORT
+或 BRIDGE_PORT
 时，脚本也会检查对应的自定义端口。
 
 选项:
@@ -56,8 +56,8 @@ fail() {
 command -v ps >/dev/null 2>&1 || fail "未找到 ps。"
 command -v lsof >/dev/null 2>&1 || fail "未找到 lsof；macOS 应自带该命令。"
 
-PORTS="4321 4322 4323 5173 4391"
-for configured_port in "${CRAFTMATE_PORT:-}" "${VOICE_PORT:-}" "${INGRESS_HEALTH_PORT:-}" "${BRIDGE_PORT:-}"; do
+PORTS="4321 4322 4323 5173"
+for configured_port in "${CRAFTMATE_PORT:-}" "${VOICE_PORT:-}" "${INGRESS_HEALTH_PORT:-}" "${CRAFTMATE_CONSOLE_PORT:-}" "${BRIDGE_PORT:-}"; do
   [[ -n "$configured_port" ]] && PORTS="${PORTS} ${configured_port}"
 done
 
@@ -124,10 +124,9 @@ references_project() {
 is_project_command() {
   case "$1" in
     *"tools/dev.mjs"*|*"dev:orchestrator"*|*"dev:voice"*|*"dev:console"*|\
-    *"dev:desktop"*|*"dev:ingress"*|*"dev:bridge"*|*"npm run dev"*|\
+    *"dev:desktop"*|*"dev:ingress"*|*"npm run dev"*|\
     *"tsx watch"*|*"vite --port"*|*"tauri dev"*|*"cargo run"*|\
-    *"tools/mock.ts"*|*"tools/fake/dyhub.mjs"*|*"tools/bridge/sim-body.mjs"*|\
-    *"tools/bridge/smoke.mjs"*|*"tools/bridge/long-run.mjs"*|*"src/main.ts"*)
+    *"src/main.ts"*)
       return 0
       ;;
   esac

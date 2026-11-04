@@ -7,6 +7,7 @@ import {
   type VoiceEvent,
   type VoiceServerFrame,
   type VoiceStatus,
+  type VoiceRuntimeConfig,
 } from "@craftmate/contracts";
 import { isLoopbackAddress, tokenMatches } from "@craftmate/local-auth";
 import type { VoiceEngine } from "./engine.ts";
@@ -19,6 +20,7 @@ export interface VoiceServerOptions {
   readonly allowRemote?: boolean;
   readonly initialStatus: VoiceStatus;
   readonly voice: Parameters<VoiceEngine["speak"]>[0]["voice"];
+  readonly onConfigure?: (config: VoiceRuntimeConfig) => void;
 }
 
 export interface VoiceServer {
@@ -39,6 +41,7 @@ export function createVoiceServer({
   allowRemote = false,
   initialStatus,
   voice,
+  onConfigure,
 }: VoiceServerOptions): VoiceServer {
   const http = createServer((request, response) => {
     if (request.url !== "/health") {
@@ -66,6 +69,7 @@ export function createVoiceServer({
 
   const clients = new Set<WebSocket>();
   let currentStatus = initialStatus;
+  let currentVoice = voice;
 
   const send = (socket: WebSocket, frame: VoiceServerFrame): void => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(frame));
@@ -111,15 +115,24 @@ export function createVoiceServer({
         return;
       }
 
-      switch (parsed.data.payload.type) {
+      const command = parsed.data.payload;
+      switch (command.type) {
         case "speak":
-          engine.speak({ ...parsed.data.payload, voice });
+          engine.speak({ ...command, voice: currentVoice });
           break;
         case "stop":
-          engine.stop(parsed.data.payload.reason);
+          engine.stop(command.reason);
           break;
         case "limit":
           // Queue limits are process configuration, not a live operator knob.
+          break;
+        case "configure":
+          currentVoice = {
+            ...currentVoice,
+            provider: command.config.provider,
+            voiceId: command.config.voiceId,
+          };
+          onConfigure?.(command.config);
           break;
       }
     });

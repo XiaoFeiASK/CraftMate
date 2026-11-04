@@ -41,9 +41,9 @@
     │              │              │
  接入端         语音服务        Bridge
  抖音评论       TTS · 字幕      协调器 · 队列
- 归一化限流     打断 · 状态      模拟身体 · 看门狗
+ 归一化限流     打断 · 状态      队列 · 看门狗
 
-              （目标态）Fabric Mod：反射 · 行为 · 寻路 · 相机
+              Fabric Mod：反射 · 行为 · 寻路 · 相机
 ```
 
 四个部分的边界：
@@ -55,7 +55,8 @@
 
 管理端不参与运行逻辑。它崩了直播继续，它只是操作员的显示器和遥控器。
 
-> `mods/` 与 Supervisord 仍是目标态。当前已落地管理端、Orchestrator、Ingress、Voice、Bridge 协调器与模拟身体，详见 [实现状态](docs/status.md)。
+> 当前已落地管理端、Orchestrator、Ingress、Voice、Bridge 协调器与 Fabric 游戏身体；
+> 真实抖音房间、直播画面采集和长时验收仍未完成，详见 [实现状态](docs/status.md)。
 
 ## 设计要点
 
@@ -72,9 +73,13 @@
 
 ## 现在到哪了
 
-当前已落地：启动器式管理端、Tauri 桌面宿主、本机 WebSocket 控制面、确定性的 Stage A/B 仲裁、人格与承诺状态机、SQLite 持久化、可编辑的直播资料与界面偏好、抖音评论 Ingress、带鉴权的 Voice 服务，以及 Bridge 协议、协调器、有界队列与模拟身体。
+当前已落地：启动器式管理端、Tauri 桌面宿主、本机 WebSocket 控制面、确定性的 Stage A/B 仲裁、人格与承诺状态机、SQLite 持久化、可编辑并脱敏保存的服务配置、抖音评论 Ingress、带鉴权的 Voice 服务，以及 Bridge 协议、协调器与有界队列。
 
-模型 Provider 和 `/bridge` 已接入本机主流程，但尚未完成真实模型、抖音房间、TTS 与音频路由的联调；真实 Minecraft 身体也尚未实现。逐项事实以 [实现状态](docs/status.md) 为准。
+DeepSeek、豆包 Seeduplex 实时语音与 Fabric 游戏身体已接入本机主流程。Seeduplex
+已产生真实音频与 `spoken` 事件，当前机器的 macOS 音频输出也曾返回
+`AudioQueueStart failed (-66681)`。真实抖音房间、直播画面采集、方块最终删除和
+长时验收仍待完成。逐项事实以
+[实现状态](docs/status.md) 为准。
 
 ## 快速开始
 
@@ -86,11 +91,8 @@ npm install
 npm run dev              # 跳过环境检查，直接启动
 ```
 
-另开一个终端发送模拟弹幕：
-
-```bash
-npx tsx tools/mock.ts
-```
+服务配置在管理端「设置 → 接入」中填写。API Key 保存到本机
+`~/.craftmate/integrations.json`（权限 `0600`），设置接口不会回传明文。
 
 验证：
 
@@ -119,18 +121,19 @@ craftmate/
 │  ├─ contracts/         观众、决策、控制面、Ingress、Voice 与 Bridge 契约
 │  ├─ agent/             Agent 领域、Stage C 规划、场次编排与端口
 │  ├─ storage/           SQLite 连接、迁移与 Store
-│  ├─ bridge/            Bridge 协调器、队列、模拟身体与 WS 适配
+│  ├─ bridge/            Bridge 协调器、队列与 WS 适配
 │  ├─ bridge-mcpfabric/  MCPFabric 技能映射与安全握手
 │  └─ local-auth/        本机共享 token 与 loopback 校验
 ├─ db/                   schema 与迁移
-├─ tools/                开发、模拟弹幕与 Bridge 验证脚本
+├─ tools/                开发与维护脚本
 ├─ docs/                 架构、技术细节、计划与状态
 ├─ licenses/             MIT 与 Apache-2.0 全文
 ├─ start.command         一键启动本机开发环境
 └─ stop.command          一键停止本机开发环境
 ```
 
-`services/supervisord/` 与 `mods/` 属于目标态，当前不存在。目录树不为未实现的部分预埋空壳。
+`services/supervisord/` 仍属于目标态；`mods/craftmate-body/` 是当前真实的
+Fabric 1.21.11 游戏身体。
 
 ## 文档地图
 

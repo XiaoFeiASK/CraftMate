@@ -1,5 +1,6 @@
 import { WebSocket } from "ws";
 import type { VoiceEvent, VoiceSubtitle } from "@craftmate/contracts";
+import type { VoiceRuntimeConfig } from "@craftmate/contracts";
 import { voiceServerFrameSchema } from "@craftmate/contracts";
 
 export interface VoiceLinkOptions {
@@ -22,6 +23,7 @@ export interface SpeakCommand {
 export interface VoiceLink {
   speak(command: SpeakCommand): void;
   stop(reason?: string): void;
+  configure(config: VoiceRuntimeConfig): void;
   close(): void;
 }
 
@@ -109,6 +111,8 @@ export function connectVoice(options: VoiceLinkOptions): VoiceLink {
       pending = [];
       send({ type: "command", payload: { type: "stop", reason } });
     },
+    configure: (config) =>
+      send({ type: "command", payload: { type: "configure", config } }),
     close: () => {
       disposed = true;
       if (timer) clearTimeout(timer);
@@ -127,6 +131,8 @@ function toSubtitle(event: VoiceEvent): VoiceSubtitle | null {
         state: "speaking",
         decisionId: event.utterance.decisionId,
         commitmentId: event.utterance.commitmentId,
+        code: null,
+        detail: "",
         at: event.startedAt,
       };
     case "spoken":
@@ -136,6 +142,8 @@ function toSubtitle(event: VoiceEvent): VoiceSubtitle | null {
         state: "spoken",
         decisionId: event.utterance.decisionId,
         commitmentId: event.utterance.commitmentId,
+        code: null,
+        detail: "",
         at: event.finishedAt,
       };
     case "failed":
@@ -145,6 +153,8 @@ function toSubtitle(event: VoiceEvent): VoiceSubtitle | null {
         state: "failed",
         decisionId: event.utterance.decisionId,
         commitmentId: event.utterance.commitmentId,
+        code: event.code,
+        detail: event.detail,
         at: event.utterance.at,
       };
     case "cancelled":
@@ -154,6 +164,8 @@ function toSubtitle(event: VoiceEvent): VoiceSubtitle | null {
         state: "cancelled",
         decisionId: event.utterance.decisionId,
         commitmentId: event.utterance.commitmentId,
+        code: null,
+        detail: "",
         at: event.utterance.at,
       };
     default:

@@ -51,7 +51,7 @@ function createHarness(mode: "auto" | "manual" = "auto"): Harness {
     clock,
     scheduler,
     actions,
-    watchdogMs: 500,
+    watchdogMs: 2_000,
     heartbeatMs: 250,
     transport: {
       send: (frame) => {
@@ -113,7 +113,8 @@ describe("bridge handshake and capability negotiation", () => {
     assert.equal(harness.coordinator.currentOwnership.owner, "agent");
     assert.deepEqual(harness.coordinator.negotiated?.skills, ["goto", "look_at", "mine_block", "wait"]);
     if (welcome?.type === "welcome") {
-      assert.equal(welcome.watchdogMs, 500);
+      assert.equal(welcome.heartbeatMs, 250);
+      assert.equal(welcome.watchdogMs, 2_000);
       assert.equal(welcome.sessionId, "session-test");
       assert.equal(welcome.owner, "agent");
       assert.equal(welcome.generation, 1);
@@ -285,9 +286,16 @@ describe("bridge command lifecycle", () => {
 });
 
 describe("bridge local watchdog", () => {
-  test("a missing heartbeat releases held keys within 500ms", () => {
+  test("a missing heartbeat releases held keys within the negotiated watchdog", () => {
     const harness = createHarness("manual");
     connectHarness(harness);
+    harness.body.handle({
+      v: 1,
+      type: "heartbeat",
+      tick: 2,
+      owner: "agent",
+      world: { inWorld: true },
+    });
     harness.coordinator.issue(harness.frame({ id: "c-1" }));
     harness.advance(50);
     assert.ok(harness.body.state().pressed.length > 0);
@@ -297,11 +305,87 @@ describe("bridge local watchdog", () => {
       type: "heartbeat",
       tick: 2,
       owner: "agent",
+      world: { inWorld: true },
     });
     harness.sent.splice(0, harness.sent.length);
-    harness.advance(600);
+    harness.advance(2_000);
     assert.deepEqual(harness.body.state().pressed, []);
     assert.ok(harness.body.state().cancelled.length > 0);
+  });
+});
+
+test("world loading does not become a sticky stop before the first in-world heartbeat", () => {
+  let now = 1_000;
+  const transport = {
+    send: () => undefined,
+    close: () => undefined,
+  };
+  const session = new BodySession({
+    token: "secret",
+    sessionId: "s",
+    transport,
+    clock: { now: () => now },
+    scheduler: {
+      setInterval: () => 1,
+      clearInterval: () => undefined,
+    },
+    actions: new MemoryActionPort(),
+  });
+
+  session.handle({
+    v: 1,
+    type: "hello",
+    token: "secret",
+    client: "craftmate-body-fabric",
+    capabilities: ["sensor"],
+    skills: ["wait"],
+  });
+
+  now += 10_000;
+  session.poll();
+  assert.equal(session.control.permission, "agent");
+
+  session.handle({
+    v: 1,
+    type: "heartbeat",
+    tick: 1,
+    owner: "agent",
+    world: { inWorld: true },
+  });
+  now += 2_001;
+  session.poll();
+  assert.equal(session.control.permission, "stopped");
+});
+
+test("a liveness-only heartbeat does not erase the last world snapshot", () => {
+  const harness = createHarness();
+  harness.body.start();
+  harness.advance(100);
+  harness.coordinator.handle({
+    v: 1,
+    type: "heartbeat",
+    tick: 100,
+    owner: "agent",
+    worldGeneration: 1,
+    world: {
+      inWorld: true,
+      position: { x: 10, y: 64, z: 8 },
+      nearbyBlocks: [{ id: "minecraft:stone" }],
+    },
+  });
+  harness.coordinator.handle({
+    v: 1,
+    type: "heartbeat",
+    tick: 101,
+    owner: "agent",
+    worldGeneration: 1,
+    world: null,
+  });
+
+  assert.deepEqual(harness.coordinator.health().world, {
+    inWorld: true,
+    position: { x: 10, y: 64, z: 8 },
+    nearbyBlocks: [{ id: "minecraft:stone" }],
   });
 });
 
@@ -408,8 +492,15 @@ describe("bridge control ownership", () => {
     const control = new ControlAuthority();
     const sessions = createSessions(control);
     const first = sessions.open();
+    first.coordinator.handle({
+      v: 1,
+      type: "heartbeat",
+      tick: 1,
+      owner: "agent",
+      world: { inWorld: true },
+    });
     first.coordinator.issue(sessionsCommand("c-1"));
-    sessions.advance(1_000);
+    sessions.advance(2_000);
     assert.equal(first.coordinator.health().permission, "stopped");
     first.coordinator.close("socket closed");
 

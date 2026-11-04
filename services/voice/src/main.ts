@@ -3,10 +3,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { defaultTokenPath, loadOrCreateToken } from "@craftmate/local-auth";
 import { SqliteCommitmentGate } from "@craftmate/storage";
-import { dafeiyu } from "@craftmate/agent";
 import { VoiceEngine } from "./engine.ts";
 import { createVoiceServer } from "./server.ts";
-import { CommandAudioSink, HttpTtsProvider, NoopAudioSink, SubtitleOnlyProvider } from "./providers.ts";
+import { CommandAudioSink, VolcengineRealtimeTtsProvider } from "./providers.ts";
+import { createRuntimeConfigStore } from "@craftmate/local-config";
+import { dafeiyu } from "@craftmate/agent";
+import type { VoiceRuntimeConfig } from "@craftmate/contracts";
 
 const port = Number(process.env.VOICE_PORT ?? 4323);
 const host = process.env.VOICE_HOST ?? "127.0.0.1";
@@ -15,34 +17,27 @@ if (!process.env.CRAFTMATE_TOKEN?.trim() && !existsSync(defaultTokenPath())) {
   process.exit(1);
 }
 const token = loadOrCreateToken();
-const voice = dafeiyu.voice;
+const runtimeConfig = createRuntimeConfigStore().read();
+let voice: typeof dafeiyu.voice = {
+  ...dafeiyu.voice,
+  provider: runtimeConfig.voice.provider,
+  voiceId: runtimeConfig.voice.voiceId,
+};
 
-const providers = [];
-const primaryUrl = process.env.TTS_PRIMARY_URL;
-if (primaryUrl) {
-  providers.push(
-    new HttpTtsProvider({
-      id: process.env.TTS_PRIMARY_ID ?? "primary",
-      url: primaryUrl,
-      ...(process.env.TTS_PRIMARY_KEY ? { headers: { authorization: `Bearer ${process.env.TTS_PRIMARY_KEY}` } } : {}),
-    }),
-  );
-}
-const backupUrl = process.env.TTS_BACKUP_URL;
-if (backupUrl) {
-  providers.push(
-    new HttpTtsProvider({
-      id: process.env.TTS_BACKUP_ID ?? "backup",
-      url: backupUrl,
-      ...(process.env.TTS_BACKUP_KEY ? { headers: { authorization: `Bearer ${process.env.TTS_BACKUP_KEY}` } } : {}),
-    }),
-  );
-}
-const subtitleOnly = providers.length === 0;
-if (subtitleOnly) {
-  console.warn("voice: no TTS_PRIMARY_URL/TTS_BACKUP_URL configured; running subtitle-only");
-  providers.push(new SubtitleOnlyProvider());
-}
+const providerFor = (config: VoiceRuntimeConfig) =>
+  config.apiKey
+    ? [
+        new VolcengineRealtimeTtsProvider({
+          apiKey: config.apiKey,
+          voice: config.voiceId,
+          url: config.url,
+          instructions: config.instructions,
+          timeoutMs: config.timeoutMs,
+        }),
+      ]
+    : [];
+const providers = providerFor(runtimeConfig.voice);
+const synthesisTimeoutMs = runtimeConfig.voice.timeoutMs;
 
 // Fail closed: without a readable database a promised line cannot be proven,
 // so nothing is played rather than trusting the caller.
@@ -52,9 +47,9 @@ const gate = new SqliteCommitmentGate(
 
 const engine = new VoiceEngine({
   providers,
-  subtitleOnly,
   commitmentGate: gate,
-  sink: subtitleOnly ? new NoopAudioSink() : new CommandAudioSink(process.env.AUDIO_PLAYER ?? "afplay"),
+  sink: new CommandAudioSink(process.env.AUDIO_PLAYER ?? "afplay"),
+  synthesisTimeoutMs,
   onEvent: (event) => server.publish(event),
 });
 
@@ -65,6 +60,11 @@ const server = createVoiceServer({
   token,
   initialStatus: engine.status(),
   voice,
+  onConfigure: (config) => {
+    voice = { ...voice, provider: config.provider, voiceId: config.voiceId };
+    engine.synthesisTimeoutMs = config.timeoutMs;
+    engine.replaceProviders(providerFor(config));
+  },
 });
 
 await server.listening;

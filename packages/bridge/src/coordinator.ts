@@ -6,6 +6,7 @@ import type {
   Ownership,
   SkillCommand,
   SkillName,
+  WorldSnapshot,
 } from "@craftmate/contracts";
 import { bridgeClientFrameSchema } from "@craftmate/contracts";
 import {
@@ -32,9 +33,9 @@ import { systemTimers } from "./types.ts";
 
 export const BRIDGE_LIMITS = {
   /** The body declares the heartbeat period; the coordinator enforces a ceiling. */
-  heartbeatMs: 2_000,
+  heartbeatMs: 250,
   /** A missing body heartbeat for this long releases control locally. */
-  watchdogMs: 500,
+  watchdogMs: 2_000,
 } as const;
 
 export interface BodyTransport {
@@ -48,6 +49,7 @@ export interface BodyHealth {
   readonly owner: Ownership;
   readonly capabilities: readonly BridgeCapability[];
   readonly skills: readonly SkillName[];
+  readonly world: WorldSnapshot | null;
   readonly queued: number;
   readonly running: number;
   readonly tick: number;
@@ -96,6 +98,7 @@ export class BodySession {
   private readonly queue: CommandQueue;
   private readonly authority: ControlAuthority;
   private body: NegotiatedBody | null = null;
+  private world: WorldSnapshot | null = null;
   private ownership: OwnershipState;
   private readonly capabilities = new Set<BridgeCapability>();
   private readonly skills = new Set<SkillName>();
@@ -138,6 +141,7 @@ export class BodySession {
       owner: this.ownership.owner,
       capabilities: [...this.capabilities],
       skills: [...this.skills],
+      world: this.world,
       queued: this.queue.queuedCount(),
       running: active.filter((record) => record.status === "running").length,
       tick: this.tick,
@@ -152,7 +156,12 @@ export class BodySession {
   poll(now = this.clock.now()): void {
     if (this.closed || !this.body) return;
     const watchdogMs = this.options.watchdogMs ?? BRIDGE_LIMITS.watchdogMs;
-    if (now - this.lastSeenAt >= watchdogMs) {
+    // The Minecraft client thread can block while creating or loading a world,
+    // so its first heartbeat may arrive many seconds after hello. Do not turn
+    // that expected startup pause into a sticky emergency stop. Once the body
+    // has reported an in-world snapshot, the normal 2-second safety watchdog
+    // applies to every missed heartbeat.
+    if (this.world?.inWorld === true && now - this.lastSeenAt >= watchdogMs) {
       this.releaseToNone("body heartbeat missed");
     }
     this.pump(now);
@@ -198,6 +207,11 @@ export class BodySession {
         break;
       case "heartbeat":
         this.tick = Math.max(this.tick, parsed.data.tick);
+        // A null/omitted world is an explicit delta, not evidence that no
+        // snapshot exists. Only a fresh snapshot replaces the planner view.
+        if (parsed.data.world !== null && parsed.data.world !== undefined) {
+          this.world = parsed.data.world;
+        }
         break;
       default:
         break;

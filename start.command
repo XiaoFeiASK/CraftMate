@@ -81,8 +81,9 @@ VOICE_PORT="${VOICE_PORT:-4323}"
 if port_in_use "$VOICE_PORT"; then
   fail "端口 ${VOICE_PORT} 已被占用。请先运行 ./stop.command 清理本项目残留进程；若被其他程序占用，请停止它或运行 VOICE_PORT=4402 ./start.command"
 fi
-if port_in_use 5173; then
-  fail "端口 5173 已被占用。请先运行 ./stop.command 清理本项目残留进程；若被其他程序占用，请停止它。"
+CONSOLE_PORT="${CRAFTMATE_CONSOLE_PORT:-5173}"
+if port_in_use "$CONSOLE_PORT"; then
+  fail "端口 ${CONSOLE_PORT} 已被占用。请先运行 ./stop.command 清理本项目残留进程；若被其他程序占用，请停止它或运行 CRAFTMATE_CONSOLE_PORT=5174 ./start.command。"
 fi
 
 info "Orchestrator: ws://127.0.0.1:${ORCHESTRATOR_PORT}/control"
@@ -91,15 +92,15 @@ info "健康检查:     http://127.0.0.1:${ORCHESTRATOR_PORT}/health"
 if [[ "$MODE" == "desktop" ]]; then
   info "桌面窗口:     启动后会弹出 CraftMate 窗口"
 else
-  info "管理端:       http://localhost:5173"
+  info "管理端:       http://localhost:${CONSOLE_PORT}"
 fi
 info "按 Ctrl+C 停止"
 
 if [[ "$MODE" == "web" && "$OPEN_BROWSER" == "1" ]] && command -v open >/dev/null 2>&1; then
   (
     for _ in {1..40}; do
-      if curl -fsS -o /dev/null --max-time 1 http://localhost:5173/ 2>/dev/null; then
-        open "http://localhost:5173" >/dev/null 2>&1 || true
+      if curl -fsS -o /dev/null --max-time 1 "http://localhost:${CONSOLE_PORT}/" 2>/dev/null; then
+        open "http://localhost:${CONSOLE_PORT}" >/dev/null 2>&1 || true
         exit 0
       fi
       sleep 0.5

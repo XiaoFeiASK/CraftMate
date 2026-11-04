@@ -61,6 +61,7 @@ export class SimBody {
   private stepTimer: unknown = null;
   private watchdogTimer: unknown = null;
   private lastServerFrameAt: number;
+  private serverWatchdogMs = 2_000;
   private closed = false;
   private readonly pressed = new Set<string>();
   private readonly completedKeys = new Set<string>();
@@ -121,6 +122,7 @@ export class SimBody {
     if (frame.type === "welcome") {
       // Matching a token proves identity, not permission to act. The server's
       // sticky owner survives reconnects and may still be operator or none.
+      this.serverWatchdogMs = frame.watchdogMs;
       this.owner = frame.owner;
       if (frame.owner !== "agent") this.stopCurrent("handshake owner is not agent");
       return;
@@ -171,6 +173,12 @@ export class SimBody {
   /** Same local stop path used by the tick loop; exposed for deterministic tests. */
   checkWatchdog(): void {
     this.checkServerWatchdog();
+  }
+
+  stopLocal(): void {
+    this.stopCurrent("local stop");
+    this.owner = "none";
+    this.options.onOwnership?.("none", "local stop");
   }
 
   private execute(frame: SkillCommand & { type: "cmd" }): void {
@@ -294,7 +302,13 @@ export class SimBody {
     // The server watchdog measures silence since the last received frame,
     // not since the task began. Sending our own heartbeat must not keep a
     // dead control plane looking alive.
-    this.options.send({ v: 1, type: "heartbeat", tick: this.tick, owner: this.owner });
+    this.options.send({
+      v: 1,
+      type: "heartbeat",
+      tick: this.tick,
+      owner: this.owner,
+      worldGeneration: this.tick,
+    });
   }
 
   /**
@@ -303,12 +317,10 @@ export class SimBody {
    * lava after the operator closes the laptop.
    */
   private checkServerWatchdog(): void {
-    if (this.closed || this.current === null) return;
-    if (this.clock.now() - this.lastServerFrameAt < 500) return;
+    if (this.closed) return;
+    if (this.clock.now() - this.lastServerFrameAt < this.serverWatchdogMs) return;
     this.lastServerFrameAt = this.clock.now();
-    this.stopCurrent("server heartbeat missed");
-    this.owner = "none";
-    this.options.onOwnership?.("none", "server heartbeat missed");
+    this.stopLocal();
   }
 
   /** A socket close means "let go of every input", not "wait for cancel". */

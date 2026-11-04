@@ -6,21 +6,93 @@ import { connectVoice } from "./transport/voice-link.ts";
 import { createOps } from "./ops.ts";
 import { createBridgeUpgrade, SqliteActionPort } from "@craftmate/bridge";
 import { loadOrCreateBridgeToken } from "@craftmate/bridge";
+import { createIngressSupervisor } from "./ingress-supervisor.ts";
+import { readFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 const port = Number(process.env.CRAFTMATE_PORT ?? 4321);
 // Loopback by default. Set CRAFTMATE_HOST=0.0.0.0 only when another device
 // or a container needs to reach the socket.
 const host = process.env.CRAFTMATE_HOST ?? "127.0.0.1";
 const ingressToken = loadOrCreateToken();
-const persistent = createPersistentShow();
+// The bridge is assigned before the HTTP server starts accepting traffic.
+// The planner reads only the last semantic heartbeat snapshot from it.
+let bridge: ReturnType<typeof createBridgeUpgrade>;
+const persistent = createPersistentShow({
+  world: () => bridge?.health().world ?? null,
+  availableSkills: () => bridge?.health().skills ?? [],
+});
 const retention = createRetentionSweep({ expire: (now) => persistent.expireRawText(now) });
 retention.start();
 let voiceLink: ReturnType<typeof connectVoice> | null = null;
+const ingressSupervisor = createIngressSupervisor({
+  publishHealth: (health) => server.publishSourceHealth(health),
+  onError: (detail) => console.warn(`orchestrator: ingress — ${detail}`),
+});
+
+function loadOperatorCliAction():
+  | { readonly command: string; readonly actor: "agent" | "operator" }
+  | null {
+  const path = join(homedir(), ".craftmate", "test-command.json");
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+  const parsed = JSON.parse(raw) as {
+    readonly command?: unknown;
+    readonly actor?: unknown;
+  };
+  if (
+    typeof parsed.command !== "string" ||
+    !["agent", "operator"].includes(parsed.actor as string) ||
+    parsed.command.length > 2_000
+  ) {
+    throw new Error("test-command.json must contain command and actor=agent|operator");
+  }
+  return { command: parsed.command, actor: parsed.actor as "agent" | "operator" };
+}
+
+async function injectOperatorCliAction(
+  action: { readonly command: string; readonly actor: "agent" | "operator" },
+): Promise<void> {
+  const path = join(homedir(), ".craftmate", "test-command.json");
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const health = bridge.health();
+    if (
+      health.connected &&
+      health.owner === "agent" &&
+      health.world?.inWorld === true
+    ) {
+      server.injectDecision?.({
+        id: `headless-${crypto.randomUUID()}`,
+        kind: "chat",
+        roomId: "headless-smoke",
+        userId: action.actor === "agent" ? "craftmate-agent" : "craftmate-operator",
+        nickname: action.actor === "agent" ? "本地验收" : "操作员验收",
+        text: action.command,
+        at: Date.now(),
+      });
+      try {
+        unlinkSync(path);
+      } catch {
+        // The command was already accepted; a cleanup failure must not replay it.
+      }
+      console.log("orchestrator: injected local acceptance command after the world became ready");
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  console.warn("orchestrator: local acceptance command was not injected; game body was not ready within 30 seconds");
+}
 
 // A body is optional: without one the bridge reports "not connected" and no
 // skill is issued. Mounting the route early keeps the console honest.
 const bridgeToken = loadOrCreateBridgeToken();
-const bridge = createBridgeUpgrade({
+bridge = createBridgeUpgrade({
   token: bridgeToken,
   sessionId: persistent.context.sessionId,
   actions: {
@@ -38,7 +110,7 @@ const bridge = createBridgeUpgrade({
   audit: {
     record: (event) => {
       console.log(
-        `bridge: ${event.type} ${event.op} ${event.status ?? ""}`.trim(),
+        `bridge: ${event.type} ${event.op} ${event.status ?? ""} ${event.detail ?? ""}`.trim(),
       );
     },
   },
@@ -57,7 +129,11 @@ const ops = createOps({
 
 const server = createControlServer({
   show: persistent.show,
-  settings: { saveSettings: (next) => persistent.saveSettings(next) },
+  settings: {
+    saveSettings: (next) => persistent.saveSettings(next),
+    saveIntegrationSettings: (next) => persistent.saveIntegrationSettings(next),
+    readIntegrations: () => persistent.readIntegrations(),
+  },
   port,
   host,
   ingressToken,
@@ -96,7 +172,19 @@ const server = createControlServer({
     });
     server.publishBridgeHealth(bridge.health());
   },
+  onIntegrationsChanged: (config) => {
+    voiceLink?.configure(config.voice);
+    void ingressSupervisor.configure(config.douyin);
+  },
 });
+
+// Headless smoke-test ingress. This reads only a caller-owned local file,
+// waits for the real game body and world, and then enters through the same
+// event pipeline as a live comment. It never simulates an action result.
+const smoke = loadOperatorCliAction();
+if (smoke) {
+  void server.listening.then(() => injectOperatorCliAction(smoke));
+}
 
 voiceLink = connectVoice({
   url: process.env.CRAFTMATE_VOICE ?? "ws://127.0.0.1:4323/voice",
@@ -178,10 +266,13 @@ const shutdown = async (): Promise<void> => {
   clearInterval(bridgePoll);
   retention.stop();
   voiceLink?.close();
+  await ingressSupervisor.close();
   await server.close();
   persistent.close();
   process.exit(0);
 };
+
+void ingressSupervisor.configure(persistent.runtimeConfig.read().douyin);
 
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

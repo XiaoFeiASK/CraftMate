@@ -33,7 +33,7 @@ Orchestrator ──SkillCommand──► BodySession ──WS /bridge──► S
 | host → body | `cancel` | 按 taskId 取消；服务端发出不等于身体已停 |
 | body → host | `event` | 世界事件，带 seq 与 tick |
 | 双向 | `ownership` | `agent` / `operator` / `none` 三态 |
-| 双向 | `heartbeat` | 存活与当前 tick；缺 500ms 触发本地停止 |
+| 双向 | `heartbeat` | 默认 250ms；连续 2s 未收到对端心跳时释放输入并停止 |
 
 约定：
 
@@ -56,7 +56,7 @@ Orchestrator ──SkillCommand──► BodySession ──WS /bridge──► S
   `operator`/`none`，旧队列不会重放。
 - 每次控制权变化推进 `generation`。使用旧代际发出的模型结果会得到 `E_PERMISSION`，
   防止“规划中接管”后仍产生副作用。
-- 断线 500ms：身体本地释放按键、停止任务、进入 `none`；服务端超时同样进入 `stopped`，
+- 心跳默认 250ms，连续 2s 未收到：身体本地释放按键、停止任务；服务端超时同样进入 `stopped`，
   并保持到显式交还。
 
 ## 3.1 操作员 API
@@ -97,18 +97,6 @@ Mod 侧必须遵守：
 
 ## 6. 启动
 
-```bash
-npm run dev:bridge          # fake body，默认 ws://127.0.0.1:4323/bridge
-npm run bridge:smoke        # 连接 fake body 并跑一轮 mine_block
-npm run bridge:long-run     # 默认 30 秒虚拟时钟采样
-```
-
-`npm run dev:bridge` 与 `services/voice` 的默认端口都是 `4323`，同时启动时需显式错开：
-
-```bash
-BRIDGE_PORT=4391 npm run dev:bridge
-BRIDGE_PORT=4391 npm run bridge:smoke
-```
-
-当前 fake body 自带 `/health`，返回连接、所有权、队列深度与看门狗窗口。
-它只验证协议与协调器，不代表真实 Minecraft 身体可用；真机步骤与阻塞项见 [运行报告](bridge-run-report.md)。
+正式启动只挂载 Orchestrator 的 `/bridge`。没有真实身体时，控制台会显示未连接，
+不会自动注入 `SimBody`。`SimBody` 仅用于自动化协议测试，不代表真实 Minecraft
+身体可用；真机步骤与阻塞项见 [运行报告](bridge-run-report.md)。

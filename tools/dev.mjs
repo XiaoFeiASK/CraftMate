@@ -1,5 +1,15 @@
 import { spawn } from "node:child_process";
 
+// Load the ignored, machine-local configuration before spawning any service.
+// Values already supplied by the shell keep precedence over .env.
+try {
+  process.loadEnvFile(".env");
+} catch (error) {
+  if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") {
+    throw error;
+  }
+}
+
 const mode = process.argv[2] === "desktop" ? "desktop" : "web";
 const detach = process.platform !== "win32";
 

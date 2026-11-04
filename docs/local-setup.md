@@ -1,6 +1,6 @@
 # 本地开发
 
-> 目标：从空目录到发出模拟弹幕并看到决策，不需要问人。
+> 目标：从空目录启动真实控制面、模型、端到端实时语音与配置界面。
 > 已经能跑什么见 [实现状态](status.md)，架构与端口约定见 [技术设计](technical-design.md) §2。
 
 ## 1. 必需
@@ -10,7 +10,7 @@
 | Node.js | ≥ 22.5 | 必需 | 运行时与 `node:sqlite` |
 | npm | 随 Node | 必需 | workspace 安装 |
 | Rust / Cargo | 稳定版 | 仅桌面窗口 | Tauri 2 构建 |
-| Minecraft + Fabric | 1.21.11 | 仅游戏执行 | 当前阶段不需要 |
+| Minecraft + Fabric | 1.21.11 / Fabric 0.20.1 | 游戏执行 | 需要真实动作时必需 |
 | OBS / BlackHole | — | 仅推流 | 当前阶段不需要 |
 
 ```bash
@@ -43,7 +43,7 @@ npm install
 ```
 
 脚本只结束工作目录属于本仓库的 Orchestrator、Voice、Vite、Tauri 与相关子进程，
-并检查 `4321`、`4322`、`4323`、`5173`、`4391` 是否释放。使用 `--dry-run` 可以
+并检查 `4321`、`4322`、`4323`、`5173` 是否释放。使用 `--dry-run` 可以
 先查看将要停止的进程；占用端口的其他程序不会被结束，脚本会打印其 PID 和
 工作目录供确认。
 
@@ -54,14 +54,6 @@ npm install
 ```
 
 `--web --no-open` 不会自动打开浏览器。浏览器版和桌面版连的是同一个 Orchestrator。
-
-终端 B：
-
-```bash
-npx tsx tools/mock.ts
-```
-
-模拟弹幕会按脚本发送评论，管理端的评论与决策区应随之更新。
 
 只想跑其中一半：
 
@@ -75,17 +67,32 @@ Orchestrator、Ingress 与 Voice 共用一个本机 token，默认保存在 `~/.
 （权限 `0600`）。设 `CRAFTMATE_TOKEN` 可覆盖；设 `CRAFTMATE_TOKEN_FILE` 可改路径。
 不要把 token 写进 URL 或提交到仓库。
 
-没有配置真实 TTS 时，Voice 以「仅字幕」模式运行：合成器返回空音频，
-控制台仍能看到 `speaking / spoken / failed` 事件。接真实供应商：
+仓库根目录的 `.env` 会由标准启动脚本自动加载，且已加入 `.gitignore`；shell 环境变量优先级更高。
+首次启动可从 `.env.example` 提供默认值，随后在管理端「设置 → 接入」中编辑并保存。
+凭据保存在 `~/.craftmate/integrations.json`，目录和文件仅当前用户可访问，API Key
+不会通过控制面回传明文。
+DeepSeek 使用 OpenAI 兼容接口；可在 `CRAFTMATE_MODEL` 设置 YYAPI 已开通的模型名。仓库示例采用 `deepseek-v4.1-flash`；可用 `CRAFTMATE_MODEL_TIMEOUT_MS`
+设置模型等待上限，超时后会降级模板。接入面板会显示模型 Provider 与模型名，不会显示 Key。
+
+Voice 使用端到端实时语音；未配置 API Key 时 Voice 保持运行并明确报告不可用。
+在管理端保存语音配置后，运行中的 Voice 服务会立即切换：
 
 ```bash
-TTS_PRIMARY_URL=http://127.0.0.1:9000/tts \
+TTS_PRIMARY_PROVIDER=volcengine-realtime \
 TTS_PRIMARY_KEY=... \
-TTS_BACKUP_URL=http://127.0.0.1:9001/tts \
+TTS_PRIMARY_VOICE_ID=zh_female_vv_uranus_bigtts \
 npm run dev:voice
 ```
 
-播放默认调用 macOS `afplay`；可用 `AUDIO_PLAYER` 换命令。音频路由
+当前语音使用豆包「端到端实时语音（Seeduplex）」：
+`wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue`。
+Voice 为每句已决定好的字幕建立会话，发送 `session.create` 与
+`speech_text_buffer.commit`，再把流式返回的 24kHz `pcm_s16le` 在会话结束前
+直接送入本机流式播放器。错误时会如实上报，不伪造播放完成。
+模型只负责发声，不接收观众评论，也不参与 CraftMate 的决策与工具调用。
+`TTS_PRIMARY_INSTRUCTIONS` 用于设定「大肥鱼」的音色与说话方式。
+
+流式播放使用 macOS AVFoundation；非流式测试音频才使用 `AUDIO_PLAYER`（默认 `afplay`）。音频路由
 （BlackHole → OBS）尚未自动配置，需要在本机音频设置里手动完成。
 
 Voice 的配置变量：
@@ -94,11 +101,13 @@ Voice 的配置变量：
 | --- | --- | --- |
 | `VOICE_PORT` | `4323` | Voice WebSocket 与健康检查端口 |
 | `VOICE_HOST` | `127.0.0.1` | 监听地址 |
-| `TTS_PRIMARY_URL` | 空 | 主 TTS HTTP 端点；未配置时进入仅字幕模式 |
-| `TTS_PRIMARY_KEY` | 空 | 主 TTS 的 Bearer token |
-| `TTS_BACKUP_URL` | 空 | 备用 TTS HTTP 端点 |
-| `TTS_BACKUP_KEY` | 空 | 备用 TTS 的 Bearer token |
-| `AUDIO_PLAYER` | `afplay` | 播放命令 |
+| `TTS_PRIMARY_URL` | Seeduplex 官方端点 | 端到端实时语音 WebSocket 地址 |
+| `TTS_PRIMARY_KEY` | 空 | 主 TTS 的 API Key 或 Bearer token |
+| `TTS_PRIMARY_PROVIDER` | `volcengine-realtime` | 使用豆包端到端实时语音 |
+| `TTS_PRIMARY_VOICE_ID` | `zh_female_vv_uranus_bigtts` | 端到端实时语音的发声人 |
+| `TTS_PRIMARY_INSTRUCTIONS` | 大肥鱼提示词 | 固定人格、音色和朗读方式 |
+| `TTS_SYNTHESIS_TIMEOUT_MS` | `300000` | 单句实时语音会话的等待上限 |
+| `AUDIO_PLAYER` | `afplay` | 非流式测试音频的播放命令 |
 | `CRAFTMATE_VOICE` | `ws://127.0.0.1:4323/voice` | Orchestrator 连接的 Voice 地址 |
 
 接入真实抖音评论（需要先在本机跑起 dyhub）：
@@ -114,7 +123,9 @@ ingress；伪造 token、未 `hello` 或非 loopback 连接会被直接关闭。
 Ingress 健康检查 `http://127.0.0.1:4322/health` 会同时返回丢弃原因计数，
 例如 `rate limited` / `queue full`。
 
-`npm run start:ingress` 与上面的 `npx tsx` 等价，可任选一种。
+在管理端「设置 → 接入」保存房间号和 dyhub 地址后，Orchestrator 会自动启动或
+重启 Ingress；清空房间号会停止 Ingress。`npm run start:ingress` 仍可用于独立排查，
+但正式启动不需要再手动运行，也不要与自动托管的 Ingress 同时占用 `4322`。
 
 ## 3. 验证
 
@@ -150,7 +161,7 @@ npm run dev:desktop
 - 数据库默认在 `~/.craftmate/craftmate.db`；`CRAFTMATE_DB` 可指定文件，`CRAFTMATE_DB_DIR` 可指定目录。
 - 数据库文件、`-wal`、`-shm` 都在 `.gitignore` 里，不要提交。
 - 启动时自动跑 `db/migrations/`；迁移 checksum 与已应用记录不一致会直接启动失败。
-- `.env` 不入库；密钥最终放 macOS Keychain，不写配置文件。
+- `.env` 不入库；管理端保存的服务凭据在 `~/.craftmate/integrations.json`，权限 `0600`。
 - 日志里不写弹幕原文、prompt 或模型输出。
 
 SQLite 是嵌入式库，**不需要也不应该**单独跑数据库进程。`npm run db:check:file`
@@ -168,15 +179,10 @@ SQLite 是嵌入式库，**不需要也不应该**单独跑数据库进程。`np
 
 ## 7. 接入抖音评论（ingress）
 
-没有真实直播间时，先用本仓库的假源验证整条链路：
-
-```bash
-npm run fake:dyhub                      # 终端 1：假 dyhub，127.0.0.1:8757
-npm run dev:orchestrator                # 终端 2：4321
-DOUYIN_ROOM_ID=test npm run start:ingress   # 终端 3：订阅并转发
-```
-
-接真实房间时，先把 dyhub 跑起来（默认 `127.0.0.1:8757`），然后：
+接真实房间时，先把 dyhub 跑起来（默认 `127.0.0.1:8757`），然后在管理端
+「设置 → 接入」填写直播间号和 dyhub 地址并保存。Orchestrator 会立即启动
+Ingress；修改任一值时自动重启，清空直播间号时停止。需要脱离管理端独立排查时，
+才手动运行：
 
 ```bash
 DOUYIN_ROOM_ID=<live.douyin.com 后面的数字> npm run start:ingress
@@ -190,22 +196,17 @@ DOUYIN_ROOM_ID=<live.douyin.com 后面的数字> npm run start:ingress
 | `INGRESS_HEALTH_PORT` | `4322` | ingress 自身探活端口 |
 
 排查顺序：先 `curl http://127.0.0.1:4322/health` 看 `source.state` 与 `upstream`，
-再看控制台左下角的「抖音评论在线」。`upstream: false` 说明 ingress 没连上 Orchestrator，
-不是抖音的问题。
+再看控制台左下角的「抖音评论在线」。`upstream: false` 说明 Ingress 没连上
+Orchestrator，不是抖音的问题。Ingress 异常退出时会保留错误状态，修复 dyhub
+地址或房间号后再次保存即可重新启动。
 
-## 8. Bridge 模拟身体
+## 8. Bridge 真实身体
 
-Bridge 已装配进 Orchestrator，当前使用模拟身体验证。`npm run dev:bridge`
-默认监听 `4323`，与 Voice 冲突，所以同时运行时必须显式指定端口：
-
-```bash
-BRIDGE_PORT=4391 npm run dev:bridge              # 终端 1：fake body
-BRIDGE_PORT=4391 npm run bridge:smoke            # 终端 2：跑一轮 mine_block
-BRIDGE_LONG_RUN_MS=60000 npm run bridge:long-run # 可选：虚拟时钟采样
-```
-
-`bridge:smoke` 只连接 fake body，不连接 Minecraft。真实 Mod、mcpfabric 与长时验收
-仍未完成，详见 [Bridge 运行报告](bridge-run-report.md)。
+`/bridge` 已装配进 Orchestrator。`mods/craftmate-body` 是真实的 Fabric
+1.21.11 客户端 Mod，README 中的 Gradle 命令可构建安装。没有身体时控制台明确显示
+未连接；正式启动不会自动注入测试身体。HMCL 配置的开发实例已连接并接受动作命令；
+方块最终删除、独立存档和长时验收仍需完成，详见
+[Bridge 运行报告](bridge-run-report.md)。
 
 ## 9. 模型与预算
 
@@ -228,10 +229,5 @@ Stage C 只有一个 OpenAI 兼容 Provider，未配置凭据时按模板回应�
 
 `/bridge` 与 `/control`、`/ingress` 共用 4321 端口。Token 在
 `~/.craftmate/bridge.token`（`0600`），与 ingress/voice 的 token 不同。
-
-```bash
-BRIDGE_URL=ws://127.0.0.1:4321/bridge BRIDGE_TOKEN="$(cat ~/.craftmate/bridge.token)" \
-  npm run dev:bridge
-```
 
 没有身体连接时控制台显示「未连接任何身体」，`Decision.skill` 即使非空也不会下发。
