@@ -49,11 +49,18 @@ final class BridgeMessages {
 	}
 
 	static JsonObject result(String taskId, String status, String code, String detail) {
+		return result(taskId, status, code, detail, null);
+	}
+
+	static JsonObject result(
+		String taskId, String status, String code, String detail, JsonObject data
+	) {
 		JsonObject result = base("result");
 		result.addProperty("taskId", taskId);
 		result.addProperty("status", status);
 		if (code != null) result.addProperty("code", code);
 		if (detail != null && !detail.isBlank()) result.addProperty("detail", detail);
+		if (data != null) result.add("data", data);
 		return result;
 	}
 

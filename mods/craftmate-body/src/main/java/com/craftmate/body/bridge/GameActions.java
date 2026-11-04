@@ -232,8 +232,22 @@ final class GameActions {
 		if (task.send != null) task.send.accept(result(id, status, code, detail));
 	}
 
+	private static void finish(
+		String id, String status, String code, String detail, JsonObject data
+	) {
+		Task task = TASKS.remove(id);
+		if (task == null) return;
+		if (task.send != null) task.send.accept(result(id, status, code, detail, data));
+	}
+
 	private static JsonObject result(String id, String status, String code, String detail) {
 		return BridgeMessages.result(id, status, code, detail);
+	}
+
+	private static JsonObject result(
+		String id, String status, String code, String detail, JsonObject data
+	) {
+		return BridgeMessages.result(id, status, code, detail, data);
 	}
 
 	private static JsonObject progress(String id, String phase, int done, int total) {
@@ -428,6 +442,8 @@ final class GameActions {
 		private boolean destroying;
 		private float lastProgress;
 		private int stalledTicks;
+		private BlockState blockBeforeDestroy;
+		private final JsonArray minedBlocks = new JsonArray();
 
 		MineTask(String id, JsonObject args) {
 			super(id);
@@ -460,19 +476,30 @@ final class GameActions {
 
 		@Override
 		void tick(Minecraft client) {
-			if (target == null || client.level.getBlockState(target).isAir()) {
+			if (target == null) {
+				finish(id, "failed", "E_PRECONDITION", "mining target is not selected");
+				return;
+			}
+			BlockState state = client.level.getBlockState(target);
+			if (destroying && state.isAir()) {
 				stopMining(client);
 				mined++;
 				send.accept(progress(id, "mining", mined, count));
+				if (blockBeforeDestroy != null) minedBlocks.add(miningResult(target, blockBeforeDestroy));
+				blockBeforeDestroy = null;
 				if (mined >= count) {
-					finish(id, "completed", null, null);
+					JsonObject evidence = new JsonObject();
+					evidence.add("mined", minedBlocks);
+					finish(id, "completed", null, null, evidence);
 					return;
 				}
 				Block block = BuiltInRegistries.BLOCK.getValue(Identifier.parse(blockId));
 				target = findBlock(client, block);
 				if (target == null) {
 					walking = false;
-					finish(id, "failed", "E_PRECONDITION", "no further " + blockId + " within 32 blocks");
+					JsonObject evidence = new JsonObject();
+					evidence.add("mined", minedBlocks);
+					finish(id, "failed", "E_PRECONDITION", "no further " + blockId + " within 32 blocks", evidence);
 					return;
 				}
 				side = Direction.UP;
@@ -480,6 +507,8 @@ final class GameActions {
 				walking = !canReach(client.player, target);
 				lastProgress = 0;
 				stalledTicks = 0;
+				destroying = false;
+				return;
 			}
 			LocalPlayer player = client.player;
 			Vec3 center = Vec3.atCenterOf(target);
@@ -517,6 +546,7 @@ final class GameActions {
 			boolean sameDestroyTarget = destroying && client.gameMode.isDestroying();
 			if (!sameDestroyTarget) {
 				stopMining(client);
+				blockBeforeDestroy = client.level.getBlockState(target);
 				side = Direction.getNearest(
 					(int) Math.round(center.x - player.getX()),
 					(int) Math.round(center.y - player.getY()),
@@ -549,6 +579,17 @@ final class GameActions {
 				stopMining(client);
 				finish(id, "failed", "E_TIMEOUT", "block did not break");
 			}
+		}
+
+		private JsonObject miningResult(BlockPos position, BlockState state) {
+			JsonObject evidence = new JsonObject();
+			evidence.addProperty("block", BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
+			JsonObject minedPosition = new JsonObject();
+			minedPosition.addProperty("x", position.getX());
+			minedPosition.addProperty("y", position.getY());
+			minedPosition.addProperty("z", position.getZ());
+			evidence.add("position", minedPosition);
+			return evidence;
 		}
 
 		@Override

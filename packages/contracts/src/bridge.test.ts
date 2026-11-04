@@ -16,6 +16,13 @@ describe("bridge wire protocol", () => {
       { v: 1, type: "ack", id: "c-1", accepted: true, taskId: "t-1" },
       { v: 1, type: "progress", taskId: "t-1", phase: "mining", done: 1, total: 2 },
       { v: 1, type: "result", taskId: "t-1", status: "completed", ticks: 4 },
+      {
+        v: 1,
+        type: "result",
+        taskId: "t-2",
+        status: "completed",
+        data: { block: "minecraft:stone", position: { x: 1, y: 2, z: 3 } },
+      },
       { v: 1, type: "event", seq: 1, tick: 2, name: "block_broken", data: {} },
       { v: 1, type: "ownership", owner: "operator", reason: "keyboard" },
       { v: 1, type: "heartbeat", tick: 2, owner: "agent", worldGeneration: 2, world: null },

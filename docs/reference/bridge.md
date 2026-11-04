@@ -32,8 +32,11 @@ Bridge 是受控命令通道，不是模型网关。
 | `event` | body → bridge | 世界事件，单调 `seq` |
 | `heartbeat` / ownership | 双向 | 存活与控制权 |
 
-命令契约定义在 `packages/contracts/src/skills.ts` 与 `bridge.ts`。参数 schema 覆盖
-19 个技能；未知技能、非法参数和不声明的能力不会下发。
+命令契约定义在 `packages/contracts/src/skills.ts` 与 `bridge.ts`。契约目录保留
+19 个技能作为未来扩展面；当前 Fabric 身体实际支持的能力和技能以
+`FABRIC_BODY_CAPABILITIES` / `FABRIC_BODY_SKILLS` 为准。未知技能、非法参数和未
+声明的能力不会下发。未在真实身体清单中的技能只能作为 roadmap，不得写成现有
+产品能力。
 
 ## 4. 队列与任务
 
