@@ -102,6 +102,30 @@ describe("show settings", () => {
 });
 
 describe("show model planning", () => {
+  test("a failed dispatch is stored and cannot be overwritten later", () => {
+    const { show } = createShow();
+    const scored = show.ingest(comment("dispatch-failure", 1_000));
+    assert.ok(scored);
+    const failed = show.settleDecision(scored.id, {
+      status: "failed",
+      errorCode: "E_PRECONDITION",
+      detail: "no connected body",
+      outcome: null,
+      at: 1_100,
+    });
+
+    assert.equal(failed?.outcome?.status, "failed");
+    assert.equal(
+      show.settleDecision(scored.id, {
+        status: "completed",
+        outcome: null,
+        at: 1_200,
+      }),
+      null,
+    );
+    assert.equal(show.recent().find((item) => item.id === scored.id)?.outcome?.status, "failed");
+  });
+
   test("sent skill-bearing commentary to the planner without granting it a skill", async () => {
     const requests: string[] = [];
     const show = new Show({

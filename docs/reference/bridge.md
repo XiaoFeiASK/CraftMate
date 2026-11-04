@@ -72,6 +72,8 @@ queued -> accepted -> running -> completed
 - 队列有界，满时先拒绝低优先级。
 - `idempotencyKey` 支持安全重发。
 - 终态不可逆；同 taskId 的旧更新被忽略。
+- body 的 ACK 必须返回本次身体会话内唯一的 taskId；协调器在新会话的 ACK 前使用随机会话前缀，避免旧连接的同名任务污染新连接。
+- 下发命令的传输异常立即结算为失败；不得留下没有到达身体却持续显示运行中的任务。
 - deadline 到期由协调器标 `timeout`。
 
 ## 5. 控制权

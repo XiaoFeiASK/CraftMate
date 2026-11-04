@@ -56,6 +56,7 @@ export class SimBody {
   private tick = 0;
   private current: RunningTask | null = null;
   private nextTask = 1;
+  private readonly taskPrefix = `sim-${crypto.randomUUID()}`;
   private sequence = 0;
   private timer: unknown = null;
   private stepTimer: unknown = null;
@@ -227,7 +228,7 @@ export class SimBody {
       return;
     }
 
-    const taskId = `sim-${this.nextTask++}`;
+    const taskId = `${this.taskPrefix}-${this.nextTask++}`;
     this.current = {
       commandId: frame.id,
       idempotencyKey: frame.idempotencyKey,

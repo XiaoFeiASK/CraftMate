@@ -65,8 +65,8 @@ interface ControlServerOptions {
   readonly ops?: OpsHooks;
   /** C-owned `/bridge` module, mounted here because B owns the HTTP server. */
   readonly bridge?: BridgeUpgrade;
-  /** Turns a validated SkillCall into a bridge command. Throws are logged. */
-  readonly dispatchSkill?: (decision: Decision) => void;
+  /** Turns a validated SkillCall into a bridge command. Throws are reported. */
+  readonly dispatchSkill?: (decision: Decision) => void | Promise<void>;
   /** Replaces the live voice connection after settings change. */
   readonly onIntegrationsChanged?: (config: RuntimeIntegrationConfig) => void;
 }
@@ -285,18 +285,32 @@ export function createControlServer({
       broadcast({ type: "decision", payload: planned });
       broadcast({ type: "snapshot", payload: show.snapshot() });
     }
-    if (!speech) return;
     if (planned.skill !== null && dispatchSkill) {
       try {
-        dispatchSkill(planned);
+        await dispatchSkill(planned);
       } catch (error) {
         console.warn(
           `orchestrator: skill for ${planned.id} was not issued — ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
+        // A missing body, lost ownership, or queue rejection happens before
+        // the body can send a result. Settle the decision here so the console
+        // and durable log do not leave it looking as though it is still
+        // running forever.
+        const failed = show.settleDecision(planned.id, {
+          status: "failed",
+          errorCode: error instanceof Error && "code" in error && typeof error.code === "string"
+            ? error.code
+            : "E_INTERNAL",
+          detail: error instanceof Error ? error.message : String(error),
+          outcome: null,
+          at: Date.now(),
+        });
+        if (failed) publishDecision(failed);
       }
     }
+    if (!speech) return;
     try {
       deliverSpeech(show, planned, speech);
     } catch (error) {

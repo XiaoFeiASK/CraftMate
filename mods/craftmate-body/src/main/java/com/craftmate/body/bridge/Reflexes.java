@@ -28,6 +28,16 @@ final class Reflexes {
 	private static final int LAVA_LOOKAHEAD = 2;
 	private static final double CREEPER_DISTANCE_SQR = 3.0 * 3.0;
 	private static final float LOW_HEALTH = 6.0f;
+	/**
+	 * A jump or a one-block step starts with a short fall distance, and a
+	 * client tick can observe it before landing. Only a fall that would
+	 * actually hurt (more than three blocks) is a reflex. Keeping this below
+	 * the damage threshold means a normal mining/approach jump is not
+	 * cancelled as "falling".
+	 */
+	private static final float FALL_DAMAGE_DISTANCE = 3.0f;
+	/** Ignore a single airborne frame caused by jump/step-up physics. */
+	private static final float IGNORE_MOMENTARY_FALL = 0.75f;
 
 	private final Consumer<JsonObject> send;
 	private final long[] lastReportedAt = new long[Kind.values().length];
@@ -60,7 +70,12 @@ final class Reflexes {
 			dangerous = true;
 			report(Kind.LOW_HEALTH, "血量只剩 " + Math.round(player.getHealth()) + " 点", player);
 		}
-		if (player.fallDistance > 3.0f && !player.onGround() && !player.isFallFlying()) {
+		if (
+			player.fallDistance > FALL_DAMAGE_DISTANCE
+				&& player.getDeltaMovement().y < IGNORE_MOMENTARY_FALL
+				&& !player.onGround()
+				&& !player.isFallFlying()
+		) {
 			dangerous = true;
 			report(Kind.FALLING, "正在从高处下落", player);
 		}

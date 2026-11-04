@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -31,6 +32,8 @@ public final class BridgeClient {
 	private final MinecraftExecutor executor;
 	private final ScheduledExecutorService heartbeats;
 	private final Object sendLock = new Object();
+	private final String taskPrefix = UUID.randomUUID().toString();
+	private long nextTask;
 	private final AtomicBoolean running = new AtomicBoolean(true);
 	private volatile Socket socket;
 	private volatile boolean agentControl;
@@ -175,11 +178,12 @@ public final class BridgeClient {
 			return;
 		}
 		JsonObject args = BridgeJson.objectField(frame, "args");
+		String taskId = taskPrefix + "-" + (++nextTask);
 		executor.submit(() -> {
 			if (source != socket || closing) {
 				return GameActions.StartDecision.rejected("E_PERMISSION", "bridge connection changed");
 			}
-			return GameActions.start(Minecraft.getInstance(), id, op, args, this::send);
+			return GameActions.start(Minecraft.getInstance(), taskId, op, args, this::send);
 		}).whenComplete((decision, error) -> {
 			if (source != socket || closing) return;
 			if (error != null) {
@@ -191,7 +195,7 @@ public final class BridgeClient {
 				// The coordinator ignores result frames for an unadopted task.
 				// Ack first, then allow the next client tick to emit progress
 				// or an immediate terminal result.
-				send(accepted(id));
+				send(accepted(id, taskId));
 			}
 		});
 	}
@@ -257,15 +261,15 @@ public final class BridgeClient {
 			agentControl = false;
 			initialHandshake = false;
 			CraftMateBodyClient.LOGGER.warn("CraftMate bridge heartbeat timed out; local control stopped");
-			synchronized (sendLock) {
-				current.close(4000, "heartbeat timeout");
-			}
-			socket = null;
-			nextReconnectAt = now + 2_000L;
+			// Do not tear down a live TCP session because a frame was late.
+			// The client thread may be busy generating chunks, and a close
+			// here used to produce a disconnect/reconnect loop during startup.
+			// The server stops granting control when it sees missed
+			// heartbeats; a later server frame proves the session is healthy.
+			lastServerFrameAt = now;
 			executor.submit(() -> {
-				if (current != socket) {
-					GameActions.stopLocally(Minecraft.getInstance());
-				}
+				if (current != socket) return false;
+				GameActions.stopLocally(Minecraft.getInstance());
 				return true;
 			});
 			return;
@@ -287,8 +291,8 @@ public final class BridgeClient {
 		return false;
 	}
 
-	private static JsonObject accepted(String id) {
-		return BridgeMessages.ack(id, id);
+	private static JsonObject accepted(String id, String taskId) {
+		return BridgeMessages.ack(id, taskId);
 	}
 
 	private static JsonObject reject(String id, String code, String detail) {

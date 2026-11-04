@@ -6,14 +6,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.KeyMapping;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.client.player.KeyboardInput;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -33,7 +32,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
-import org.lwjgl.glfw.GLFW;
 
 /**
  * Commands are state machines advanced by the client thread. A task remains
@@ -46,6 +44,14 @@ final class GameActions {
 	private static final List<String> CAPABILITIES = List.of(
 		"sensor", "move", "mine", "attack", "use", "build", "camera", "hud"
 	);
+	/**
+	 * Trunks and leaves can hide a nearby log from a single eye ray. Keep the
+	 * visible search local, but let the approach loop walk to a log that is
+	 * inside the normal gameplay area. The destroy loop still requires an
+	 * unobstructed face before it starts breaking, so this cannot mine through
+	 * terrain.
+	 */
+	private static final int TARGET_SEARCH_RADIUS = 48;
 	private static final Map<String, Task> TASKS = new ConcurrentHashMap<>();
 	private static int clientTick;
 	private static Reflexes reflexes;
@@ -246,6 +252,11 @@ final class GameActions {
 	}
 
 	private static void advanceTasks(Minecraft client) {
+		// `Minecraft.tick` sets `screen` to null while it ticks the world and
+		// restores the same instance afterwards. A task runs inside that
+		// window, so closing once at command acceptance is not enough: the
+		// menu would come back and freeze walking or mining on the next frame.
+		closeBlockingScreen(client);
 		for (Task task : new ArrayList<>(TASKS.values())) {
 			if (!task.started || !TASKS.containsKey(task.id)) continue;
 			try {
@@ -433,8 +444,11 @@ final class GameActions {
 	}
 
 	private static final class GotoTask extends Task {
+		private static final int STUCK_TICKS = 20 * 3;
 		private final Vec3 target;
 		private int lastProgressTick;
+		private double lastHorizontal;
+		private int stuckTicks;
 
 		GotoTask(String id, JsonObject args) {
 			super(id);
@@ -443,6 +457,7 @@ final class GameActions {
 
 		@Override
 		void start(Minecraft client) {
+			lastHorizontal = horizontalDistance(client.player);
 			send.accept(progress(id, "walking", 0, 1));
 		}
 
@@ -450,23 +465,30 @@ final class GameActions {
 		void tick(Minecraft client) {
 			LocalPlayer player = client.player;
 			Vec3 offset = target.subtract(player.position());
-			double horizontal = Math.hypot(offset.x, offset.z);
+			double horizontal = horizontalDistance(player);
 			if (horizontal < 1.25 || age > 20 * 60) {
 				stop(client);
 				if (horizontal < 1.25) finish(id, "completed", null, null);
 				else finish(id, "timeout", "E_TIMEOUT", "bounded walk did not reach target");
 				return;
 			}
-			if (player.horizontalCollision) {
+			if (player.horizontalCollision && player.onGround()) {
+				player.jumpFromGround();
+			}
+			if (horizontal + 0.05 < lastHorizontal) {
+				lastHorizontal = horizontal;
+				stuckTicks = 0;
+			} else {
+				stuckTicks++;
+			}
+			if (stuckTicks > STUCK_TICKS) {
 				stop(client);
-				finish(id, "failed", "E_PRECONDITION", "walk blocked by terrain");
+				finish(id, "failed", "E_PRECONDITION", "walk made no progress for 3 seconds");
 				return;
 			}
 			player.setYRot((float) Math.toDegrees(Math.atan2(-offset.x, offset.z)));
 			if (player.input != null) {
-				player.input.keyPresses = new net.minecraft.world.entity.player.Input(
-					true, false, false, false, false, false, false
-				);
+				setWalkInput(client, true);
 			}
 			if (age - lastProgressTick >= 20) {
 				lastProgressTick = age;
@@ -474,17 +496,18 @@ final class GameActions {
 			}
 		}
 
+		private double horizontalDistance(LocalPlayer player) {
+			return Math.hypot(target.x - player.getX(), target.z - player.getZ());
+		}
+
 		@Override
 		void stop(Minecraft client) {
-			if (client.player != null && client.player.input != null) {
-				client.player.input.keyPresses = net.minecraft.world.entity.player.Input.EMPTY;
-			}
+			releaseWalkInput(client);
 		}
 	}
 
 	private static final class MineTask extends Task {
 		private static final int WALK_BASE_TICKS = 20 * 10;
-		private static final int STALL_TICKS = 20 * 8;
 		private static final int BREAK_TICKS = 20 * 25;
 		private final String blockId;
 		private final boolean anyLog;
@@ -493,19 +516,16 @@ final class GameActions {
 		private BlockPos target;
 		private BlockPos desiredTarget;
 		private Direction side;
-		private int lastMinedCount;
 		private int miningAge;
 		private boolean walking;
 		private int walkingAge;
-		private BlockPos walkingDestination;
+		private int lastWalkProgressAge;
+		private int approachTicks;
+		private double lastApproachDistance = Double.POSITIVE_INFINITY;
 		private boolean destroying;
-		private float accumulation = 0.0f;
-		private float lastProgress = -1.0f;
 		private int lastReportedPercent = -1;
-		private int stalledTicks;
 		private BlockState blockBeforeDestroy;
 		private boolean breaking = false;
-		private boolean attackHeld = false;
 		private final JsonArray minedBlocks = new JsonArray();
 
 		MineTask(String id, JsonObject args) {
@@ -536,11 +556,16 @@ final class GameActions {
 			send.accept(progress(id, "finding", 0, count));
 			target = selectTarget(client);
 			if (target == null) {
-				finish(id, "failed", "E_PRECONDITION", "no visible " + targetName() + " within 32 blocks");
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"no " + targetName() + " within " + TARGET_SEARCH_RADIUS + " blocks"
+				);
 				return;
 			}
-			walking = !canReach(client.player, target);
-			walkingDestination = target;
+			walking = !canReach(client.player, target) || !canSee(client, client.player, target);
+			lastApproachDistance = Double.POSITIVE_INFINITY;
 			send.accept(progress(id, "target", 0, count));
 		}
 
@@ -563,12 +588,9 @@ final class GameActions {
 					}
 					side = Direction.UP;
 					miningAge = 0;
-					walking = !canReach(client.player, target);
-					accumulation = 0.0f;
-					lastProgress = -1.0f;
+					walking = !canReach(client.player, target) || !canSee(client, client.player, target);
+					lastApproachDistance = Double.POSITIVE_INFINITY;
 					lastReportedPercent = -1;
-					stalledTicks = 0;
-					destroying = false;
 					return;
 				}
 				mined++;
@@ -591,74 +613,76 @@ final class GameActions {
 						"outcome",
 						outcome("只砍到 " + mined + " 个" + targetName(), minedBlocks, "附近找不到更多")
 					);
-					finish(id, "failed", "E_PRECONDITION", "no further " + targetName() + " within 32 blocks", evidence);
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"no further " + targetName() + " within " + TARGET_SEARCH_RADIUS + " blocks",
+						evidence
+					);
 					return;
 				}
 				side = Direction.UP;
 				miningAge = 0;
-				walking = !canReach(client.player, target);
-				accumulation = 0.0f;
-				lastProgress = -1.0f;
+				walking = !canReach(client.player, target) || !canSee(client, client.player, target);
+				lastApproachDistance = Double.POSITIVE_INFINITY;
 				lastReportedPercent = -1;
-				stalledTicks = 0;
-				destroying = false;
 				return;
 			}
 			LocalPlayer player = client.player;
 			Vec3 center = Vec3.atCenterOf(target);
-			Vec3 direction = center.subtract(player.getEyePosition()).normalize();
-			player.setYRot((float) Math.toDegrees(Math.atan2(-direction.x, direction.z)));
-			player.setXRot((float) Math.toDegrees(-Math.asin(direction.y)));
-			// Minecraft derives `hitResult` from the camera every frame, and
-			// handleKeybinds re-picks it before continueAttack reads the target.
-			// Writing rotation alone is not enough on the first tick, so keep
-			// the pointer on target and let vanilla own the destroy loop.
-			client.hitResult = client.level.clip(
-				new ClipContext(
-					player.getEyePosition(1.0f),
-					player.getEyePosition(1.0f).add(player.getViewVector(1.0f).scale(5.0)),
-					ClipContext.Block.OUTLINE,
-					ClipContext.Fluid.NONE,
-					player
-				)
-			);
+			aimAt(player, center);
 			if (walking) {
-				if (player.horizontalCollision && player.onGround()) {
+				if (canReach(player, target) && canSee(client, player, target)) {
+					walking = false;
+					walkingAge = 0;
+					return;
+				}
+				approachTicks++;
+				double distance = player.position().distanceTo(center);
+				if (approachTicks % 20 == 0) {
+					BlockPos visible = findBlock(client, this::matchesTarget);
+					if (visible != null && canReach(player, visible)) {
+						target = visible;
+						center = Vec3.atCenterOf(target);
+						distance = player.position().distanceTo(center);
+						walkingAge = 0;
+					}
+				}
+				if (distance + 0.1 < lastApproachDistance) {
+					lastApproachDistance = distance;
+					lastWalkProgressAge = walkingAge;
+				}
+				double heading = Math.toRadians(player.getYRot());
+				Vec3 ahead = player.position().add(
+					-Math.sin(heading) * 0.6,
+					0,
+					Math.cos(heading) * 0.6
+				);
+				BlockPos foot = BlockPos.containing(ahead.x, player.getY() - 0.5, ahead.z);
+				boolean ledge = client.level.getBlockState(foot).isAir()
+					&& client.level.getBlockState(foot.below()).isAir();
+				if (ledge && player.onGround()) {
+					player.setDeltaMovement(0, 0.35, 0);
+				} else if (player.horizontalCollision && player.onGround()) {
 					player.jumpFromGround();
 				}
 				if (player.input != null) {
-					player.input.keyPresses = new net.minecraft.world.entity.player.Input(true, false, false, false, false, false, false);
-				}
-				if (canReach(player, target)) {
-					walking = false;
-					walkingAge = 0;
-					walkingDestination = null;
-					stalledTicks = 0;
-				}
-				// The walk is only towards the target if the target is the
-				// next log. After the first log in a trunk, re-aiming at the
-				// block below would make the body step back forever.
-				if (!target.equals(walkingDestination)) {
-					walkingDestination = target;
-					walkingAge = 0;
+					setWalkInput(client, true);
 				}
 				walkingAge++;
 				if (walkingAge > walkBudgetTicks(player, target)) {
 					stop(client);
 					finish(id, "timeout", "E_TIMEOUT", "could not reach " + targetName() + " in time");
+				} else if (walkingAge - lastWalkProgressAge > 20 * 3) {
+					stop(client);
+					finish(id, "failed", "E_PRECONDITION", targetName() + " approach made no progress for 3 seconds");
 				}
 				return;
 			}
-			if (player.input != null) player.input.keyPresses = net.minecraft.world.entity.player.Input.EMPTY;
-			BlockHitResult hit = client.level.clip(
-				new ClipContext(
-					player.getEyePosition(),
-					center,
-					ClipContext.Block.OUTLINE,
-					ClipContext.Fluid.NONE,
-					player
-				)
-			);
+			releaseWalkInput(client);
+			aimAt(player, center);
+			BlockHitResult hit = clip(client, player, center);
 			if (!hit.getBlockPos().equals(target)) {
 				stopMining(client);
 				target = null;
@@ -671,50 +695,37 @@ final class GameActions {
 				if (!client.mouseHandler.isMouseGrabbed() && client.isWindowActive()) {
 					client.mouseHandler.grabMouse();
 				}
-				KeyMapping attack = client.options.keyAttack;
 				client.missTime = 0;
-				attack.setDown(true);
-				attackHeld = true;
 				miningAge = 0;
-				accumulation = 0.0f;
-				lastProgress = -1.0f;
 				lastReportedPercent = -1;
-				stalledTicks = 0;
+				// Vanilla starts the destroy state only here. Calling
+				// continueDestroyBlock first falls into its start branch and
+				// resets progress on every tick, which makes the hand swing
+				// forever while the block never breaks.
+				client.gameMode.startDestroyBlock(target, side);
+				destroying = true;
 				breaking = true;
 				send.accept(progress(id, "breaking", 0, 100));
-			} else if (!client.mouseHandler.isMouseGrabbed() && client.isWindowActive()) {
-				client.mouseHandler.grabMouse();
+			} else {
+				if (!client.mouseHandler.isMouseGrabbed() && client.isWindowActive()) {
+					client.mouseHandler.grabMouse();
+				}
+				client.gameMode.continueDestroyBlock(target, side);
 			}
 			client.missTime = 0;
-			client.gameMode.continueDestroyBlock(target, side);
-			// `getDestroyStage()` is the render stage (0-10), not the actual
-			// accumulated progress. Polling it made a slow block look stalled
-			// even while the vanilla destroy loop was working correctly.
-			BlockState current = client.level.getBlockState(target);
-			// With a hold-to-break key the vanilla client calls
-			// continueDestroyBlock every tick (see Minecraft.handleKeybinds),
-			// and each call adds one tick's worth of progress. The remaining
-			// fraction is not a progress gauge on its own: it stays below 1
-			// until the block breaks and is reset by vanilla at that point.
-			accumulation += blockProgress(client, target, current);
-			if (accumulation <= lastProgress) stalledTicks++;
-			else stalledTicks = 0;
-			lastProgress = Math.max(lastProgress, accumulation);
-			int percent = Math.min(99, (int) Math.floor(accumulation * 100.0f));
-			if (percent >= lastReportedPercent + 5) {
-				lastReportedPercent = percent;
-				send.accept(progress(id, "breaking", percent, 100));
-			}
-			if (stalledTicks > STALL_TICKS) {
-				stopMining(client);
-				finish(
-					id,
-					"failed",
-					"E_PRECONDITION",
-					"target block made no break progress for 8 seconds"
-				);
-			}
+			// The vanilla destroy loop owns accumulated progress. The block
+			// state turning to air is the only trustworthy completion signal;
+			// `getDestroyProgress` is a per-tick coefficient, and summing it
+			// here only produced a fake progress bar while the block stayed.
 			miningAge++;
+			BlockState current = client.level.getBlockState(target);
+			if (!current.isAir() && miningAge % 20 == 0) {
+				int percent = Math.min(99, (int) Math.floor(100.0f * miningAge / BREAK_TICKS));
+				if (percent >= lastReportedPercent + 5) {
+					lastReportedPercent = percent;
+					send.accept(progress(id, "breaking", percent, 100));
+				}
+			}
 			if (miningAge > BREAK_TICKS) {
 				stopMining(client);
 				finish(id, "failed", "E_TIMEOUT", "block did not break");
@@ -770,6 +781,10 @@ final class GameActions {
 			for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-8, -5, -8), origin.offset(8, 2, 8))) {
 				BlockPos candidate = pos.immutable();
 				if (!matchesTarget(client.level.getBlockState(candidate))) continue;
+				// Do not expose the body to water or a long drop just to reach
+				// a covered block. A nearby natural target is never worth a
+				// fall the safety reflex then has to cancel.
+				if (!safeFooting(client, candidate)) continue;
 				BlockPos next = nextCoverOrTarget(client, candidate);
 				if (next == null || next.equals(candidate)) continue;
 				double distance = candidate.distSqr(origin);
@@ -780,6 +795,17 @@ final class GameActions {
 				}
 			}
 			return best;
+		}
+
+		private static boolean safeFooting(Minecraft client, BlockPos candidate) {
+			BlockPos stand = candidate.above();
+			BlockState feet = client.level.getBlockState(stand);
+			BlockState head = client.level.getBlockState(stand.above());
+			BlockState floor = client.level.getBlockState(stand.below());
+			return feet.getFluidState().isEmpty()
+				&& head.getFluidState().isEmpty()
+				&& !floor.isAir()
+				&& (feet.isAir() || head.isAir());
 		}
 
 		private boolean matchesTarget(BlockState state) {
@@ -815,7 +841,7 @@ final class GameActions {
 		@Override
 		void stop(Minecraft client) {
 			stopMining(client);
-			if (client.player != null && client.player.input != null) client.player.input.keyPresses = net.minecraft.world.entity.player.Input.EMPTY;
+			releaseWalkInput(client);
 		}
 
 		private static boolean canReach(LocalPlayer player, BlockPos target) {
@@ -825,35 +851,45 @@ final class GameActions {
 			return player.isWithinBlockInteractionRange(target, 0.0);
 		}
 
+		private static boolean canSee(Minecraft client, LocalPlayer player, BlockPos target) {
+			return clip(client, player, Vec3.atCenterOf(target)).getBlockPos().equals(target);
+		}
+
+		private static BlockHitResult clip(Minecraft client, LocalPlayer player, Vec3 center) {
+			return client.level.clip(
+				new ClipContext(
+					player.getEyePosition(),
+					center,
+					ClipContext.Block.OUTLINE,
+					ClipContext.Fluid.NONE,
+					player
+				)
+			);
+		}
+
+		/**
+		 * Rotation is overwritten by movement and by the vanilla mouse path
+		 * every tick. Recompute it immediately before both the walk and the
+		 * hit test so the body cannot keep walking or swinging while looking
+		 * somewhere else.
+		 */
+		private static void aimAt(LocalPlayer player, Vec3 center) {
+			Vec3 direction = center.subtract(player.getEyePosition()).normalize();
+			player.setYRot((float) Math.toDegrees(Math.atan2(-direction.x, direction.z)));
+			player.setXRot((float) Math.toDegrees(-Math.asin(direction.y)));
+		}
+
 		private static int walkBudgetTicks(LocalPlayer player, BlockPos target) {
 			double blocks = Math.sqrt(player.blockPosition().distSqr(target));
 			return WALK_BASE_TICKS + (int) Math.ceil(blocks) * 20;
 		}
 
 		private void stopMining(Minecraft client) {
-			if (attackHeld) {
-				client.options.keyAttack.setDown(false);
-				attackHeld = false;
-			}
 			if (client.gameMode != null && client.gameMode.isDestroying()) client.gameMode.stopDestroyBlock();
 			destroying = false;
 			breaking = false;
+			lastReportedPercent = -1;
 		}
-
-		/**
-		 * The client's accumulated break fraction for the current target. It
-		 * grows from 0 to 1 across the same ticks ContinueDestroyBlock sends
-		 * to the integrated server, so it is the honest stall signal.
-		 */
-		private static float blockProgress(Minecraft client, BlockPos target, BlockState state) {
-			if (state.isAir()) return 1.0f;
-			return state.getDestroyProgress(
-				client.player,
-				client.level,
-				target
-			);
-		}
-
 	}
 
 	private static final class AttackTask extends Task {
@@ -1016,16 +1052,46 @@ final class GameActions {
 		return new Vec3(number(target, "x"), number(target, "y"), number(target, "z"));
 	}
 
+	/**
+	 * Movement has to go through the same key state the human client reads.
+	 * `ClientInput` in this version is only a holder: `KeyboardInput.tick`
+	 * derives the actual move vector from these `KeyMapping`s. Assigning
+	 * `keyPresses` directly leaves the player standing still.
+	 */
+	private static void setWalkInput(Minecraft client, boolean forward) {
+		client.options.keyUp.setDown(forward);
+		client.options.keyDown.setDown(false);
+		client.options.keyLeft.setDown(false);
+		client.options.keyRight.setDown(false);
+		client.options.keyJump.setDown(false);
+		client.options.keyShift.setDown(false);
+		client.options.keySprint.setDown(false);
+		// `KeyboardInput.tick` is a one-way state update in 1.21.11. Ask the
+		// vanilla input object to derive the new move vector immediately;
+		// setting `keyPresses` directly does not update `ClientInput`.
+		if (client.player != null && client.player.input instanceof KeyboardInput keyboard) {
+			keyboard.tick();
+		}
+	}
+
+	private static void releaseWalkInput(Minecraft client) {
+		setWalkInput(client, false);
+	}
+
 	private static BlockPos findBlock(Minecraft client, java.util.function.Predicate<BlockState> matches) {
 		BlockPos origin = client.player.blockPosition();
 		BlockPos best = null;
 		double bestScore = Double.POSITIVE_INFINITY;
 		Vec3 eye = client.player.getEyePosition();
-		for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-32, -16, -32), origin.offset(32, 16, 32))) {
+		int radius = TARGET_SEARCH_RADIUS;
+		for (BlockPos pos : BlockPos.betweenClosed(
+			origin.offset(-radius, -16, -radius),
+			origin.offset(radius, 16, radius)
+		)) {
 			BlockState state = client.level.getBlockState(pos);
 			if (!matches.test(state)) continue;
 			double distance = pos.distSqr(origin);
-			if (distance > 32.0 * 32.0) continue;
+			if (distance > (double) radius * radius) continue;
 			BlockPos candidate = pos.immutable();
 			Vec3 center = Vec3.atCenterOf(candidate);
 			BlockHitResult hit = client.level.clip(
@@ -1062,10 +1128,14 @@ final class GameActions {
 		BlockPos origin = client.player.blockPosition();
 		BlockPos best = null;
 		double bestScore = Double.POSITIVE_INFINITY;
-		for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-32, -16, -32), origin.offset(32, 16, 32))) {
+		int radius = TARGET_SEARCH_RADIUS;
+		for (BlockPos pos : BlockPos.betweenClosed(
+			origin.offset(-radius, -16, -radius),
+			origin.offset(radius, 16, radius)
+		)) {
 			if (!matches.test(client.level.getBlockState(pos))) continue;
 			double score = origin.distSqr(pos);
-			if (score > 32.0 * 32.0) continue;
+			if (score > (double) radius * radius) continue;
 			if (score < bestScore) {
 				bestScore = score;
 				best = pos.immutable();

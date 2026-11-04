@@ -506,6 +506,57 @@ describe("operator control to the game body", () => {
       },
     );
   });
+
+  test("a skill rejected before reaching the body settles visibly as failed", async () => {
+    const show = new Show({
+      persona: dafeiyu,
+      planner: new Planner({
+        provider: {
+          id: "fake",
+          model: "fake-1",
+          async plan() {
+            return {
+              speech: "我去挖矿。",
+              skill: {
+                name: "mine_block",
+                args: { block: "minecraft:iron_ore", count: 1 },
+                idempotencyKey: "missing-body-key",
+              },
+              reason: "model",
+              provider: "fake",
+              model: "fake-1",
+            };
+          },
+        },
+      }),
+    });
+
+    await withBridge(
+      async ({ control }) => {
+        const updates: Decision[] = [];
+        control.on("message", (raw) => {
+          const frame = JSON.parse(raw.toString()) as { type: string; payload?: Decision };
+          if (frame.type === "decision" && frame.payload) updates.push(frame.payload);
+        });
+        control.send(JSON.stringify({ type: "comment", payload: commentEvent("rejected-plan") }));
+        await delay(80);
+
+        const planned = updates.find((decision) => decision.outcome?.status === "failed");
+        assert.ok(planned);
+        assert.equal(planned.outcome?.status, "failed");
+        assert.equal(planned.outcome?.errorCode, "E_INTERNAL");
+        assert.match(planned.outcome?.detail ?? "", /not issued/);
+      },
+      {
+        show,
+        dispatchSkill: () => {
+          // The dispatch happens before the bridge is connected in some
+          // start-up paths. Its failure must still become a visible outcome.
+          throw new Error("skill not issued: no connected body");
+        },
+      },
+    );
+  });
 });
 
 describe("voice bridge", () => {

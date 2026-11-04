@@ -324,7 +324,9 @@ export class Show {
   settleDecision(decisionId: string, outcome: NonNullable<Decision["outcome"]>): Decision | null {
     const index = this.decisions.findIndex((item) => item.id === decisionId);
     if (index < 0) return null;
-    const next: Decision = { ...this.decisions[index]!, outcome };
+    const current = this.decisions[index]!;
+    if (current.outcome != null) return null;
+    const next: Decision = { ...current, outcome };
     this.decisions[index] = next;
     this.recorder?.updateDecision?.(next);
     return next;
