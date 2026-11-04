@@ -27,8 +27,8 @@
 │         │                                                    │
 │  ┌──────▼───────┐                                            │
 │  │    Bridge    │────► Minecraft 1.21.11                    │
-│  │  (游戏控制)   │      + Fabric Loader                      │
-│  └──────────────┘      + MCPFabric Mod                      │
+│  │  (游戏控制)   │      + Fabric Loader 0.20.1               │
+│  └──────────────┘      + craftmate-body Mod                 │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -43,34 +43,36 @@
   - 模型状态追踪 (unverified → ready → error)
   - 控制台实时显示模型状态
   - 超时降级机制
+  - 非法技能名的一次契约纠正
 - **配置**:
   ```
   CRAFTMATE_MODEL_URL=https://www.yyapi.cloud/v1
   CRAFTMATE_MODEL=deepseek-v4.1-flash
-  CRAFTMATE_MODEL_KEY=sk-PSG3K9bKv9mIYJK4y9GmGDOn7LqA2MngfsvhvwmaNFbVoHb0
+  CRAFTMATE_MODEL_KEY=<your-api-key>
   ```
 - **测试状态**: ✅ HTTP 200, 正常回复
 
-#### 2. 语音合成集成 (Volcengine TTS)
+#### 2. 端到端实时语音 (Volcengine Seeduplex)
 - **位置**: `services/voice/src/providers.ts`
 - **功能**:
-  - VolcengineTtsProvider 类实现
-  - V3 SSE API 解析
-  - event:352 音频块处理 (base64)
+  - VolcengineRealtimeTtsProvider WebSocket 实现
+  - `session.create` / `speech_text_buffer.commit`
+  - 原始 `pcm_s16le` 在会话结束前直接送入本机流式播放器
 - **配置**:
   ```
-  TTS_PRIMARY_PROVIDER=volcengine
-  TTS_PRIMARY_RESOURCE_ID=volc.tts.default
-  TTS_PRIMARY_VOICE_ID=zh_female_tianmeixiaoyuan
-  TTS_PRIMARY_KEY=c50a63b2-11ae-4491-a722-aebfc1a80bb6
+  TTS_PRIMARY_PROVIDER=volcengine-realtime
+  TTS_PRIMARY_URL=wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue
+  TTS_PRIMARY_VOICE_ID=zh_female_vv_uranus_bigtts
+  TTS_PRIMARY_KEY=<your-api-key>
   ```
-- **测试状态**: ⚠️ 需要用户验证资源 ID 和音色 ID
+- **验证状态**: ✅ 真实鉴权、24kHz PCM 合成和首包约 200ms；当前系统音频输出失败，不伪造 `spoken`
 
 #### 3. 测试覆盖
-- **统计**: 160/160 测试通过
+- **统计**: 以最终 `npm test` 输出为准
 - **新增测试**:
-  - `services/voice/src/providers.test.ts` (TTS SSE 事件解析)
-  - Planner 模型状态追踪测试
+  - `services/voice/src/providers.test.ts`（实时语音协议）
+  - Planner 模型状态、非法技能纠错和独立重试预算测试
+  - 接入配置脱敏持久化与 Ingress supervisor 测试
 
 #### 4. 文档系统
 - **用户指南**:
@@ -81,32 +83,13 @@
   - `docs/volcengine-tts-setup.md` - TTS 配置指南 (2.5KB)
 - **配置模板**:
   - `.env.example` - 环境变量模板
-  - `test-startup.sh` - 自动化测试脚本 (2.2KB)
+  - `test-startup.sh` - 自动化测试脚本
 
-### ⚠️ 待完成的配置
+### ⚠️ 仍需现场联调的接入
 
-#### TTS 资源授权
-**当前问题**: 
-```
-HTTP 200 but error code 45000030: "requested resource not granted"
-```
-
-**原因**: API Key 有效但未开通配置的资源
-
-**解决方案**:
-1. 登录火山引擎控制台: https://console.volcengine.com/
-2. 进入「语音技术」→「豆包语音」
-3. 查看已开通的「资源 ID」和「音色 ID」
-4. 更新 `.env` 中的配置值
-
-**常见资源 ID**:
-- `volc.tts.default` - 基础 TTS (推荐先尝试)
-- `volc.seedtts.default` - 种子语音
-- `seed-tts-2.0` - 高保真语音 (需单独开通)
-
-**常见音色 ID**:
-- `zh_female_tianmeixiaoyuan` - 甜美小媛 (女声)
-- `zh_male_aojiaobazong` - 傲娇霸总 (男声)
+- 抖音：保存房间号后自动启动 Ingress；还需要真实 dyhub 和直播间验证。
+- Minecraft：`mods/craftmate-body` 已在 Fabric 1.21.11 开发实例中创建真实世界
+  并通过 Bridge 上报世界快照；独立 HMCL 实例与长时真机动作仍需验收。
 
 ### 🎮 可选功能
 
@@ -114,16 +97,16 @@ HTTP 200 but error code 45000030: "requested resource not granted"
 **当前状态**: 
 - HMCL 启动器: v3.16.4 ✅
 - Minecraft 版本: 1.21.11 ✅
-- Fabric Loader: ❌ 未安装
-- MCPFabric Mod: ❌ 未安装
+- Fabric Loader: 0.20.1（开发实例已验证）
+- CraftMate Body Mod: ✅ 已实现真实 Fabric 1.21.11 客户端 Mod
 
 **安装步骤**:
 1. 在 HMCL 中选择 Minecraft 1.21.11
 2. 点击「自动安装」→「Fabric」
-3. 下载 MCPFabric Mod 到 `.minecraft/mods/`
+3. 把 `mods/craftmate-body/build/libs/craftmate-body-0.1.0.jar` 放到该实例的 `mods/`
 4. 重启游戏
 
-**Bridge 状态**: 代码已实现 (`packages/bridge/body/`)，等待游戏连接
+**Bridge 状态**: 协议、协调器、动作队列和真实 Fabric Mod 身体已接入；还需完成独立实例、真实动作和长时验收。
 
 ## 测试与验证
 
@@ -150,14 +133,13 @@ npm test
 ✅ .env 文件存在
 ✅ CRAFTMATE_MODEL_KEY 已设置
 ✅ TTS_PRIMARY_KEY 已设置
-✅ 160 tests passed
 ✅ Model is working!
 ```
 
 #### 控制台 UI:
 ```
 Model: ready (deepseek-v4.1-flash)
-Voice: ready (volcengine/volc.tts.default)
+Voice: ready (volcengine-realtime)
 ```
 
 ## Git 信息
@@ -167,17 +149,7 @@ Voice: ready (volcengine/volc.tts.default)
 fix/issue-32-ai-agent-implementation
 ```
 
-### 提交统计
-- **Commit**: 3b3ae51
-- **文件**: 25 个修改/新增
-- **新增文件**: 8 个
-- **修改文件**: 17 个
-- **测试**: ✅ 全部通过
-
-### 推送命令
-```bash
-git push -u origin fix/issue-32-ai-agent-implementation
-```
+本次改动尚未提交或推送。
 
 ## 配置文件安全
 
@@ -197,24 +169,22 @@ git push -u origin fix/issue-32-ai-agent-implementation
 
 ### 立即可做
 1. ✅ 阅读 `ISSUE-32-GUIDE.md`
-2. ⚠️ 修复 TTS 配置 (按 `docs/volcengine-tts-setup.md`)
-3. ✅ 运行 `./test-startup.sh`
-4. ✅ 启动系统 `npm run dev`
+2. 在管理端「设置 → 接入」保存抖音房间号和 dyhub 地址
+3. 运行 `./test-startup.sh`
+4. 启动系统 `npm run dev`
 
 ### 可选操作
-5. 📤 推送到 GitHub
-6. 🎮 安装 Fabric + MCPFabric
-7. 📺 配置抖音直播间连接
+5. 🎮 在独立 HMCL Fabric 实例验收真实动作
+6. 📺 配置真实抖音直播间和 dyhub
 
 ## 参考资源
 
 - [Issue #32](https://github.com/XiaoFeiASK/CraftMate/issues/32)
 - [DeepSeek API](https://platform.deepseek.com/api-docs/)
-- [火山引擎 TTS](https://www.volcengine.com/docs/6561/79820)
+- [豆包端到端实时语音](https://docs.volcengine.com/docs/doubao-voice/end-to-end-real-time-voice-full-duplex-version?lang=zh)
 - [YYAPI](https://www.yyapi.cloud/)
 
 ---
 
 **实施时间**: 2026-11-03  
-**状态**: ✅ 核心功能完成，待用户配置 TTS  
-**测试覆盖**: 160/160 (100%)
+**状态**: 真实模型、Seeduplex PCM、配置热更新与 Fabric 世界连接已验证；本机系统音频输出故障、真实抖音和长时验收仍待完成。

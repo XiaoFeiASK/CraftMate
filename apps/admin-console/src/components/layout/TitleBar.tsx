@@ -1,4 +1,4 @@
-import type { ShowMode, ShowSettings } from "@craftmate/contracts";
+import type { ShowMode, ShowSettings, ShowSnapshot } from "@craftmate/contracts";
 import type { DrawerMode } from "../operations/OperationsDrawer.tsx";
 import type { WireState } from "../../lib/connection.ts";
 import mascotLogo from "../../assets/dafeiyu.png";
@@ -10,6 +10,7 @@ interface TitleBarProps {
   readonly state: WireState;
   readonly mode: ShowMode;
   readonly settings: ShowSettings | null;
+  readonly snapshot: ShowSnapshot;
   readonly onSelect: (view: DrawerMode | null) => void;
 }
 
@@ -23,9 +24,22 @@ const VIEW_LABELS: Record<DrawerMode, string> = {
   replay: "回放",
 };
 
-export function TitleBar({ view, state, mode, settings, onSelect }: TitleBarProps): React.JSX.Element {
+export function TitleBar({
+  view,
+  state,
+  mode,
+  settings,
+  snapshot,
+  onSelect,
+}: TitleBarProps): React.JSX.Element {
   const webPreview = !("__TAURI_INTERNALS__" in window);
   const run = runStatus(state, mode);
+  const world = snapshot.bridge?.world;
+  const worldLabel = !snapshot.bridge?.connected
+    ? "未连接游戏"
+    : !world?.inWorld
+      ? "客户端未进入世界"
+      : `${shortDimension(world.world)} · ${formatPosition(world.position)}`;
 
   return (
     <header className="titlebar" {...dragRegion}>
@@ -49,9 +63,12 @@ export function TitleBar({ view, state, mode, settings, onSelect }: TitleBarProp
       <div className="titlebar__drag" {...dragRegion} />
 
       <div className="titlebar__status" {...dragRegion}>
-        <span className="titlebar__world" title="场景占位：Fabric Bridge 接入后替换为实时游戏画面">
+        <span
+          className="titlebar__world"
+          title={world?.inWorld ? `实时游戏坐标 · ${worldLabel}` : worldLabel}
+        >
           <span className="titlebar__cube" aria-hidden="true" />
-          {settings?.worldName ?? "正在读取世界"}
+          {worldLabel}
           <small>{settings?.gameVersion ?? "—"}</small>
         </span>
         <span className="titlebar__run" data-tone={run.tone} role="status">
@@ -91,6 +108,21 @@ export function TitleBar({ view, state, mode, settings, onSelect }: TitleBarProp
       </div>
     </header>
   );
+}
+
+function shortDimension(dimension: string | null | undefined): string {
+  if (!dimension) return "未知维度";
+  if (dimension === "minecraft:overworld") return "主世界";
+  if (dimension === "minecraft:the_nether") return "下界";
+  if (dimension === "minecraft:the_end") return "末地";
+  return dimension;
+}
+
+function formatPosition(
+  position: { readonly x: number; readonly y: number; readonly z: number } | null | undefined,
+): string {
+  if (!position) return "坐标未知";
+  return `${Math.round(position.x)}, ${Math.round(position.y)}, ${Math.round(position.z)}`;
 }
 
 function runStatus(state: WireState, mode: ShowMode): { readonly label: string; readonly tone: string } {

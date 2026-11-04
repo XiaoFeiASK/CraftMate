@@ -20,6 +20,8 @@ describe("playback event feedback", () => {
       state: "speaking",
       decisionId: null,
       commitmentId: commitment.id,
+      code: null,
+      detail: "",
       at: 1_100,
     };
     
@@ -48,6 +50,8 @@ describe("playback event feedback", () => {
       state: "spoken",
       decisionId: null,
       commitmentId: commitment.id,
+      code: null,
+      detail: "",
       at: 1_500,
     };
     
@@ -72,6 +76,8 @@ describe("playback event feedback", () => {
       state: "failed",
       decisionId: null,
       commitmentId: commitment.id,
+      code: "E_AUDIO_PLAYBACK",
+      detail: "audio device unavailable",
       at: 1_100,
     };
     
@@ -99,6 +105,8 @@ describe("playback event feedback", () => {
       state: "cancelled",
       decisionId: null,
       commitmentId: commitment.id,
+      code: null,
+      detail: "",
       at: 1_100,
     };
     
@@ -126,6 +134,8 @@ describe("playback event feedback", () => {
       state: "speaking",
       decisionId: null,
       commitmentId: commitment.id,
+      code: null,
+      detail: "",
       at: 1_100,
     };
     
@@ -155,6 +165,8 @@ describe("playback event feedback", () => {
       state: "failed",
       decisionId: null,
       commitmentId: commitment.id,
+      code: "E_AUDIO_PLAYBACK",
+      detail: "audio device unavailable",
       at: 1_100,
     };
     
@@ -183,6 +195,8 @@ describe("playback event feedback", () => {
       state: "failed",
       decisionId: null,
       commitmentId: commitment.id,
+      code: "E_AUDIO_PLAYBACK",
+      detail: "audio device unavailable",
       at: 1_100,
     };
     
@@ -200,6 +214,8 @@ describe("playback event feedback", () => {
       state: "speaking",
       decisionId: null,
       commitmentId: commitment.id,
+      code: null,
+      detail: "",
       at: 1_050,
     };
     

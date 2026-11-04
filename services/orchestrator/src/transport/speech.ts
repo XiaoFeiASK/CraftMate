@@ -30,7 +30,15 @@ export function speakDecision(
 ): SpeechOutcome | null {
   const text = decision.speech.trim();
   if (text.length === 0) return null;
-  if (decision.decision !== "EXECUTE" && decision.decision !== "ACK_ONLY") return null;
+  // QUEUE can speak a model-generated explanation while retaining the "not
+  // yet executed" decision and without carrying a skill.
+  if (
+    decision.decision !== "EXECUTE" &&
+    decision.decision !== "ACK_ONLY" &&
+    decision.decision !== "QUEUE"
+  ) {
+    return null;
+  }
 
   // An operator takeover silences the agent without stopping the pipeline.
   if (show.snapshot().mode !== "agent" || !voice) return null;

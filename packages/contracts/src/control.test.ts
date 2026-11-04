@@ -43,6 +43,24 @@ describe("control protocol", () => {
         payload: {
           persona: { id: "dafeiyu", name: "大肥鱼", identity: "鲸鱼娘", weights: { risk: 0.45 } },
           snapshot,
+          integrations: {
+            model: {
+              provider: "deepseek",
+              baseUrl: "https://www.yyapi.cloud/v1",
+              model: "deepseek-v4.1-flash",
+              apiKeyConfigured: true,
+              timeoutMs: 10_000,
+            },
+            voice: {
+              provider: "volcengine-realtime",
+              url: "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
+              voiceId: "zh_female_vv_uranus_bigtts",
+              apiKeyConfigured: true,
+              instructions: "忠实朗读。",
+              timeoutMs: 300_000,
+            },
+            douyin: { roomId: "", dyhubUrl: "ws://127.0.0.1:8757" },
+          },
           settings: {
             goal: "盖房",
             goalProgress: 20,

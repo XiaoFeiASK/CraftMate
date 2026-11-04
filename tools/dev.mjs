@@ -21,23 +21,17 @@ const run = (name, command, args) => {
   return child;
 };
 
-const ingress = process.env.DOUYIN_ROOM_ID?.trim()
-  ? [run("ingress", "npm", ["run", "dev:ingress"])]
-  : [];
-
 const children =
   mode === "desktop"
     ? [
         run("orchestrator", "npm", ["run", "dev:orchestrator"]),
         run("voice", "npm", ["run", "dev:voice"]),
         run("desktop", "npm", ["run", "dev:desktop"]),
-        ...ingress,
       ]
     : [
         run("orchestrator", "npm", ["run", "dev:orchestrator"]),
         run("voice", "npm", ["run", "dev:voice"]),
         run("admin-console", "npm", ["run", "dev:console"]),
-        ...ingress,
       ];
 
 const stop = () => {

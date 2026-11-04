@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "craftmate_body",
+  "version": "${version}",
+  "name": "CraftMate Body",
+  "description": "Real Minecraft client body for CraftMate's safe bridge protocol.",
+  "authors": [
+    "CraftMate"
+  ],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "com.craftmate.body.CraftMateBodyClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.20.1",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}

@@ -10,6 +10,7 @@
   "dependencies": {
     "@craftmate/agent": "*",
     "@craftmate/contracts": "*",
+    "@craftmate/local-config": "*",
     "@craftmate/local-auth": "*",
     "@craftmate/storage": "*",
     "ws": "^8.18.0",

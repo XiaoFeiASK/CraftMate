@@ -12,6 +12,8 @@ import {
   replayResponseSchema,
   sourceHealthSchema,
   showSettingsSchema,
+  integrationSettingsUpdateSchema,
+  integrationSettingsViewSchema,
   voiceStatusSchema,
   type BridgeHealth,
   type Decision,
@@ -20,6 +22,11 @@ import {
   type ServerMessage,
   type VoiceSubtitle,
 } from "@craftmate/contracts";
+import type {
+  IntegrationSettingsUpdate,
+  IntegrationSettingsView,
+  RuntimeIntegrationConfig,
+} from "@craftmate/contracts";
 import { isLoopbackAddress, tokenMatches } from "@craftmate/local-auth";
 import type { BridgeUpgrade } from "@craftmate/bridge";
 import { speakDecision as deliverSpeech, type SpeechHooks } from "./speech.ts";
@@ -27,6 +34,12 @@ import { speakDecision as deliverSpeech, type SpeechHooks } from "./speech.ts";
 export interface SettingsWriter {
   /** Returns null when the payload failed validation and was not persisted. */
   saveSettings(next: unknown): unknown | null;
+  /** Persists credentials and returns their public, redacted projection. */
+  saveIntegrationSettings(update: unknown): {
+    readonly settings: unknown;
+    readonly runtime: RuntimeIntegrationConfig;
+  } | null;
+  readIntegrations?(): IntegrationSettingsView;
 }
 
 interface ControlServerOptions {
@@ -54,6 +67,8 @@ interface ControlServerOptions {
   readonly bridge?: BridgeUpgrade;
   /** Turns a validated SkillCall into a bridge command. Throws are logged. */
   readonly dispatchSkill?: (decision: Decision) => void;
+  /** Replaces the live voice connection after settings change. */
+  readonly onIntegrationsChanged?: (config: RuntimeIntegrationConfig) => void;
 }
 
 export interface VoiceHooks {
@@ -81,6 +96,8 @@ export interface ControlServer {
   publishVoiceStatus(status: unknown): void;
   publishSubtitle(subtitle: VoiceSubtitle): void;
   publishBridgeHealth(health: BridgeHealth | null): void;
+  /** Local single-shot acceptance path; disabled unless wired by the host. */
+  injectDecision?(raw: unknown): void;
   close(): Promise<void>;
 }
 
@@ -106,7 +123,10 @@ export function createControlServer({
   ops,
   bridge,
   dispatchSkill,
+  onIntegrationsChanged,
 }: ControlServerOptions): ControlServer {
+  const integrations = (): IntegrationSettingsView =>
+    settings?.readIntegrations?.() ?? disabledIntegrations();
   const http = createServer((request, response) => {
     if (request.url === "/health") {
       response.writeHead(200, { "content-type": "application/json" });
@@ -226,6 +246,8 @@ export function createControlServer({
     void planAndSpeak(decision, generation);
   };
 
+  const injectDecision = (raw: unknown): void => handleDecision(raw);
+
   const planAndSpeak = async (decision: Decision, generation: number): Promise<void> => {
     if (generation !== controlGeneration || show.snapshot().mode !== "agent") return;
     let planned: Decision;
@@ -279,6 +301,7 @@ export function createControlServer({
         persona: show.personaSummary(),
         snapshot: show.snapshot(),
         settings: show.currentSettings(),
+        integrations: integrations(),
       },
     });
     const voiceStatus = show.currentVoiceStatus();
@@ -344,6 +367,57 @@ export function createControlServer({
           return;
         }
         broadcast({ type: "settings", payload: current.data });
+        broadcast({ type: "snapshot", payload: show.snapshot() });
+        return;
+      }
+
+      if (parsed.data.type === "settingsSave") {
+        if (!settings?.saveIntegrationSettings) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_SETTINGS", detail: "当前内核不支持持久化接入配置" },
+          });
+          return;
+        }
+        const validated = integrationSettingsUpdateSchema.safeParse(parsed.data.payload.integrations);
+        if (!validated.success) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_SETTINGS", detail: validated.error.message },
+          });
+          return;
+        }
+        const update: IntegrationSettingsUpdate = validated.data;
+        const saved = settings.saveIntegrationSettings(update);
+        if (!saved) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_SETTINGS", detail: "接入配置未保存，请检查后重试" },
+          });
+          return;
+        }
+        const current = showSettingsSchema.safeParse(saved.settings);
+        if (!current.success) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_SETTINGS", detail: "接入配置已保存但设置格式不合法" },
+          });
+          return;
+        }
+        try {
+          onIntegrationsChanged?.(saved.runtime);
+        } catch (error) {
+          console.warn(
+            `orchestrator: integrations saved but live reload failed — ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+        broadcast({ type: "settings", payload: current.data });
+        broadcast({
+          type: "integrations",
+          payload: integrationSettingsViewSchema.parse(settings.readIntegrations?.()),
+        });
         broadcast({ type: "snapshot", payload: show.snapshot() });
         return;
       }
@@ -512,6 +586,7 @@ export function createControlServer({
       broadcast({ type: "subtitle", payload: subtitle });
     },
     publishBridgeHealth,
+    injectDecision,
     close: async () => {
       for (const { socket } of connections) socket.close();
       await new Promise<void>((resolve) => wss.close(() => resolve()));
@@ -528,4 +603,25 @@ function parseJson(text: string): unknown {
   } catch {
     return null;
   }
+}
+
+function disabledIntegrations(): IntegrationSettingsView {
+  return {
+    model: {
+      provider: "deepseek",
+      baseUrl: "https://www.yyapi.cloud/v1",
+      model: "",
+      apiKeyConfigured: false,
+      timeoutMs: 10_000,
+    },
+    voice: {
+      provider: "volcengine-realtime",
+      url: "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
+      voiceId: "zh_female_vv_uranus_bigtts",
+      apiKeyConfigured: false,
+      instructions: "忠实朗读提供给你的台词。",
+      timeoutMs: 300_000,
+    },
+    douyin: { roomId: "", dyhubUrl: "ws://127.0.0.1:8757" },
+  };
 }

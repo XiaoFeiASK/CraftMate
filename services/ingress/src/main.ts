@@ -1,7 +1,12 @@
 import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { WebSocket, WebSocketServer } from "ws";
-import { ingressServerFrameSchema, type AudienceEvent, type SourceHealth } from "@craftmate/contracts";
+import {
+  ingressServerFrameSchema,
+  type AudienceEvent,
+  type DouyinRuntimeConfig,
+  type SourceHealth,
+} from "@craftmate/contracts";
 import { defaultTokenPath, loadOrCreateToken } from "@craftmate/local-auth";
 import { DyhubSource } from "./dyhub-source.ts";
 import { EventGate } from "./gate.ts";
@@ -9,6 +14,8 @@ import { EventGate } from "./gate.ts";
 const roomId = process.env.DOUYIN_ROOM_ID ?? "";
 const dyhubUrl = process.env.DYHUB_URL ?? "ws://127.0.0.1:8757";
 const orchestratorUrl = process.env.CRAFTMATE_INGRESS ?? "ws://127.0.0.1:4321/ingress";
+const healthPort = Number(process.env.INGRESS_HEALTH_PORT ?? 4322);
+const healthHost = process.env.INGRESS_HEALTH_HOST ?? "127.0.0.1";
 // Do not silently mint a different token: the orchestrator may deliberately
 // run with `CRAFTMATE_TOKEN` while this process is launched separately.
 if (!process.env.CRAFTMATE_TOKEN?.trim() && !existsSync(defaultTokenPath())) {
@@ -16,8 +23,6 @@ if (!process.env.CRAFTMATE_TOKEN?.trim() && !existsSync(defaultTokenPath())) {
   process.exit(1);
 }
 const token = loadOrCreateToken();
-const healthPort = Number(process.env.INGRESS_HEALTH_PORT ?? 4322);
-const healthHost = process.env.INGRESS_HEALTH_HOST ?? "127.0.0.1";
 
 if (roomId.length === 0) {
   console.error("ingress: DOUYIN_ROOM_ID is required (the number in live.douyin.com/<id>)");
@@ -45,6 +50,8 @@ const source = new DyhubSource({
 const pending: string[] = [];
 let upstream: WebSocket | null = null;
 let upstreamAttempt = 0;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let shuttingDown = false;
 
 function sendHealth(next: SourceHealth): void {
   const frame = JSON.stringify({ type: "health", payload: next });
@@ -83,10 +90,14 @@ function connectOrchestrator(): void {
 
   socket.on("close", () => {
     if (upstream === socket) upstream = null;
+    if (shuttingDown) return;
     const delay = Math.min(1_000 * 2 ** upstreamAttempt, 30_000);
     upstreamAttempt = Math.min(upstreamAttempt + 1, 5);
     // Deferred so the retry never runs inside the socket's own close stack.
-    setTimeout(() => connectOrchestrator(), delay);
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      connectOrchestrator();
+    }, delay);
   });
 
   socket.on("error", () => {
@@ -115,6 +126,27 @@ source.on(forward);
 connectOrchestrator();
 await source.connect(roomId).catch((error: unknown) => {
   console.error(`ingress: initial connect failed — ${error instanceof Error ? error.message : String(error)}`);
+});
+
+// The orchestrator supervises this process. Configuration commands avoid
+// sending secrets and let a room change reconnect in place instead of leaving
+// a stale health server behind during a child restart.
+process.on("message", (raw) => {
+  if (typeof raw !== "object" || raw === null) return;
+  const message = raw as { type?: unknown; config?: unknown };
+  if (message.type !== "configure") return;
+  const config = message.config as Partial<DouyinRuntimeConfig> | undefined;
+  if (
+    !config ||
+    typeof config.roomId !== "string" ||
+    config.roomId.length === 0 ||
+    typeof config.dyhubUrl !== "string"
+  ) {
+    return;
+  }
+  void source.reconfigure(config.roomId, config.dyhubUrl).catch((error: unknown) => {
+    console.error(`ingress: reconfigure failed — ${error instanceof Error ? error.message : String(error)}`);
+  });
 });
 
 const healthServer = createServer((request, response) => {
@@ -146,6 +178,8 @@ healthServer.listen(healthPort, healthHost, () => {
 });
 
 const shutdown = async (): Promise<void> => {
+  shuttingDown = true;
+  if (retryTimer) clearTimeout(retryTimer);
   await source.close();
   upstream?.close();
   healthServer.close();

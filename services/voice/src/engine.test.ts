@@ -30,6 +30,42 @@ class FailingProvider implements TtsProvider {
   }
 }
 
+class StreamingProvider implements TtsProvider {
+  readonly id = "streaming";
+  async synthesize(): Promise<TtsAudio> {
+    throw new Error("buffered synthesis must not be used");
+  }
+  async stream(request: TtsRequest) {
+    return {
+      format: {
+        mediaType: "audio/pcm_s16le" as const,
+        sampleRate: 24_000,
+        channels: 1 as const,
+        bitsPerSample: 16 as const,
+      },
+      firstByteAt: Promise.resolve(Date.now()),
+      chunks: (async function* () {
+        yield new Uint8Array([1, 2]);
+        if (request.signal.aborted) throw request.signal.reason;
+        yield new Uint8Array([3, 4]);
+      })(),
+    };
+  }
+}
+
+class StreamingSink extends MemoryAudioSink {
+  streamed = 0;
+  async playStream(
+    audio: NonNullable<ReturnType<StreamingProvider["stream"]>> extends Promise<infer T>
+      ? T
+      : never,
+    _signal: AbortSignal,
+  ): Promise<void> {
+    for await (const _chunk of audio.chunks) this.streamed += 1;
+    this.played.push("played");
+  }
+}
+
 function engineWith(
   providers: readonly TtsProvider[],
   sink = new MemoryAudioSink(),
@@ -47,6 +83,16 @@ function engineWith(
 }
 
 describe("voice queue", () => {
+  test("plays streamed provider chunks without buffering the whole utterance", async () => {
+    const sink = new StreamingSink();
+    const { engine, events } = engineWith([new StreamingProvider()], sink);
+    engine.speak({ text: "流式一句话。", voice });
+    await engine.whenIdle();
+
+    assert.equal(sink.streamed, 2);
+    assert.equal(events.filter((event) => event.type === "spoken").length, 1);
+  });
+
   test("splits text and emits subtitle before audio", async () => {
     const { engine, events, sink } = engineWith([new SilentTtsProvider()]);
     engine.speak({ text: "唔，知道了！我这就去挖矿。", voice });

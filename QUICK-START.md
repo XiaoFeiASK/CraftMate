@@ -16,23 +16,17 @@ node --env-file=.env services/voice/src/main.ts
 ## ✅ 当前状态
 
 - ✅ DeepSeek 模型：正常工作
-- ⚠️ TTS 语音：需要配置（见下方）
-- ✅ 所有测试：160/160 通过
-- ✅ TypeScript：编译无错误
+- ✅ 豆包 Seeduplex 实时语音：真实鉴权、PCM 流式合成已验证
+- ✅ Fabric 1.21.11 游戏身体与 Bridge：真实世界快照已验证
+- ⚠️ 本机音频输出：当前 `afplay` 返回 `AudioQueueStart failed (-66681)`，需先修复系统输出设备
 
-## ⚠️ TTS 配置步骤
+## ⚠️ 接入配置步骤
 
-1. 登录火山引擎控制台：https://console.volcengine.com/
-2. 进入「语音技术」→「豆包语音」
-3. 查看已开通的「资源 ID」和「音色 ID」
-4. 编辑 `.env` 文件，修改这两行：
-   ```
-   TTS_PRIMARY_RESOURCE_ID=你的资源ID
-   TTS_PRIMARY_VOICE_ID=你的音色ID
-   ```
-5. 测试：`node --env-file=.env services/voice/src/main.ts`
-
-详细步骤见：`./docs/volcengine-tts-setup.md`
+1. 打开管理端「设置 → 接入」。
+2. 填写抖音房间号、dyhub 地址、模型和语音参数；Key 只需填写一次。
+3. 保存后配置写入 `~/.craftmate/integrations.json`，模型和 Voice 会立即重载。
+4. 填写房间号时 Orchestrator 自动启动 Ingress；清空房间号会停止。
+5. 在「接入与语音」点击试听验证。
 
 ## 📁 关键文件
 
@@ -45,16 +39,18 @@ node --env-file=.env services/voice/src/main.ts
 
 如需 AI 控制游戏：
 1. 在 HMCL 中为 Minecraft 1.21.11 安装 Fabric Loader
-2. 安装 MCPFabric Mod
-3. 启动游戏和 CraftMate
+2. 启动 CraftMate
+3. 把 `mods/craftmate-body/build/libs/craftmate-body-0.1.0.jar` 放入该 Fabric 实例的 `mods/`
+4. 进入真实单人世界，再在管理端确认 Bridge 显示已连接
 
 ## 🆘 常见问题
 
-**Q: TTS 报错 "requested resource not granted"**
-A: 需要在火山引擎控制台检查并修改资源 ID 和音色 ID
+**Q: 为什么控制台显示抖音未接入？**
+A: 先确认 dyhub 已在配置的地址运行，再填写正确的直播间号；保存后查看
+`http://127.0.0.1:4322/health`。
 
 **Q: 暂时不需要语音怎么办？**
-A: 注释掉 `.env` 中所有 `TTS_` 开头的行，系统会以"仅字幕"模式运行
+A: 不配置语音 Key 时 Voice 会明确报告不可用，不会伪造语音
 
 **Q: 如何验证系统是否正常？**
 A: 运行 `./test-startup.sh` 查看所有检查项

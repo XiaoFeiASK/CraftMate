@@ -11,6 +11,10 @@ export interface PlanRequest {
   readonly persona: PersonaSummary;
   /** Approved memories only; the caller filters, the model never does. */
   readonly memories: readonly string[];
+  /** Semantic game observation from the body; untrusted values stay data. */
+  readonly world?: unknown;
+  /** Skills advertised by the connected body at planning time. */
+  readonly availableSkills?: readonly string[];
   readonly signal: AbortSignal;
 }
 

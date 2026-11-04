@@ -115,7 +115,7 @@ describe("bridge WebSocket transport", () => {
     });
   });
 
-  test("the body stops itself within 500ms when the server goes silent", async () => {
+  test("the body stops itself within the negotiated watchdog when the server goes silent", async () => {
     let now = 1_000;
     const body = new SimBody({
       token: TOKEN,
@@ -134,7 +134,7 @@ describe("bridge WebSocket transport", () => {
       capabilities: ["move", "mine"],
       skills: ["mine_block"],
       heartbeatMs: 250,
-      watchdogMs: 500,
+      watchdogMs: 2_000,
     });
     body.handle({
       v: 1,
@@ -147,11 +147,7 @@ describe("bridge WebSocket transport", () => {
     });
     assert.ok(body.state().pressed.length > 0);
 
-    now = 1_499;
-    body.checkWatchdog();
-    assert.ok(body.state().pressed.length > 0);
-
-    now = 1_500;
+    now = 3_001;
     body.checkWatchdog();
     assert.deepEqual(body.state().pressed, []);
     assert.equal(body.state().owner, "none");

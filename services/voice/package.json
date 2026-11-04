@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@craftmate/contracts": "*",
+    "@craftmate/local-config": "*",
     "ws": "^8.18.0",
     "zod": "^3.24.1",
     "@craftmate/storage": "*",

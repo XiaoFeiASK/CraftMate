@@ -5,6 +5,11 @@ import { CommitmentLedger, Show, dafeiyu, type Persona } from "@craftmate/agent"
 import { OpenAICompatibleProvider, Planner } from "@craftmate/agent/application";
 import { showSettingsSchema } from "@craftmate/contracts";
 import {
+  createRuntimeConfigStore,
+  publicRuntimeConfig,
+  type RuntimeConfigStore,
+} from "@craftmate/local-config";
+import {
   CostStore,
   CommitmentStore,
   DecisionStore,
@@ -28,8 +33,14 @@ export interface PersistentShow {
   readonly personas: PersonaVersionStore;
   readonly replay: ReplayStore;
   readonly costs: CostStore;
+  readonly runtimeConfig: RuntimeConfigStore;
   /** Persists a settings edit, then applies it to the running show. */
   saveSettings(next: unknown): ReturnType<Show["currentSettings"]> | null;
+  saveIntegrationSettings(update: unknown): {
+    readonly settings: ReturnType<Show["currentSettings"]>;
+    readonly runtime: ReturnType<RuntimeConfigStore["read"]>;
+  } | null;
+  readIntegrations(): ReturnType<typeof publicRuntimeConfig>;
   /** Purges expired raw text and writes one audit row per source. */
   expireRawText(now?: number): number;
   /** Records a model call so the hourly budget is a query, not a counter. */
@@ -48,6 +59,8 @@ export function createPersistentShow(options: {
   readonly persona?: Persona;
   readonly dbPath?: string;
   readonly goalText?: string;
+  readonly world?: () => unknown;
+  readonly availableSkills?: () => readonly string[];
   /** Injected in tests; absent means "read the environment". */
   readonly env?: NodeJS.ProcessEnv;
 } = {}): PersistentShow {
@@ -63,13 +76,22 @@ export function createPersistentShow(options: {
   const personas = new PersonaVersionStore(db);
   const replay = new ReplayStore(db);
   const costs = new CostStore(db);
+  const runtimeConfig = options.env?.CRAFTMATE_INTEGRATIONS_FILE
+    ? createRuntimeConfigStore({
+        env: options.env,
+        path: options.env.CRAFTMATE_INTEGRATIONS_FILE,
+      })
+    : options.env === undefined
+      ? createRuntimeConfigStore()
+      : createRuntimeConfigStore({ env: options.env });
+  const runtime = runtimeConfig.read();
   const history = decisions.recent(context.sessionId, 50);
   const totals = decisions.counts(context.sessionId);
   const stored = showSettingsSchema.safeParse(settingsStore.read(context.sessionId));
   const ledger = new CommitmentLedger({ journal: commitments });
   ledger.restore(commitments.open());
 
-  const provider = modelProvider(env);
+  let provider = modelProvider(runtime);
 
   const show = new Show({
     persona,
@@ -78,9 +100,13 @@ export function createPersistentShow(options: {
     recorder: new SqliteRecorder(db, context),
     ledger,
     memory,
+    ...(options.world ? { world: options.world } : {}),
+    ...(options.availableSkills
+      ? { availableSkills: options.availableSkills }
+      : {}),
     planner: new Planner({
       provider,
-      deadlineMs: positiveInteger(env.CRAFTMATE_MODEL_TIMEOUT_MS, 1_000),
+      deadlineMs: runtime.model.timeoutMs,
       overBudget: () => {
         if (provider === null) return false;
         const budget = costs.budget({
@@ -127,6 +153,7 @@ export function createPersistentShow(options: {
     personas,
     replay,
     costs,
+    runtimeConfig,
     saveSettings: (next) => {
       const parsed = showSettingsSchema.safeParse(next);
       // A rejected edit must leave the running show untouched: silently
@@ -135,6 +162,37 @@ export function createPersistentShow(options: {
       settingsStore.write(context.sessionId, parsed.data);
       return show.updateSettings(parsed.data);
     },
+    saveIntegrationSettings: (update) => {
+      let saved;
+      try {
+        saved = runtimeConfig.save(update as never);
+      } catch {
+        return null;
+      }
+      const current = show.currentSettings();
+      const withModel = show.updateSettings({
+        ...current,
+        integrations: {
+          ...current.integrations,
+          deepseekModel: saved.model.model,
+          douyinRoomId: saved.douyin.roomId,
+        },
+        persona: {
+          ...current.persona,
+          voice: {
+            ...current.persona.voice,
+            provider: saved.voice.provider,
+            voiceId: saved.voice.voiceId,
+          },
+        },
+      });
+      settingsStore.write(context.sessionId, withModel);
+      provider = modelProvider(saved);
+      show.updatePlannerProvider(provider);
+      show.updatePlannerDeadline(saved.model.timeoutMs);
+      return { settings: withModel, runtime: saved };
+    },
+    readIntegrations: () => publicRuntimeConfig(runtimeConfig.read()),
     expireRawText: (now) => sources.expireRawText(now),
     recordCost: (providerId, model, cost) => {
       if (cost <= 0) return;
@@ -154,18 +212,25 @@ function positiveInteger(value: string | undefined, fallback: number): number {
  * A single OpenAI-compatible provider. Absent credentials mean "no model":
  * the show keeps running deterministically instead of failing to boot.
  */
-function modelProvider(env: NodeJS.ProcessEnv): OpenAICompatibleProvider | null {
-  const apiKey = env.CRAFTMATE_MODEL_KEY?.trim();
-  const model = env.CRAFTMATE_MODEL?.trim();
+function modelProvider(config: {
+  readonly model: {
+    readonly provider: string;
+    readonly baseUrl: string;
+    readonly model: string;
+    readonly apiKey: string;
+  };
+}): OpenAICompatibleProvider | null {
+  const apiKey = config.model.apiKey.trim();
+  const model = config.model.model.trim();
   if (!apiKey || !model) return null;
   return new OpenAICompatibleProvider({
-    id: env.CRAFTMATE_MODEL_PROVIDER?.trim() || "deepseek",
-    baseUrl: env.CRAFTMATE_MODEL_URL?.trim() || "https://api.deepseek.com/v1",
+    id: config.model.provider,
+    baseUrl: config.model.baseUrl,
     apiKey,
     model,
     pricePerMillion: {
-      input: Number(env.CRAFTMATE_MODEL_PRICE_IN ?? 0),
-      output: Number(env.CRAFTMATE_MODEL_PRICE_OUT ?? 0),
+      input: Number(process.env.CRAFTMATE_MODEL_PRICE_IN ?? 0),
+      output: Number(process.env.CRAFTMATE_MODEL_PRICE_OUT ?? 0),
     },
   });
 }

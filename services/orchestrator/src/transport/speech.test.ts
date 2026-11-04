@@ -83,6 +83,21 @@ describe("decision to speech", () => {
     }
   });
 
+  test("a queued model response can speak without becoming executable", () => {
+    const { show, commitments, close } = harness();
+    try {
+      const outcome = speakDecision(
+        show,
+        decision({ decision: "QUEUE", priority: "plan", speech: "大家等一下哦。" }),
+        { speak: () => undefined },
+      );
+      assert.notEqual(outcome, null);
+      assert.equal(commitments.open()[0]?.utterance, "大家等一下哦。");
+    } finally {
+      close();
+    }
+  });
+
   test("an operator takeover silences the agent but keeps the decision", () => {
     const { show, commitments, close } = harness();
     try {

@@ -9,7 +9,7 @@
 | 问题 | 结论 |
 | --- | --- |
 | 用 `douyin-mcp-skills` 监听评论？ | 不用。它是轮询式的人工操作手册，不是常驻订阅服务。 |
-| 抖音评论怎么读？ | `ymstar/dyhub` 作为本机 sidecar，`services/ingress` 订阅它的 `/ws` 并归一化。 |
+| 抖音评论怎么读？ | `ymstar/dyhub` 作为本机 sidecar，`services/ingress` 订阅它的 `/ws` 并归一化；Orchestrator 按管理端保存的房间配置自动启停 Ingress。 |
 | 用 MCP Fabric 当游戏身体？ | 可以，但**只做适配器**，不作为 MCP 工具暴露给模型。 |
 | 模型能看到多少工具？ | 19 个受控技能，不是 50+ 个 MCP 工具。 |
 | 先做什么？ | 延后真实房间联调，先补 Stage C 与真实身体；去重与鉴权已落地。 |
@@ -195,8 +195,8 @@ dyhub :8757                          mcpfabric :25599
 当前状态：
 
 - `/ingress` 已实现 token 校验、loopback 限制、失败握手限流、事件与健康上报。
-- `/bridge` 已装配到 Orchestrator；目前只在模拟身体上验证。
-- Voice 是独立进程 `:4323`，Orchestrator 启动时会连接它；TTS 未配置时进入仅字幕模式。
+- `/bridge` 已装配到 Orchestrator；没有真实身体时控制台如实显示未连接。
+- Voice 是独立进程 `:4323`，Orchestrator 启动时会连接它；TTS 未配置时明确报告不可用。
 
 启动 ingress 需要 `DOUYIN_ROOM_ID`，可选 `DYHUB_URL`、`CRAFTMATE_INGRESS`、
 `INGRESS_HEALTH_PORT`；可用 `npm run start:ingress` 启动。
@@ -208,7 +208,7 @@ dyhub :8757                          mcpfabric :25599
 | dyhub 断开 | 重连指数退避（1s→30s 上限），界面显示断线，Agent 继续玩 |
 | dyhub 房间关闭 | 状态 `closed`，不重连，界面提示开播 |
 | orchestrator 重启 | ingress 重连，`hello` 后补发未确认事件（保留 60 秒缓冲） |
-| Bridge 断开 >500ms | 取消在途动作，所有权进 `NONE`，界面告警 |
+| Bridge 连续 2s 无心跳 | 取消在途动作，所有权进 `NONE`，界面告警 |
 | mcpfabric 崩溃 | 同上；适配器重启后先对账，不盲目重发 |
 | 模型超时 | 模板回应，计划保持，不阻塞 |
 

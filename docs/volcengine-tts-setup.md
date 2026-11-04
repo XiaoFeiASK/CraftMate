@@ -1,13 +1,9 @@
-# 火山引擎 TTS 配置指南
+# 火山引擎端到端实时语音配置
 
-## 问题说明
+## 接入方式
 
-如果你遇到类似以下错误：
-```
-HTTP 200 but error code 45000030: "requested resource not granted"
-```
-
-这表示你的 API Key 有效，但没有访问当前配置的 TTS 资源的权限。
+CraftMate 只使用豆包端到端实时语音（Seeduplex）的 WebSocket 接口。旧的
+一次性文字转语音 HTTP / SSE 调用已经删除。
 
 ## 解决步骤
 
@@ -15,22 +11,22 @@ HTTP 200 but error code 45000030: "requested resource not granted"
 
 访问 [火山引擎控制台](https://console.volcengine.com/)，进入「语音技术」→「豆包语音」服务。
 
-### 2. 查看已开通的服务
+### 2. 查看已开通的实时语音服务
 
-在控制台中找到：
-- **资源 ID** (Resource ID)：例如 `volc.tts.default`、`volc.seedtts.default`、`seed-tts-2.0`
-- **音色 ID** (Voice ID)：例如 `zh_female_tianmeixiaoyuan`、`zh_male_aojiaobazong`
+在控制台找到端到端实时语音（Seeduplex）的音色 ID，例如
+`zh_female_vv_uranus_bigtts`。
 
 记录下你账号实际开通的资源和音色。
 
-### 3. 更新 `.env` 配置
+### 3. 在管理端保存配置
 
-修改 CraftMate 项目根目录的 `.env` 文件：
+推荐在管理端「设置 → 接入」填写。也可以把下列变量作为首次启动默认值写入
+项目根目录的 `.env`：
 
 ```bash
-TTS_PRIMARY_PROVIDER=volcengine
-TTS_PRIMARY_RESOURCE_ID=你的资源ID  # 例如：volc.tts.default
-TTS_PRIMARY_VOICE_ID=你的音色ID    # 例如：zh_female_tianmeixiaoyuan
+TTS_PRIMARY_PROVIDER=volcengine-realtime
+TTS_PRIMARY_URL=wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue
+TTS_PRIMARY_VOICE_ID=你的音色ID    # 例如：zh_female_vv_uranus_bigtts
 TTS_PRIMARY_KEY=你的API_Key
 ```
 
@@ -48,45 +44,28 @@ node --env-file=.env services/voice/src/main.ts
 ### 5. 启动完整系统
 
 ```bash
-npm run dev
+./start.command --web
 ```
 
 这会同时启动：
 - Orchestrator（主服务）
 - Voice（语音服务）
-- Ingress（评论输入服务）
+- 管理端（浏览器版）
 
-## 常见资源和音色
+在管理端配置了抖音房间号时，Orchestrator 还会自动启动 Ingress。
 
-### 基础 TTS 资源
-- `volc.tts.default`：最基础的 TTS 服务
+## API 调用
 
-### 高级 TTS 资源（需要单独开通）
-- `seed-tts-2.0`：豆包高保真语音合成
-- `volc.seedtts.default`：种子语音服务
+CraftMate 为每句已决定好的台词建立 WebSocket 会话，发送
+`session.create` 和 `speech_text_buffer.commit`，把 24kHz `pcm_s16le`
+在会话结束前直接送入本机流式播放器。它不会调用一次性文字转语音 HTTP 接口，
+播放失败时会报告 `E_AUDIO_PLAYBACK`。
 
-### 常见音色 ID
-- `zh_female_tianmeixiaoyuan`：甜美小媛（女声）
-- `zh_male_aojiaobazong`：傲娇霸总（男声）
-- `zh_female_vv_uranus_bigtts`：天王星音色（需 seed-tts-2.0）
-
-## 临时解决方案：仅字幕模式
-
-如果暂时无法解决 TTS 授权问题，可以注释掉所有 TTS 配置：
-
-```bash
-# TTS_PRIMARY_PROVIDER=volcengine
-# TTS_PRIMARY_RESOURCE_ID=seed-tts-2.0
-# TTS_PRIMARY_VOICE_ID=zh_female_vv_uranus_bigtts
-# TTS_PRIMARY_KEY=...
-```
-
-系统会以"仅字幕"模式运行：
-- 合成器返回空音频
-- 控制台仍能看到 `speaking / spoken / failed` 事件
-- AI 助手的回复会以字幕形式显示，但不会播放语音
+macOS 若返回 `AudioQueueStart failed (-66681)`，即使其他程序也完全无声，应先检查
+“系统设置 → 声音 → 输出”并切换到可用扬声器。CraftMate 不会把这类系统故障降级为
+假装播放成功。
 
 ## 相关文档
 
 - [CraftMate 本地部署指南](./local-setup.md)
-- [火山引擎 TTS API 文档](https://www.volcengine.com/docs/6561/79820)
+- [豆包端到端实时语音文档](https://docs.volcengine.com/docs/doubao-voice/end-to-end-real-time-voice-full-duplex-version?lang=zh)

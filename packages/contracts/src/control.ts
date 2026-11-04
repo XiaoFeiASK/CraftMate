@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { audienceEventSchema, sourceHealthSchema } from "./audience.ts";
 import { decisionSchema } from "./decision.ts";
-import { showSettingsSchema } from "./settings.ts";
+import {
+  integrationSettingsUpdateSchema,
+  integrationSettingsViewSchema,
+  showSettingsSchema,
+} from "./settings.ts";
 import { voiceStatusSchema, voiceSubtitleSchema } from "./voice.ts";
 import { bridgeHealthSchema, opsRequestSchema, opsSnapshotSchema } from "./ops.ts";
 import { timelineEntrySchema } from "./replay.ts";
@@ -75,6 +79,13 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("operator"), payload: operatorCommandSchema }),
   z.object({ type: z.literal("settings"), payload: showSettingsSchema }),
   z.object({
+    type: z.literal("settingsSave"),
+    payload: z.object({
+      settings: showSettingsSchema,
+      integrations: integrationSettingsUpdateSchema,
+    }),
+  }),
+  z.object({
     type: z.literal("speak"),
     payload: z.object({ text: z.string().trim().min(1).max(2_000) }),
   }),
@@ -90,6 +101,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
       persona: personaSummarySchema,
       snapshot: showSnapshotSchema,
       settings: showSettingsSchema,
+      integrations: integrationSettingsViewSchema,
     }),
   }),
   z.object({ type: z.literal("decision"), payload: decisionSchema }),
@@ -98,6 +110,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("operator"), payload: operatorCommandSchema }),
   z.object({ type: z.literal("source"), payload: sourceHealthSchema }),
   z.object({ type: z.literal("settings"), payload: showSettingsSchema }),
+  z.object({ type: z.literal("integrations"), payload: integrationSettingsViewSchema }),
   z.object({ type: z.literal("voice"), payload: voiceStatusSchema }),
   z.object({ type: z.literal("subtitle"), payload: voiceSubtitleSchema }),
   z.object({ type: z.literal("bridge"), payload: bridgeHealthSchema }),

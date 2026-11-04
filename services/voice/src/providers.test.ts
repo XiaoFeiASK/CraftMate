@@ -41,6 +41,7 @@ test("Volcengine realtime provider creates a session and emits committed text", 
   assert.equal(create.session.instructions, DAFEIYU_REALTIME_INSTRUCTIONS);
   assert.equal(create.session.audio.output.voice, "zh_female_vv_uranus_bigtts");
   assert.equal(create.session.audio.output.speed, 5);
+  assert.equal(create.session.audio.output.format.type, "pcm_s16le");
   assert.equal(create.session.audio.output.format.rate, 24_000);
 
   socket.emit("message", JSON.stringify({ type: "session.created", session: { id: "dialog-1" } }));
@@ -57,6 +58,38 @@ test("Volcengine realtime provider creates a session and emits committed text", 
   assert.equal(audio.mediaType, "audio/wav");
   assert.equal(Buffer.from(audio.bytes).subarray(0, 4).toString(), "RIFF");
   assert.deepEqual([...Buffer.from(audio.bytes).subarray(44)], [1, 2, 3, 4]);
+});
+
+test("Volcengine realtime provider exposes PCM before the upstream completes", async () => {
+  const socket = new FakeRealtimeSocket();
+  const provider = new VolcengineRealtimeTtsProvider({
+    apiKey: "realtime-test-key",
+    socketFactory: () => socket,
+  });
+  const pending = provider.stream({
+    text: "先流式说一句。",
+    voice: { provider: "volcengine-realtime", voiceId: "dafeiyu", speed: 1 },
+    signal: new AbortController().signal,
+  });
+  socket.emit("open");
+  socket.emit(
+    "message",
+    JSON.stringify({ type: "session.created", session: { id: "dialog-1" } }),
+  );
+  const stream = await pending;
+  const iterator = stream.chunks[Symbol.asyncIterator]();
+  socket.emit(
+    "message",
+    JSON.stringify({
+      type: "response.output_audio.delta",
+      delta: Buffer.from([8, 9]).toString("base64"),
+    }),
+  );
+  const first = await iterator.next();
+  assert.deepEqual([...(first.done ? [] : first.value)], [8, 9]);
+  assert.ok((await stream.firstByteAt) > 0);
+  socket.emit("message", JSON.stringify({ type: "response.output_audio.done" }));
+  assert.equal((await iterator.next()).done, true);
 });
 
 test("Volcengine realtime provider surfaces server errors", async () => {
@@ -90,4 +123,26 @@ test("Volcengine realtime provider rejects a stream that closes without audio", 
   socket.emit("message", JSON.stringify({ type: "session.created", session: { id: "dialog-1" } }));
   socket.emit("close", 1000, "");
   await assert.rejects(pending, /closed before audio completed/);
+});
+
+test("Volcengine realtime streaming rejects a session with no audio", async () => {
+  const socket = new FakeRealtimeSocket();
+  const provider = new VolcengineRealtimeTtsProvider({
+    apiKey: "realtime-test-key",
+    socketFactory: () => socket,
+  });
+  const pending = provider.stream({
+    text: "你好。",
+    voice: { provider: "volcengine-realtime", voiceId: "dafeiyu", speed: 1 },
+    signal: new AbortController().signal,
+  });
+  socket.emit("open");
+  socket.emit(
+    "message",
+    JSON.stringify({ type: "session.created", session: { id: "dialog-1" } }),
+  );
+  const stream = await pending;
+  const iterator = stream.chunks[Symbol.asyncIterator]();
+  socket.emit("message", JSON.stringify({ type: "response.output_audio.done" }));
+  await assert.rejects(iterator.next(), /returned no audio/);
 });

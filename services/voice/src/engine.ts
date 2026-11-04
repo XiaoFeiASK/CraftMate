@@ -46,11 +46,9 @@ export interface VoiceEngineOptions {
   readonly commitmentGate?: CommitmentGate;
   readonly capacity?: number;
   readonly maxChars?: number;
-  readonly synthesisTimeoutMs?: number;
+  synthesisTimeoutMs?: number;
   readonly circuitThreshold?: number;
   readonly circuitCooldownMs?: number;
-  /** True when no real audio provider is configured. */
-  readonly subtitleOnly?: boolean;
   readonly onEvent?: (event: VoiceEvent) => void;
 }
 
@@ -76,15 +74,14 @@ const systemClock = { now: () => Date.now(), newId: () => crypto.randomUUID() };
  */
 export class VoiceEngine {
   private readonly clock: { now(): number; newId(): string };
-  private readonly providers: readonly TtsProvider[];
+  private providers: readonly TtsProvider[];
   private readonly sink: AudioSink;
   private readonly commitmentGate: CommitmentGate | undefined;
   private readonly capacity: number;
   private readonly maxChars: number;
-  private readonly synthesisTimeoutMs: number;
+  synthesisTimeoutMs: number;
   private readonly circuitThreshold: number;
   private readonly circuitCooldownMs: number;
-  private readonly subtitleOnly: boolean;
   private readonly onEvent: ((event: VoiceEvent) => void) | undefined;
   private readonly listeners = new Set<(event: VoiceEvent) => void>();
   private readonly circuits = new Map<string, ProviderCircuit>();
@@ -111,7 +108,6 @@ export class VoiceEngine {
     this.synthesisTimeoutMs = options.synthesisTimeoutMs ?? 8_000;
     this.circuitThreshold = options.circuitThreshold ?? 3;
     this.circuitCooldownMs = options.circuitCooldownMs ?? 30_000;
-    this.subtitleOnly = options.subtitleOnly ?? false;
     this.onEvent = options.onEvent;
     for (const provider of this.providers) {
       this.circuits.set(provider.id, { failures: 0, openUntil: 0, lastErrorAt: null });
@@ -121,6 +117,21 @@ export class VoiceEngine {
   subscribe(listener: (event: VoiceEvent) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /**
+   * Applies a verified operator configuration. Any in-flight audio is from the
+   * old endpoint, so stop it before swapping providers.
+   */
+  replaceProviders(providers: readonly TtsProvider[]): void {
+    this.stop("TTS configuration changed");
+    this.providers = providers;
+    this.circuits.clear();
+    for (const provider of providers) {
+      this.circuits.set(provider.id, { failures: 0, openUntil: 0, lastErrorAt: null });
+    }
+    this.degraded = false;
+    this.emitStatus();
   }
 
   /** Returns the number of segments accepted (0 when shed). */
@@ -228,15 +239,13 @@ export class VoiceEngine {
       state,
       detail:
         state === "speaking"
-          ? this.subtitleOnly
-            ? "字幕播出中（仅字幕模式）"
-            : "正在说话"
+          ? "正在说话"
           : allOpen
-            ? "所有 TTS 供应商已熔断，仅保留字幕"
+            ? "所有 TTS 供应商已熔断"
             : this.degraded
-              ? "上次合成失败，已降级为字幕"
-              : this.subtitleOnly
-                ? "仅字幕模式，未配置 TTS"
+              ? "上次语音合成或播放失败"
+              : this.providers.length === 0
+                ? "未配置实时语音，语音不可用"
                 : "待命",
       queued: this.queue.length,
       spoken: this.spoken,
@@ -297,17 +306,36 @@ export class VoiceEngine {
       if (controller.signal.aborted) break;
       if (this.isCircuitOpen(provider.id)) continue;
       try {
-        const audio = await withTimeout(
-          provider.synthesize({
-            text: segment.utterance.text,
-            voice,
-            signal: controller.signal,
-          }),
-          this.synthesisTimeoutMs,
-          controller.signal,
-        );
+        const request = {
+          text: segment.utterance.text,
+          voice,
+          signal: controller.signal,
+        };
+        const stream =
+          provider.stream && this.sink.playStream
+            ? await withTimeout(
+                provider.stream(request),
+                this.synthesisTimeoutMs,
+                controller.signal,
+              )
+            : null;
+        const audio = stream
+          ? null
+          : await withTimeout(
+              provider.synthesize(request),
+              this.synthesisTimeoutMs,
+              controller.signal,
+            );
         audioReady = true;
-        await this.sink.play(audio, controller.signal, segment.utterance.text);
+        if (stream) {
+          await this.sink.playStream!(
+            stream,
+            controller.signal,
+            segment.utterance.text,
+          );
+        } else {
+          await this.sink.play(audio!, controller.signal, segment.utterance.text);
+        }
         this.recordSuccess(provider.id);
         this.spoken += 1;
         this.degraded = false;
@@ -316,7 +344,9 @@ export class VoiceEngine {
           type: "spoken",
           utterance: segment.utterance,
           finishedAt: this.clock.now(),
-          latencyMs: audio.firstByteAt - startedAt,
+          latencyMs:
+            (stream ? await stream.firstByteAt : audio!.firstByteAt) -
+            startedAt,
           provider: provider.id,
         });
         return;

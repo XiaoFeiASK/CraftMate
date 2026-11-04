@@ -32,7 +32,10 @@ const completionSchema = z.object({
   choices: z
     .array(
       z.object({
-        message: z.object({ content: z.string().nullable() }).optional(),
+        message: z.object({
+          content: z.string().nullable().optional(),
+          reasoning_content: z.string().nullable().optional(),
+        }).optional(),
       }),
     )
     .min(1),
@@ -65,7 +68,9 @@ export class OpenAICompatibleProvider implements ModelProvider {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.apiKey = options.apiKey;
     this.fetchImpl = options.fetchImpl ?? fetch;
-    this.maxOutputTokens = options.maxOutputTokens ?? 400;
+    // Reasoning models charge both hidden reasoning and the final JSON against
+    // this limit. A 400-token cap can therefore end with blank `content`.
+    this.maxOutputTokens = options.maxOutputTokens ?? 1_200;
     this.temperature = options.temperature ?? 0.7;
     this.pricePerMillion = options.pricePerMillion ?? { input: 0, output: 0 };
   }
@@ -92,6 +97,8 @@ export class OpenAICompatibleProvider implements ModelProvider {
             content: JSON.stringify({
               audience: { nickname: request.nickname, text: request.audienceText },
               intent: request.intent,
+              world: request.world ?? null,
+              availableSkills: request.availableSkills ?? null,
             }),
           },
         ],
@@ -104,15 +111,12 @@ export class OpenAICompatibleProvider implements ModelProvider {
     const parsedCompletion = completionSchema.safeParse(await response.json());
     if (!parsedCompletion.success) throw new ModelInvalidOutputError("provider envelope is invalid");
 
-    const content = parsedCompletion.data.choices[0]?.message?.content;
+    const message = parsedCompletion.data.choices[0]?.message;
+    const content = message?.content || extractJsonFromReasoning(message?.reasoning_content);
     if (!content) throw new ModelInvalidOutputError("provider returned no content");
 
-    let json: unknown;
-    try {
-      json = JSON.parse(content);
-    } catch {
-      throw new ModelInvalidOutputError("content is not JSON");
-    }
+    const json = parseJsonObject(content);
+    if (json === null) throw new ModelInvalidOutputError("content is not JSON");
     const parsed = responseSchema.safeParse(json);
     if (!parsed.success) throw new ModelInvalidOutputError(parsed.error.message);
 
@@ -148,4 +152,35 @@ export class OpenAICompatibleProvider implements ModelProvider {
       (usage.completion / 1_000_000) * this.pricePerMillion.output
     );
   }
+}
+
+function parseJsonObject(content: string): unknown {
+  try {
+    return JSON.parse(content);
+  } catch {
+    const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(content)?.[1];
+    if (!fenced) return null;
+    try {
+      return JSON.parse(fenced.trim());
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * Some reasoning models stream the answer in `reasoning_content` when
+ * `content` is blank. Accept that field only when the whole trailing value is
+ * a JSON object, then still run it through the same schema and skill checks.
+ */
+function extractJsonFromReasoning(content: string | null | undefined): string | null {
+  if (!content) return null;
+  const trimmed = content.trim();
+  if (trimmed.startsWith("{")) return trimmed;
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/gi;
+  let candidate: string | null = null;
+  for (const match of trimmed.matchAll(fenced)) {
+    if (match[1]?.trim().startsWith("{")) candidate = match[1].trim();
+  }
+  return candidate;
 }

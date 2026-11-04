@@ -24,8 +24,8 @@ if [ -z "$CRAFTMATE_MODEL_KEY" ]; then
 fi
 echo "✅ CRAFTMATE_MODEL_KEY 已设置"
 
-if [ -z "$TTS_PRIMARY_KEY" ]; then
-    echo "⚠️  TTS_PRIMARY_KEY 未设置（将使用仅字幕模式）"
+if [ -z "${TTS_PRIMARY_KEY:-}" ]; then
+    echo "⚠️  TTS_PRIMARY_KEY 未设置（语音将不可用）"
 else
     echo "✅ TTS_PRIMARY_KEY 已设置"
 fi
@@ -45,6 +45,10 @@ cat > test-model-temp.mjs << 'EOF'
 const url = process.env.CRAFTMATE_MODEL_URL || 'https://www.yyapi.cloud/v1';
 const model = process.env.CRAFTMATE_MODEL || 'deepseek-v4.1-flash';
 const apiKey = process.env.CRAFTMATE_MODEL_KEY;
+if (!apiKey) {
+  console.error('CRAFTMATE_MODEL_KEY is empty');
+  process.exit(1);
+}
 
 console.log('Testing DeepSeek model via YYAPI...');
 console.log(`URL: ${url}`);

@@ -29,7 +29,7 @@ export class DyhubSource implements CommentSource {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private attempt = 0;
   private disposed = false;
-  private readonly options: DyhubOptions;
+  private options: DyhubOptions;
 
   constructor(options: DyhubOptions) {
     this.options = options;
@@ -48,6 +48,20 @@ export class DyhubSource implements CommentSource {
 
   health(): SourceHealth {
     return this.healthState;
+  }
+
+  /** Reconnects to a newly selected room without replacing the Ingress process. */
+  async reconfigure(roomId: string, url?: string): Promise<void> {
+    this.disposed = true;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.socket?.close();
+    this.socket = null;
+    if (url) this.options = { ...this.options, url };
+    this.roomId = roomId;
+    this.attempt = 0;
+    this.disposed = false;
+    await this.open();
   }
 
   async close(): Promise<void> {

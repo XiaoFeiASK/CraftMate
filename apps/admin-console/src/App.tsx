@@ -13,6 +13,7 @@ export function App(): React.JSX.Element {
     mode,
     personaName,
     settings,
+    integrations,
     lastError,
     subtitles,
     ops,
@@ -21,7 +22,7 @@ export function App(): React.JSX.Element {
     sendComment,
     sendOperator,
     saveSettings,
-    simulateBurst,
+    saveIntegrationSettings,
     speak,
     approveMemory,
     rejectMemory,
@@ -39,6 +40,7 @@ export function App(): React.JSX.Element {
         state={state}
         mode={mode}
         settings={settings}
+        snapshot={snapshot}
         onSelect={setDrawer}
       />
       <div className="app__workspace">
@@ -53,7 +55,10 @@ export function App(): React.JSX.Element {
           voiceStatus={snapshot.voiceStatus}
           onSelect={setDrawer}
         />
-        <LiveHero reduceMotion={preferences.reduceMotion} />
+        <LiveHero
+          reduceMotion={preferences.reduceMotion}
+          bridge={snapshot.bridge}
+        />
       </div>
 
       {drawer ? (
@@ -66,13 +71,14 @@ export function App(): React.JSX.Element {
           lastError={lastError}
           subtitles={subtitles}
           settings={settings}
+          integrations={integrations}
           preferences={preferences}
           onClose={() => setDrawer(null)}
           onComment={sendComment}
           onOperator={sendOperator}
-          onBurst={simulateBurst}
           onSpeak={speak}
           onSaveSettings={saveSettings}
+          onSaveIntegrationSettings={saveIntegrationSettings}
           onPreferences={update}
           onResetPreferences={reset}
           ops={ops}

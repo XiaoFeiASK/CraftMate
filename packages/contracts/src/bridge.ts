@@ -51,6 +51,39 @@ export const worldEventSchema = z.object({
 });
 export type WorldEvent = z.infer<typeof worldEventSchema>;
 
+/**
+ * Semantic state sent with the body heartbeat. The planner uses this
+ * observation to choose actions that are possible in the current world.
+ */
+export const worldSnapshotSchema = z.object({
+  inWorld: z.boolean(),
+  world: z.string().max(160).nullable().optional(),
+  position: z.object({
+    x: z.number(),
+    y: z.number(),
+    z: z.number(),
+  }).nullable().optional(),
+  yaw: z.number().nullable().optional(),
+  pitch: z.number().nullable().optional(),
+  health: z.number().nonnegative().nullable().optional(),
+  food: z.number().int().nonnegative().nullable().optional(),
+  selectedItem: z.string().max(160).nullable().optional(),
+  hotbar: z.array(z.object({
+    slot: z.number().int().min(0).max(8),
+    item: z.string().max(160),
+    count: z.number().int().positive(),
+  })).max(9).optional(),
+  entities: z.array(z.object({
+    name: z.string().max(160),
+    type: z.string().max(160),
+    distance: z.number().nonnegative(),
+  })).max(16).optional(),
+  nearbyBlocks: z.array(z.object({
+    id: z.string().min(1).max(160),
+  })).max(32).optional(),
+});
+export type WorldSnapshot = z.infer<typeof worldSnapshotSchema>;
+
 export const actionStatusSchema = z.enum([
   "queued",
   "running",
@@ -138,6 +171,17 @@ export const bridgeClientFrameSchema = z.discriminatedUnion("type", [
     type: z.literal("heartbeat"),
     tick: z.number().int().nonnegative(),
     owner: ownershipSchema,
+    /**
+     * Distinct from liveness. The Mod can publish a fresh snapshot from the
+     * network heartbeat thread without touching Minecraft state.
+     */
+    worldGeneration: z.number().int().nonnegative().optional(),
+    /**
+     * A world snapshot can only be produced on the render/client thread. A
+     * heartbeat during a render stall may omit it, but it must never resend a
+     * stale snapshot that makes the planner believe the world is unchanged.
+     */
+    world: worldSnapshotSchema.nullable().optional(),
   }),
 ]);
 export type BridgeClientFrame = z.infer<typeof bridgeClientFrameSchema>;
