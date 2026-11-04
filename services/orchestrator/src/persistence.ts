@@ -90,6 +90,10 @@ export function createPersistentShow(options: {
   const stored = showSettingsSchema.safeParse(settingsStore.read(context.sessionId));
   const ledger = new CommitmentLedger({ journal: commitments });
   ledger.restore(commitments.open());
+  const expiredCommitments = ledger.expireOverdue();
+  if (expiredCommitments > 0) {
+    console.warn(`orchestrator: expired ${expiredCommitments} overdue commitment(s) during startup recovery`);
+  }
 
   let provider = modelProvider(runtime);
 

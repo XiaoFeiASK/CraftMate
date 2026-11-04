@@ -50,6 +50,13 @@ export interface LedgerDeps {
 }
 
 /**
+ * A promise that never reached `spoken` within this window is a crash/reconnect
+ * artifact, not an active promise. Startup recovery closes it; `spoken` and
+ * later states belong to the normal fulfillment state machine.
+ */
+export const SPEECH_COMMITMENT_RECOVERY_TIMEOUT_MS = 120_000;
+
+/**
  * Records promises before they are spoken. In-memory for M0; the application
  * layer will swap in a SQLite-backed implementation behind the same methods.
  */
@@ -118,6 +125,24 @@ export class CommitmentLedger {
       }
       this.items.set(commitment.id, commitment);
     }
+  }
+
+  /**
+   * Closes promises that Voice never confirmed as playing. Only `proposed`
+   * rows are eligible: later states may legitimately stay open while a skill
+   * is being fulfilled.
+   */
+  expireOverdue(now = this.now()): number {
+    let expired = 0;
+    for (const commitment of this.open()) {
+      if (commitment.status !== "proposed") continue;
+      const deadline =
+        commitment.deadlineAt ?? commitment.createdAt + SPEECH_COMMITMENT_RECOVERY_TIMEOUT_MS;
+      if (deadline > now) continue;
+      this.transition(commitment.id, "expired", "voice never confirmed playback before the recovery deadline");
+      expired += 1;
+    }
+    return expired;
   }
 
   get(id: string): Commitment | undefined {

@@ -28,6 +28,25 @@ test("an open commitment survives an orchestrator restart", () => {
   }
 });
 
+test("an overdue commitment is closed during orchestrator restart", () => {
+  const dbPath = temporaryDatabase();
+  const first = createPersistentShow({ dbPath });
+  first.show.ledger.reserve({
+    audienceRef: "viewer:overdue",
+    utterance: "等我一下",
+    deadlineAt: 2_000,
+  });
+  first.close();
+
+  const second = createPersistentShow({ dbPath });
+  try {
+    assert.equal(second.show.snapshot().stats.openCommitments, 0);
+    assert.equal(second.show.ledger.open().length, 0);
+  } finally {
+    second.close();
+  }
+});
+
 test("the live snapshot reports model configuration without exposing its key", () => {
   const configured = createPersistentShow({
     dbPath: temporaryDatabase(),

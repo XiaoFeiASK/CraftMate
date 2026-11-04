@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { CommitmentLedger } from "./ledger.ts";
+import { CommitmentLedger, SPEECH_COMMITMENT_RECOVERY_TIMEOUT_MS } from "./ledger.ts";
 
 const createLedger = (): CommitmentLedger =>
   new CommitmentLedger({ now: () => 1_000, newId: () => "commitment-1" });
@@ -79,5 +79,19 @@ describe("commitment ledger", () => {
     assert.throws(() => ledger.transition(id, "spoken"), /disk full/);
     assert.equal(ledger.get(id)?.status, "proposed");
     assert.equal(ledger.open().length, 1);
+  });
+
+  test("startup recovery expires speech that was never confirmed", () => {
+    let now = 1_000;
+    let nextId = 0;
+    const ledger = new CommitmentLedger({ now: () => now, newId: () => `c-${++nextId}` });
+    const proposed = ledger.reserve({ audienceRef: "viewer-1", utterance: "等我一下" });
+    const spoken = ledger.reserve({ audienceRef: "viewer-2", utterance: "已经开始挖了" });
+    ledger.transition(spoken.id, "spoken");
+
+    now = 1_000 + SPEECH_COMMITMENT_RECOVERY_TIMEOUT_MS + 1;
+    assert.equal(ledger.expireOverdue(), 1);
+    assert.equal(ledger.get(proposed.id)?.status, "expired");
+    assert.equal(ledger.get(spoken.id)?.status, "spoken");
   });
 });
