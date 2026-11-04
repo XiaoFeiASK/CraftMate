@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { audienceEventSchema, sourceHealthSchema } from "./audience.ts";
-import { decisionSchema } from "./decision.ts";
+import { decisionSchema, intentSchema } from "./decision.ts";
 import {
   integrationSettingsUpdateSchema,
   integrationSettingsViewSchema,
@@ -49,11 +49,112 @@ export const operatorNoticeSchema = z.object({
 });
 export type OperatorNotice = z.infer<typeof operatorNoticeSchema>;
 
+export const goalStatusSchema = z.enum([
+  "unverified",
+  "active",
+  "paused",
+  "blocked",
+  "completed",
+  "failed",
+]);
+export type GoalStatus = z.infer<typeof goalStatusSchema>;
+
+/**
+ * The operator-owned end goal. `version` increments on every replacement so a
+ * plan or proposal evaluated against an older goal can be discarded instead of
+ * silently retargeted.
+ */
+export const seasonGoalSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(400),
+  status: goalStatusSchema,
+  version: z.number().int().positive(),
+  setBy: z.literal("operator"),
+  setAt: z.number().int().nonnegative(),
+});
+export type SeasonGoal = z.infer<typeof seasonGoalSchema>;
+
+export const goalMilestoneSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().trim().min(1).max(160),
+  status: z.enum(["completed", "unverified"]),
+});
+export type GoalMilestone = z.infer<typeof goalMilestoneSchema>;
+
+/**
+ * Progress is evidence, never a percentage. Before the goal engine can verify
+ * a milestone it stays explicitly `unverified`; the console must not turn that
+ * gap into a fabricated completion rate.
+ */
+export const goalProgressSchema = z.object({
+  goalId: z.string().min(1),
+  goalVersion: z.number().int().positive(),
+  status: goalStatusSchema,
+  stage: z.object({
+    id: z.string().min(1),
+    title: z.string().trim().min(1).max(160),
+  }),
+  milestone: z.object({
+    id: z.string().min(1),
+    title: z.string().trim().min(1).max(160),
+  }),
+  nextTask: z.string().trim().max(240),
+  milestones: z.array(goalMilestoneSchema).default([]),
+  completed: z.number().int().nonnegative().default(0),
+  unverified: z.number().int().nonnegative().default(0),
+  lastFailure: z.string().trim().max(600).nullable().default(null),
+  updatedAt: z.number().int().nonnegative(),
+});
+export type GoalProgress = z.infer<typeof goalProgressSchema>;
+
+export const proposalStatusSchema = z.enum([
+  "pending",
+  "accepted",
+  "deferred",
+  "rejected",
+  "clarify",
+]);
+export type ProposalStatus = z.infer<typeof proposalStatusSchema>;
+
+export const proposalRiskSchema = z.enum(["low", "medium", "high", "blocked"]);
+export type ProposalRisk = z.infer<typeof proposalRiskSchema>;
+
+export const proposalAlignmentSchema = z.enum([
+  "aligned",
+  "neutral",
+  "off_goal",
+  "unknown",
+]);
+export type ProposalAlignment = z.infer<typeof proposalAlignmentSchema>;
+
+/**
+ * One audience suggestion after the three deterministic gates. `votes` only
+ * raises reply priority; it never promotes a proposal to `accepted`.
+ */
+export const proposalSchema = z.object({
+  id: z.string().min(1),
+  sourceEventId: z.string().min(1),
+  audienceRef: z.string().min(1),
+  text: z.string().trim().min(1).max(500),
+  votes: z.number().int().nonnegative().default(1),
+  intent: intentSchema,
+  status: proposalStatusSchema,
+  reason: z.string().trim().min(1).max(600),
+  risk: proposalRiskSchema,
+  goalAlignment: proposalAlignmentSchema,
+  createdAt: z.number().int().nonnegative(),
+  decidedAt: z.number().int().nonnegative().nullable().default(null),
+});
+export type Proposal = z.infer<typeof proposalSchema>;
+
 export const showSnapshotSchema = z.object({
   mode: showModeSchema,
   stats: showStatsSchema,
   decisions: z.array(decisionSchema).readonly(),
   operatorNotice: operatorNoticeSchema.nullable(),
+  goal: goalProgressSchema.nullable().default(null),
+  proposals: z.array(proposalSchema).readonly().default([]),
   sourceHealth: sourceHealthSchema.nullable().default(null),
   voiceStatus: voiceStatusSchema.nullable().default(null),
   bridge: bridgeHealthSchema.nullable().default(null),
@@ -77,6 +178,30 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("hello") }),
   z.object({ type: z.literal("comment"), payload: audienceEventSchema }),
   z.object({ type: z.literal("operator"), payload: operatorCommandSchema }),
+  z.object({
+    type: z.literal("goalSet"),
+    payload: z.object({
+      title: z.string().trim().min(1).max(120),
+      description: z.string().trim().max(400),
+    }),
+  }),
+  z.object({ type: z.literal("goalPause") }),
+  z.object({ type: z.literal("goalResume") }),
+  z.object({
+    type: z.literal("proposalDecision"),
+    payload: z.object({
+      proposalId: z.string().min(1),
+      status: z.enum(["accepted", "deferred", "rejected", "clarify"]),
+      reason: z.string().trim().min(1).max(600),
+    }),
+  }),
+  z.object({
+    type: z.literal("proposalQuery"),
+    payload: z.object({
+      status: proposalStatusSchema.optional(),
+      limit: z.number().int().min(1).max(100).default(50),
+    }),
+  }),
   z.object({ type: z.literal("settings"), payload: showSettingsSchema }),
   z.object({
     type: z.literal("settingsSave"),
@@ -107,6 +232,11 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("decision"), payload: decisionSchema }),
   z.object({ type: z.literal("stats"), payload: showStatsSchema }),
   z.object({ type: z.literal("snapshot"), payload: showSnapshotSchema }),
+  z.object({ type: z.literal("goal"), payload: goalProgressSchema }),
+  z.object({
+    type: z.literal("proposals"),
+    payload: z.object({ proposals: z.array(proposalSchema).readonly() }),
+  }),
   z.object({ type: z.literal("operator"), payload: operatorCommandSchema }),
   z.object({ type: z.literal("source"), payload: sourceHealthSchema }),
   z.object({ type: z.literal("settings"), payload: showSettingsSchema }),

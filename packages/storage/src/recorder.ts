@@ -1,7 +1,8 @@
-import type { AudienceEvent, Decision } from "@craftmate/contracts";
+import type { AudienceEvent, Decision, Proposal } from "@craftmate/contracts";
 import type { DatabaseSync } from "node:sqlite";
 import type { ShowRecorder } from "@craftmate/agent/application";
 import { DecisionStore, type SessionContext, SourceStore } from "./stores.ts";
+import { SqliteProposalRepository } from "./goals.ts";
 
 const MAX_SOURCE_CACHE = 1_000;
 
@@ -15,12 +16,14 @@ export class SqliteRecorder implements ShowRecorder {
   private readonly decisions: DecisionStore;
   private readonly context: SessionContext;
   private readonly sourceIds = new Map<string, string>();
+  private readonly proposals: SqliteProposalRepository;
 
   constructor(db: DatabaseSync, context: SessionContext) {
     this.db = db;
     this.context = context;
     this.sources = new SourceStore(db);
     this.decisions = new DecisionStore(db);
+    this.proposals = new SqliteProposalRepository(db, context);
   }
 
   recordSource(event: AudienceEvent): boolean {
@@ -48,6 +51,14 @@ export class SqliteRecorder implements ShowRecorder {
    */
   updateDecision(decision: Decision): void {
     this.decisions.update(decision);
+  }
+
+  recordProposal(proposal: Proposal): void {
+    this.proposals.insert(proposal);
+  }
+
+  updateProposal(proposal: Proposal): void {
+    this.proposals.update(proposal);
   }
 
   /**

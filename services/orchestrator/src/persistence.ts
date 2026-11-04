@@ -2,7 +2,14 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CommitmentLedger, Show, dafeiyu, type Persona } from "@craftmate/agent";
-import { OpenAICompatibleProvider, Planner } from "@craftmate/agent/application";
+import {
+  GoalRuntime,
+  OpenAICompatibleProvider,
+  Planner,
+  SurvivalGoalPlanner,
+  SurvivalProposalEvaluator,
+  type GoalPlanner,
+} from "@craftmate/agent/application";
 import { showSettingsSchema } from "@craftmate/contracts";
 import {
   createRuntimeConfigStore,
@@ -20,11 +27,13 @@ import {
   SessionStore,
   SourceStore,
   WorldEventStore,
+  GoalRuntimeSqliteStore,
+  SqliteProposalRepository,
   SqliteRecorder,
   openDatabase,
   type SessionContext,
 } from "@craftmate/storage";
-import type { Decision } from "@craftmate/contracts";
+import type { SeasonGoal } from "@craftmate/contracts";
 
 export interface PersistentShow {
   readonly show: Show;
@@ -36,6 +45,7 @@ export interface PersistentShow {
   readonly costs: CostStore;
   readonly worldEvents: WorldEventStore;
   readonly runtimeConfig: RuntimeConfigStore;
+  readonly goals: GoalRuntime;
   /** Persists a settings edit, then applies it to the running show. */
   saveSettings(next: unknown): ReturnType<Show["currentSettings"]> | null;
   saveIntegrationSettings(update: unknown): {
@@ -47,8 +57,8 @@ export interface PersistentShow {
   expireRawText(now?: number): number;
   /** Records a model call so the hourly budget is a query, not a counter. */
   recordCost(provider: string, model: string, cost: number): void;
-  /** Persists a locally generated action with a synthetic source. */
-  recordAutonomousDecision(decision: Decision): void;
+  /** Records a GoalRuntime decision without pretending it was an audience event. */
+  recordGoalDecision(decision: import("@craftmate/contracts").Decision): void;
   close(): void;
 }
 
@@ -67,6 +77,8 @@ export function createPersistentShow(options: {
   readonly availableSkills?: () => readonly string[];
   /** Injected in tests; absent means "read the environment". */
   readonly env?: NodeJS.ProcessEnv;
+  /** Tests and previews may replace the goal engine; production uses #42. */
+  readonly goalPlanner?: GoalPlanner;
 } = {}): PersistentShow {
   const persona = options.persona ?? dafeiyu;
   const env = options.env ?? process.env;
@@ -81,6 +93,8 @@ export function createPersistentShow(options: {
   const replay = new ReplayStore(db);
   const costs = new CostStore(db);
   const worldEvents = new WorldEventStore(db);
+  const proposalRepository = new SqliteProposalRepository(db, context);
+  const goalStore = new GoalRuntimeSqliteStore(db, context);
   const runtimeConfig = options.env?.CRAFTMATE_INTEGRATIONS_FILE
     ? createRuntimeConfigStore({
         env: options.env,
@@ -110,6 +124,7 @@ export function createPersistentShow(options: {
   }
 
   let provider = modelProvider(runtime);
+  const goalRecord = goalStore.load();
 
   const show = new Show({
     persona,
@@ -118,6 +133,8 @@ export function createPersistentShow(options: {
     recorder: new SqliteRecorder(db, context),
     ledger,
     memory,
+    proposals: proposalRepository,
+    proposalEvaluator: new SurvivalProposalEvaluator(),
     ...(options.world ? { world: options.world } : {}),
     ...(options.availableSkills
       ? { availableSkills: options.availableSkills }
@@ -161,7 +178,45 @@ export function createPersistentShow(options: {
     }),
     history: history.reverse(),
     totals: { ...totals, openCommitments: commitments.openCount() },
+    ...(goalRecord === null
+      ? {}
+      : {
+          goalState: {
+            goal: goalRecord.goal,
+            progress: goalRecord.progress,
+            enabled: goalRecord.enabled,
+          },
+        }),
   });
+  const goals = new GoalRuntime({
+    store: goalStore,
+    planner: options.goalPlanner ?? new SurvivalGoalPlanner(),
+    proposals: () => show.proposals(null, 20),
+    recordDecision: (decision) => recordGoalDecision(decision),
+    onUpdate: (progress) => show.setGoalProgress(progress),
+  });
+  goals.restore();
+  show.setSeasonGoal(goals.currentGoal);
+  show.setGoalMode(goals.isEnabled);
+  show.setGoalProgress(goals.currentProgress);
+
+  /**
+   * Goal tasks need a source row for the decision log, but this is an
+   * agent-authored source. Storing it as an audience comment would corrupt
+   * viewer statistics, so it carries the `system` kind and a goal trace id.
+   */
+  function recordGoalDecision(decision: import("@craftmate/contracts").Decision): void {
+    const eventId = `goal:${decision.eventId}`;
+    const source = sources.appendInternal(context.sessionId, {
+      id: eventId,
+      kind: "system",
+      actorRef: "craftmate-goal",
+      text: decision.text,
+      at: decision.at,
+    });
+    decisions.append(context, source.id, decision, eventId);
+    show.recordRuntimeDecision(decision);
+  }
 
   return {
     show,
@@ -173,13 +228,23 @@ export function createPersistentShow(options: {
     costs,
     worldEvents,
     runtimeConfig,
+    goals,
     saveSettings: (next) => {
       const parsed = showSettingsSchema.safeParse(next);
       // A rejected edit must leave the running show untouched: silently
       // clamping a bad value makes the operator think it was applied.
       if (!parsed.success) return null;
       settingsStore.write(context.sessionId, parsed.data);
-      return show.updateSettings(parsed.data);
+      const previous = show.currentSettings();
+      const applied = show.updateSettings(parsed.data);
+      if (parsed.data.goal !== previous.goal) {
+        goals.setGoal({
+          title: parsed.data.goal,
+          description: parsed.data.goalDescription,
+        });
+      }
+      goals.syncMode(parsed.data.goalMode);
+      return applied;
     },
     saveIntegrationSettings: (update) => {
       let saved;
@@ -217,21 +282,7 @@ export function createPersistentShow(options: {
       if (cost <= 0) return;
       costs.record({ sessionId: context.sessionId, provider: providerId, model, cost });
     },
-    recordAutonomousDecision: (decision) => {
-      const eventId = `craftmate:${decision.id}`;
-      // This is an agent-authored source, not an audience event. Storing it
-      // as `enter` would corrupt viewer/event statistics in the console.
-      const source = sources.append(context.sessionId, {
-        id: eventId,
-        source: "douyin",
-        kind: "comment",
-        userId: "craftmate-agent",
-        nickname: persona.name,
-        text: decision.text,
-        ts: decision.at,
-      });
-      decisions.append(context, source.id, decision, eventId);
-    },
+    recordGoalDecision,
     close: () => db.close(),
   };
 }

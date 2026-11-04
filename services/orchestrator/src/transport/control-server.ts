@@ -19,6 +19,9 @@ import {
   type Decision,
   type IngressServerFrame,
   type OpsRequest,
+  type Proposal,
+  type ProposalStatus,
+  type SeasonGoal,
   type ServerMessage,
   type VoiceSubtitle,
 } from "@craftmate/contracts";
@@ -73,6 +76,27 @@ interface ControlServerOptions {
   readonly dispatchSkill?: (decision: Decision) => void | Promise<void>;
   /** Replaces the live voice connection after settings change. */
   readonly onIntegrationsChanged?: (config: RuntimeIntegrationConfig) => void;
+  /** Fired after settings are applied and broadcast, for runtime projections. */
+  readonly onSettingsApplied?: () => void;
+  /** Operator-only goal control. Absent means the runtime is not wired. */
+  readonly goalRuntime?: GoalRuntimeHooks;
+  /** Control ownership changes must interrupt or resume the goal runtime. */
+  readonly onOperator?: (kind: "takeover" | "release" | "stop") => void;
+}
+
+export interface GoalRuntimeHooks {
+  setGoal(input: {
+    readonly title: string;
+    readonly description: string;
+  }): SeasonGoal | null;
+  pause(): void;
+  resume(): void;
+  decideProposal(
+    proposalId: string,
+    status: Exclude<ProposalStatus, "pending">,
+    reason: string,
+  ): Proposal | null;
+  queryProposals(status: ProposalStatus | null, limit: number): readonly Proposal[];
 }
 
 export interface VoiceHooks {
@@ -102,6 +126,10 @@ export interface ControlServer {
   publishBridgeHealth(health: BridgeHealth | null): void;
   /** A decision whose late outcome arrived from the body. */
   publishDecision(decision: Decision): void;
+  /** Goal evidence and the proposal inbox are pushed after every change. */
+  publishProposals(proposals: readonly Proposal[]): void;
+  /** Goal progress is evidence from the runtime, not a settings slider. */
+  publishGoal(progress: import("@craftmate/contracts").GoalProgress): void;
   /** One body event, already persisted by the host. */
   publishWorldEvent(event: { readonly name: string; readonly data: unknown; readonly at: number }): void;
   /** Local single-shot acceptance path; disabled unless wired by the host. */
@@ -143,6 +171,9 @@ export function createControlServer({
   bridge,
   dispatchSkill,
   onIntegrationsChanged,
+  onSettingsApplied,
+  goalRuntime,
+  onOperator,
 }: ControlServerOptions): ControlServer {
   const integrations = (): IntegrationSettingsView =>
     settings?.readIntegrations?.() ?? disabledIntegrations();
@@ -279,6 +310,12 @@ export function createControlServer({
     const decision = show.ingest(raw);
     if (!decision) return;
     broadcast({ type: "decision", payload: decision });
+    if (goalRuntime) {
+      broadcast({
+        type: "proposals",
+        payload: { proposals: goalRuntime.queryProposals(null, 50) },
+      });
+    }
     broadcast({ type: "snapshot", payload: show.snapshot() });
     void planAndSpeak(decision, generation);
   };
@@ -288,6 +325,16 @@ export function createControlServer({
 
   const publishDecision = (decision: Decision): void => {
     broadcast({ type: "decision", payload: decision });
+    broadcast({ type: "snapshot", payload: show.snapshot() });
+  };
+
+  const publishProposals = (proposals: readonly Proposal[]): void => {
+    broadcast({ type: "proposals", payload: { proposals } });
+    broadcast({ type: "snapshot", payload: show.snapshot() });
+  };
+
+  const publishGoal = (progress: import("@craftmate/contracts").GoalProgress): void => {
+    broadcast({ type: "goal", payload: progress });
     broadcast({ type: "snapshot", payload: show.snapshot() });
   };
 
@@ -409,9 +456,92 @@ export function createControlServer({
           controlBridge(command.kind);
         }
         show.applyOperator(command);
+        if (command.kind !== "whisper") onOperator?.(command.kind);
         if (bridge) publishBridgeHealth(bridge.health());
         broadcast({ type: "operator", payload: command });
         broadcast({ type: "snapshot", payload: show.snapshot() });
+        return;
+      }
+
+      if (parsed.data.type === "goalSet") {
+        if (!goalRuntime) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_GOAL", detail: "本次运行未启用目标运行时" },
+          });
+          return;
+        }
+        const goal = goalRuntime.setGoal(parsed.data.payload);
+        if (goal === null) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_GOAL", detail: "目标未保存：请检查标题和说明" },
+          });
+          return;
+        }
+        const progress = show.snapshot().goal;
+        if (progress !== null) broadcast({ type: "goal", payload: progress });
+        broadcast({ type: "snapshot", payload: show.snapshot() });
+        return;
+      }
+
+      if (parsed.data.type === "goalPause" || parsed.data.type === "goalResume") {
+        if (!goalRuntime) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_GOAL", detail: "本次运行未启用目标运行时" },
+          });
+          return;
+        }
+        if (parsed.data.type === "goalPause") goalRuntime.pause();
+        else goalRuntime.resume();
+        const progress = show.snapshot().goal;
+        if (progress !== null) broadcast({ type: "goal", payload: progress });
+        broadcast({ type: "snapshot", payload: show.snapshot() });
+        return;
+      }
+
+      if (parsed.data.type === "proposalDecision") {
+        if (!goalRuntime) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_PROPOSAL", detail: "本次运行未启用提议收件箱" },
+          });
+          return;
+        }
+        const decided = goalRuntime.decideProposal(
+          parsed.data.payload.proposalId,
+          parsed.data.payload.status,
+          parsed.data.payload.reason,
+        );
+        if (decided === null) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_PROPOSAL", detail: "提议不存在或已经决定" },
+          });
+          return;
+        }
+        publishProposals(goalRuntime.queryProposals(null, 50));
+        return;
+      }
+
+      if (parsed.data.type === "proposalQuery") {
+        if (!goalRuntime) {
+          send(socket, {
+            type: "error",
+            payload: { code: "E_PROPOSAL", detail: "本次运行未启用提议收件箱" },
+          });
+          return;
+        }
+        send(socket, {
+          type: "proposals",
+          payload: {
+            proposals: goalRuntime.queryProposals(
+              parsed.data.payload.status ?? null,
+              parsed.data.payload.limit,
+            ),
+          },
+        });
         return;
       }
 
@@ -437,6 +567,15 @@ export function createControlServer({
           return;
         }
         broadcast({ type: "settings", payload: current.data });
+        try {
+          onSettingsApplied?.();
+        } catch (error) {
+          console.warn(
+            `orchestrator: settings applied but runtime projection failed — ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
         broadcast({ type: "snapshot", payload: show.snapshot() });
         return;
       }
@@ -657,6 +796,8 @@ export function createControlServer({
     },
     publishBridgeHealth,
     publishDecision,
+    publishProposals,
+    publishGoal,
     publishWorldEvent,
     injectDecision,
     isPlanning: () => planning > 0,

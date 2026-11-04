@@ -8,6 +8,7 @@ import {
   type BridgeUpgrade,
 } from "@craftmate/bridge";
 import type { BridgeHealth, Decision } from "@craftmate/contracts";
+import { GoalRuntime, MemoryGoalRuntimeStore, UnverifiedGoalPlanner } from "@craftmate/agent/application";
 import { WebSocket } from "ws";
 import { createControlServer } from "./control-server.ts";
 
@@ -591,6 +592,73 @@ describe("operator control to the game body", () => {
         },
       },
     );
+  });
+});
+
+describe("goal control", () => {
+  test("goalSet, pause and resume are operator-only and broadcast", async () => {
+    const show = new Show({ persona: dafeiyu });
+    const goals = new GoalRuntime({
+      store: new MemoryGoalRuntimeStore(),
+      planner: new UnverifiedGoalPlanner(),
+    });
+    goals.restore();
+    const server = createControlServer({
+      show,
+      port: 0,
+      ingressToken: TEST_TOKEN,
+      goalRuntime: {
+        setGoal: (input) => {
+          const result = goals.setGoal(input);
+          show.setGoalProgress(result.goal === null ? null : goals.currentProgress);
+          show.setSeasonGoal(result.goal);
+          show.setGoalMode(true);
+          return result.goal;
+        },
+        pause: () => {
+          goals.pause();
+          show.setGoalProgress(goals.currentProgress);
+        },
+        resume: () => {
+          goals.resume();
+          show.setGoalProgress(goals.currentProgress);
+        },
+        decideProposal: (proposalId, status, reason) =>
+          show.decideProposal(proposalId, status, reason),
+        queryProposals: (status, limit) => show.proposals(status, limit),
+      },
+    });
+    try {
+      const socket = new WebSocket(`ws://127.0.0.1:${await server.listening}/control`);
+      const frames: { type: string; payload?: { status?: string } }[] = [];
+      socket.on("message", (raw) => frames.push(JSON.parse(raw.toString())));
+      await new Promise<void>((resolve, reject) => {
+        socket.once("open", () => resolve());
+        socket.once("error", reject);
+      });
+      socket.send(JSON.stringify({ type: "hello" }));
+      socket.send(
+        JSON.stringify({
+          type: "goalSet",
+          payload: { title: "击败末影龙", description: "完整生存链" },
+        }),
+      );
+      await delay(60);
+      assert.equal(goals.currentGoal?.title, "击败末影龙");
+      assert.equal(show.snapshot().goal?.status, "unverified");
+
+      socket.send(JSON.stringify({ type: "goalPause" }));
+      await delay(60);
+      assert.equal(goals.currentProgress?.status, "paused");
+
+      socket.send(JSON.stringify({ type: "goalResume" }));
+      await delay(60);
+      assert.notEqual(goals.currentProgress?.status, "paused");
+      assert.ok(frames.some((frame) => frame.type === "goal"));
+      socket.close();
+    } finally {
+      await server.close();
+    }
   });
 });
 

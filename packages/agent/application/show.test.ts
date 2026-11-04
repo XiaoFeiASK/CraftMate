@@ -183,3 +183,38 @@ describe("show memory bounds", () => {
     assert.equal(store.lastCommandAt("viewer-3"), 3);
   });
 });
+
+describe("goal mode proposals", () => {
+  test("actionable comments enter the inbox instead of being dispatched", () => {
+    const { show } = createShow();
+    show.setGoalMode(true);
+    show.setGoalProgress({
+      goalId: "goal-1",
+      goalVersion: 1,
+      status: "unverified",
+      stage: { id: "wood", title: "获得木头" },
+      milestone: { id: "logs", title: "背包有原木" },
+      nextTask: "",
+      milestones: [],
+      completed: 0,
+      unverified: 0,
+      lastFailure: null,
+      updatedAt: 1_000,
+    });
+
+    const decision = show.ingest(comment("goal-1", 1_000));
+    assert.ok(decision);
+    assert.equal(decision.skill, null);
+    assert.equal(decision.decision, "QUEUE");
+    assert.equal(show.proposals().length, 1);
+    assert.equal(show.proposals()[0]?.status, "pending");
+  });
+
+  test("without a goal the old audience path still responds", () => {
+    const { show } = createShow();
+    const decision = show.ingest(comment("goal-off", 1_000));
+    assert.ok(decision);
+    assert.equal(show.proposals().length, 0);
+    assert.equal(decision.decision, "EXECUTE");
+  });
+});

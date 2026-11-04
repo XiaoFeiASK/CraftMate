@@ -169,20 +169,24 @@ test("the bootstrap retention sweep purges raw text but keeps the decision", () 
   }
 });
 
-test("autonomy is off by default and survives an explicit opt-in", () => {
+test("goal mode is off by default and survives an explicit opt-in", () => {
   const dbPath = temporaryDatabase();
   const first = createPersistentShow({ dbPath, env: {} });
-  assert.equal(first.show.currentSettings().autonomy.enabled, false);
+  assert.equal(first.show.currentSettings().goalMode, false);
   const enabled = first.saveSettings({
     ...first.show.currentSettings(),
-    autonomy: { enabled: true },
+    goal: "击败末影龙",
+    goalMode: true,
   });
-  assert.equal(enabled?.autonomy.enabled, true);
+  assert.equal(enabled?.goalMode, true);
+  assert.equal(first.goals.currentGoal?.title, "击败末影龙");
   first.close();
 
   const second = createPersistentShow({ dbPath, env: {} });
   try {
-    assert.equal(second.show.currentSettings().autonomy.enabled, true);
+    assert.equal(second.show.currentSettings().goalMode, true);
+    assert.equal(second.goals.currentGoal?.title, "击败末影龙");
+    assert.equal(second.goals.currentProgress?.status, "unverified");
   } finally {
     second.close();
   }

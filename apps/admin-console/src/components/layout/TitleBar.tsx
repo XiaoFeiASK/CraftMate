@@ -20,6 +20,7 @@ const VIEW_LABELS: Record<DrawerMode, string> = {
   persona: "角色与人格",
   connections: "接入与语音",
   settings: "设置",
+  proposals: "观众提议",
   memory: "记忆与版本",
   replay: "回放",
 };
