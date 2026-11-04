@@ -149,6 +149,7 @@ export const FABRIC_BODY_SKILLS = [
   "eat",
   "use_block",
   "place_block",
+  "sleep",
 ] as const satisfies readonly SkillName[];
 
 export const FABRIC_BODY_CAPABILITIES = [

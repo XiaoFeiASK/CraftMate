@@ -36,16 +36,6 @@ processResources {
 	}
 }
 
-loom {
-	runs {
-		client {
-			if (System.getenv("CRAFTMATE_ACCEPTANCE") == "1") {
-				property "craftmate.autoclick.singleplayer", "true"
-			}
-		}
-	}
-}
-
 tasks.withType(JavaCompile).configureEach {
 	options.release = 21
 	options.encoding = "UTF-8"

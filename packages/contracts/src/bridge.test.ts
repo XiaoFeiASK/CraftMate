@@ -103,13 +103,35 @@ describe("bridge wire protocol", () => {
       health: 20,
       food: 18,
       hotbar: [{ slot: 0, item: "minecraft:stone", count: 32 }],
+      inventory: [
+        { section: "hotbar", slot: 0, item: "minecraft:stone", count: 32 },
+        { section: "main", slot: 9, item: "minecraft:iron_pickaxe", count: 1, durability: 120, maxDurability: 250 },
+        { section: "armor", slot: 39, item: "minecraft:iron_helmet", count: 1 },
+        { section: "offhand", slot: 40, item: "minecraft:torch", count: 8 },
+      ],
+      timeOfDay: 13_000,
+      day: 4,
+      sleeping: false,
       nearbyBlocks: [{ id: "minecraft:stone", count: 12 }],
     });
     assert.equal(snapshot.position?.x, 10.25);
     assert.equal(snapshot.cameraYaw, 145);
     assert.equal(snapshot.cameraPitch, -12.5);
     assert.equal(snapshot.hotbar?.[0]?.count, 32);
+    assert.equal(snapshot.inventory?.[2]?.section, "armor");
+    assert.equal(snapshot.inventory?.[1]?.maxDurability, 250);
+    assert.equal(snapshot.timeOfDay, 13_000);
+    assert.equal(snapshot.day, 4);
+    assert.equal(snapshot.sleeping, false);
     assert.equal(snapshot.nearbyBlocks?.[0]?.count, 12);
+    assert.equal(
+      worldSnapshotSchema.safeParse({
+        inWorld: true,
+        inventory: [{ section: "backpack", slot: 0, item: "minecraft:stone", count: 1 }],
+      }).success,
+      false,
+    );
+    assert.equal(worldSnapshotSchema.safeParse({ inWorld: true, timeOfDay: 24_000 }).success, false);
     assert.equal(
       worldSnapshotSchema.safeParse({
         inWorld: true,
