@@ -25,6 +25,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ClipContext;
@@ -41,10 +42,11 @@ import net.minecraft.world.phys.Vec3;
  */
 public final class GameActions {
 	private static final List<String> SKILLS = List.of(
-		"goto", "look_at", "mine_block", "chop_tree", "say", "wait", "attack", "equip", "eat", "use_block", "place_block"
+		"goto", "look_at", "mine_block", "chop_tree", "collect_items", "say", "wait", "attack", "equip", "eat",
+		"use_block", "place_block"
 	);
 	private static final List<String> CAPABILITIES = List.of(
-		"sensor", "move", "mine", "attack", "use", "build", "camera", "hud"
+		"sensor", "move", "mine", "container", "attack", "use", "build", "camera", "hud"
 	);
 	/**
 	 * Trunks and leaves can hide a nearby log from a single eye ray. Keep the
@@ -54,6 +56,8 @@ public final class GameActions {
 	 * terrain.
 	 */
 	private static final int TARGET_SEARCH_RADIUS = 48;
+	private static final int COLLECT_SEARCH_RADIUS = 16;
+	private static final int COLLECT_STALL_TICKS = 20 * 4;
 	private static final int PATH_STEP_UP = 1;
 	private static final int PATH_STEP_DOWN = 1;
 	private static final Map<String, Task> TASKS = new ConcurrentHashMap<>();
@@ -188,6 +192,11 @@ public final class GameActions {
 				case "goto" -> new GotoTask(id, args);
 				case "mine_block" -> new MineTask(id, args);
 				case "chop_tree" -> new MineTask(id, args, true);
+				case "collect_items" -> new CollectTask(
+					id,
+					optional(args, "item"),
+					integer(args, "count", 1)
+				);
 				case "attack" -> new AttackTask(id, required(args, "target"));
 				case "equip" -> new EquipTask(id, required(args, "item"));
 				case "eat" -> new EatTask(id, optional(args, "item"));
@@ -1409,6 +1418,208 @@ public final class GameActions {
 			breaking = false;
 			breakingLeaves = false;
 			lastReportedPercent = -1;
+		}
+	}
+
+	private static final class CollectTask extends Task {
+		private final String itemId;
+		private final int requested;
+		private int before;
+		private int collected;
+		private ItemEntity target;
+		private Vec3 lastPosition;
+		private int lastProgressAge;
+		private boolean reachedItem;
+
+		CollectTask(String id, String itemId, int requested) {
+			super(id);
+			this.itemId = itemId;
+			this.requested = requested;
+		}
+
+		@Override
+		boolean validate(Minecraft client) {
+			if (!super.validate(client)) return false;
+			if (itemId != null && Identifier.tryParse(itemId) == null) {
+				validationError = "invalid item " + itemId;
+				return false;
+			}
+			return true;
+		}
+
+		@Override
+		void start(Minecraft client) {
+			before = countInInventory(client.player);
+			target = nearestItem(client);
+			if (target == null) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"no matching dropped item within " + COLLECT_SEARCH_RADIUS + " blocks"
+				);
+				return;
+			}
+			send.accept(progress(id, "walking", 0, requested));
+		}
+
+		@Override
+		void tick(Minecraft client) {
+			collected = CollectionEvidence.gain(before, countInInventory(client.player));
+			if (collected >= requested) {
+				finish(id, "completed", null, null, evidence(collected, null));
+				return;
+			}
+			if (age > 20 * 60) {
+				stop(client);
+				finish(
+					id,
+					"timeout",
+					"E_TIMEOUT",
+					collected > 0
+						? "only collected " + collected + " of " + requested + " before the time limit"
+						: "could not collect the dropped item in time",
+					evidence(collected, "collection timed out")
+				);
+				return;
+			}
+			if (target == null || target.isRemoved()) {
+				target = nearestItem(client);
+				if (target == null) {
+					if (collected > 0) {
+						finish(
+							id,
+							"failed",
+							"E_PRECONDITION",
+							"only collected " + collected + " of " + requested,
+							evidence(collected, "no matching dropped item remains")
+						);
+					} else {
+						finish(
+							id,
+							"failed",
+							"E_PRECONDITION",
+							"dropped item disappeared without appearing in the inventory",
+							evidence(0, "pickup was not confirmed by the inventory")
+						);
+					}
+					return;
+				}
+				lastPosition = null;
+				lastProgressAge = age;
+			}
+			if (client.player.position().distanceTo(target.position()) < 1.1) reachedItem = true;
+			if (target == null || !target.isAlive()) {
+				return;
+			}
+			String blocked = CollectionEvidence.blockedReason(
+				reachedItem,
+				age - lastProgressAge,
+				COLLECT_STALL_TICKS
+			);
+			if (blocked != null) {
+				stop(client);
+				finish(
+					id,
+					collected > 0 ? "failed" : "failed",
+					"E_PRECONDITION",
+					collected > 0
+						? "only collected " + collected + " of " + requested + ": " + blocked
+						: blocked,
+					evidence(collected, blocked)
+				);
+				return;
+			}
+			if (lastPosition == null || target.position().distanceTo(lastPosition) > 0.05) {
+				lastPosition = target.position();
+				lastProgressAge = age;
+			}
+			Vec3 direction = target.position().subtract(client.player.position());
+			double horizontal = Math.hypot(direction.x, direction.z);
+			client.player.setYRot((float) Math.toDegrees(Math.atan2(-direction.x, direction.z)));
+			if (
+				horizontal > 0.01
+					&& standingY(
+						client,
+						BlockPos.containing(
+							client.player.getX() - Math.sin(Math.toRadians(client.player.getYRot())) * 0.65,
+							client.player.getY(),
+							client.player.getZ() + Math.cos(Math.toRadians(client.player.getYRot())) * 0.65
+						)
+					) == Integer.MIN_VALUE
+			) {
+				stop(client);
+				finish(id, "failed", "E_PRECONDITION", "no safe standing approach to the dropped item", evidence(collected, "dangerous step"));
+				return;
+			}
+			if (client.player.horizontalCollision && client.player.onGround()) {
+				client.player.jumpFromGround();
+			}
+			if (client.player.input != null) setWalkInput(client, true);
+			if (age % 20 == 0) send.accept(progress(id, "collecting", collected, requested));
+		}
+
+		private ItemEntity nearestItem(Minecraft client) {
+			BlockPos origin = client.player.blockPosition();
+			return client.level
+				.getEntitiesOfClass(
+					ItemEntity.class,
+					client.player.getBoundingBox().inflate(COLLECT_SEARCH_RADIUS)
+				)
+				.stream()
+				.filter(ItemEntity::isAlive)
+				.filter(entity -> entity.blockPosition().distSqr(origin) <= COLLECT_SEARCH_RADIUS * COLLECT_SEARCH_RADIUS)
+				.filter(this::matches)
+				.min((left, right) -> Double.compare(left.distanceToSqr(client.player), right.distanceToSqr(client.player)))
+				.orElse(null);
+		}
+
+		private boolean matches(ItemEntity entity) {
+			ItemStack stack = entity.getItem();
+			if (stack.isEmpty()) return false;
+			return itemId == null || BuiltInRegistries.ITEM.getKey(stack.getItem()).toString().equals(itemId);
+		}
+
+		private int countInInventory(LocalPlayer player) {
+			Item item = itemId == null ? null : BuiltInRegistries.ITEM.getValue(Identifier.parse(itemId));
+			int total = 0;
+			for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
+				ItemStack stack = player.getInventory().getItem(slot);
+				if (stack.isEmpty()) continue;
+				if (item == null || stack.getItem() == item) total += stack.getCount();
+			}
+			return total;
+		}
+
+		private JsonObject evidence(int gained, String problem) {
+			JsonObject outcome = new JsonObject();
+			outcome.addProperty(
+				"summary",
+				gained > 0
+					? "collected " + gained + " x " + (itemId == null ? "item" : itemId)
+					: "no item was confirmed in the inventory"
+			);
+			JsonArray changes = new JsonArray();
+			if (gained > 0) {
+				JsonObject change = new JsonObject();
+				change.addProperty("kind", "item_collected");
+				change.addProperty("detail", gained + " x " + (itemId == null ? "item" : itemId));
+				changes.add(change);
+			}
+			outcome.add("changes", changes);
+			if (problem != null) {
+				outcome.addProperty("problem", problem);
+				JsonArray unconfirmed = new JsonArray();
+				if (gained == 0) unconfirmed.add("dropped item was not confirmed in the inventory");
+				else unconfirmed.add("requested count was not reached");
+				outcome.add("unconfirmed", unconfirmed);
+			}
+			return outcome;
+		}
+
+		@Override
+		void stop(Minecraft client) {
+			releaseWalkInput(client);
 		}
 	}
 
