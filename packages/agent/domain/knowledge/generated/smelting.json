@@ -1,0 +1,2037 @@
+{
+  "meta": {
+    "schemaVersion": 1,
+    "minecraftVersion": "1.21.11",
+    "source": "https://github.com/misode/mcmeta.git",
+    "sourceTag": "1.21.11-data-json",
+    "dataVersion": 4671,
+    "generatedFrom": "2025-12-09T12:20:42+00:00"
+  },
+  "recipes": [
+    {
+      "id": "minecraft:baked_potato",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:potato"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:baked_potato",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:baked_potato_from_campfire_cooking",
+      "station": "campfire",
+      "input": {
+        "choices": [
+          "minecraft:potato"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:baked_potato",
+        "count": 1
+      },
+      "cookingTimeTicks": 600,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:baked_potato_from_smoking",
+      "station": "smoker",
+      "input": {
+        "choices": [
+          "minecraft:potato"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:baked_potato",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:black_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:black_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:black_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:blue_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:blue_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:blue_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:brick",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:clay_ball"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:brick",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.3
+    },
+    {
+      "id": "minecraft:brown_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:brown_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:brown_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:charcoal",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:acacia_log",
+          "minecraft:acacia_wood",
+          "minecraft:birch_log",
+          "minecraft:birch_wood",
+          "minecraft:cherry_log",
+          "minecraft:cherry_wood",
+          "minecraft:dark_oak_log",
+          "minecraft:dark_oak_wood",
+          "minecraft:jungle_log",
+          "minecraft:jungle_wood",
+          "minecraft:mangrove_log",
+          "minecraft:mangrove_wood",
+          "minecraft:oak_log",
+          "minecraft:oak_wood",
+          "minecraft:pale_oak_log",
+          "minecraft:pale_oak_wood",
+          "minecraft:spruce_log",
+          "minecraft:spruce_wood",
+          "minecraft:stripped_acacia_log",
+          "minecraft:stripped_acacia_wood",
+          "minecraft:stripped_birch_log",
+          "minecraft:stripped_birch_wood",
+          "minecraft:stripped_cherry_log",
+          "minecraft:stripped_cherry_wood",
+          "minecraft:stripped_dark_oak_log",
+          "minecraft:stripped_dark_oak_wood",
+          "minecraft:stripped_jungle_log",
+          "minecraft:stripped_jungle_wood",
+          "minecraft:stripped_mangrove_log",
+          "minecraft:stripped_mangrove_wood",
+          "minecraft:stripped_oak_log",
+          "minecraft:stripped_oak_wood",
+          "minecraft:stripped_pale_oak_log",
+          "minecraft:stripped_pale_oak_wood",
+          "minecraft:stripped_spruce_log",
+          "minecraft:stripped_spruce_wood"
+        ],
+        "tag": "#minecraft:logs_that_burn",
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:charcoal",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.15
+    },
+    {
+      "id": "minecraft:coal_from_blasting_coal_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:coal_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:coal",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:coal_from_blasting_deepslate_coal_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_coal_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:coal",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:coal_from_smelting_coal_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:coal_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:coal",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:coal_from_smelting_deepslate_coal_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_coal_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:coal",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:cooked_beef",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:beef"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_beef",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_beef_from_campfire_cooking",
+      "station": "campfire",
+      "input": {
+        "choices": [
+          "minecraft:beef"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_beef",
+        "count": 1
+      },
+      "cookingTimeTicks": 600,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_beef_from_smoking",
+      "station": "smoker",
+      "input": {
+        "choices": [
+          "minecraft:beef"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_beef",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_chicken",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:chicken"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_chicken",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_chicken_from_campfire_cooking",
+      "station": "campfire",
+      "input": {
+        "choices": [
+          "minecraft:chicken"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_chicken",
+        "count": 1
+      },
+      "cookingTimeTicks": 600,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_chicken_from_smoking",
+      "station": "smoker",
+      "input": {
+        "choices": [
+          "minecraft:chicken"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_chicken",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_cod",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:cod"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_cod",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_cod_from_campfire_cooking",
+      "station": "campfire",
+      "input": {
+        "choices": [
+          "minecraft:cod"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_cod",
+        "count": 1
+      },
+      "cookingTimeTicks": 600,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_cod_from_smoking",
+      "station": "smoker",
+      "input": {
+        "choices": [
+          "minecraft:cod"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_cod",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_mutton",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:mutton"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_mutton",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_mutton_from_campfire_cooking",
+      "station": "campfire",
+      "input": {
+        "choices": [
+          "minecraft:mutton"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_mutton",
+        "count": 1
+      },
+      "cookingTimeTicks": 600,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_mutton_from_smoking",
+      "station": "smoker",
+      "input": {
+        "choices": [
+          "minecraft:mutton"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_mutton",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_porkchop",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:porkchop"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_porkchop",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_porkchop_from_campfire_cooking",
+      "station": "campfire",
+      "input": {
+        "choices": [
+          "minecraft:porkchop"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_porkchop",
+        "count": 1
+      },
+      "cookingTimeTicks": 600,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_porkchop_from_smoking",
+      "station": "smoker",
+      "input": {
+        "choices": [
+          "minecraft:porkchop"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_porkchop",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_rabbit",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:rabbit"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_rabbit",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_rabbit_from_campfire_cooking",
+      "station": "campfire",
+      "input": {
+        "choices": [
+          "minecraft:rabbit"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_rabbit",
+        "count": 1
+      },
+      "cookingTimeTicks": 600,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_rabbit_from_smoking",
+      "station": "smoker",
+      "input": {
+        "choices": [
+          "minecraft:rabbit"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_rabbit",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_salmon",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:salmon"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_salmon",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_salmon_from_campfire_cooking",
+      "station": "campfire",
+      "input": {
+        "choices": [
+          "minecraft:salmon"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_salmon",
+        "count": 1
+      },
+      "cookingTimeTicks": 600,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:cooked_salmon_from_smoking",
+      "station": "smoker",
+      "input": {
+        "choices": [
+          "minecraft:salmon"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cooked_salmon",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:copper_ingot_from_blasting_copper_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:copper_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:copper_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:copper_ingot_from_blasting_deepslate_copper_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_copper_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:copper_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:copper_ingot_from_blasting_raw_copper",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:raw_copper"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:copper_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:copper_ingot_from_smelting_copper_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:copper_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:copper_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:copper_ingot_from_smelting_deepslate_copper_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_copper_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:copper_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:copper_ingot_from_smelting_raw_copper",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:raw_copper"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:copper_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:copper_nugget_from_blasting",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:copper_axe",
+          "minecraft:copper_boots",
+          "minecraft:copper_chestplate",
+          "minecraft:copper_helmet",
+          "minecraft:copper_hoe",
+          "minecraft:copper_horse_armor",
+          "minecraft:copper_leggings",
+          "minecraft:copper_nautilus_armor",
+          "minecraft:copper_pickaxe",
+          "minecraft:copper_shovel",
+          "minecraft:copper_spear",
+          "minecraft:copper_sword"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:copper_nugget",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:copper_nugget_from_smelting",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:copper_axe",
+          "minecraft:copper_boots",
+          "minecraft:copper_chestplate",
+          "minecraft:copper_helmet",
+          "minecraft:copper_hoe",
+          "minecraft:copper_horse_armor",
+          "minecraft:copper_leggings",
+          "minecraft:copper_nautilus_armor",
+          "minecraft:copper_pickaxe",
+          "minecraft:copper_shovel",
+          "minecraft:copper_spear",
+          "minecraft:copper_sword"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:copper_nugget",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:cracked_deepslate_bricks",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_bricks"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cracked_deepslate_bricks",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:cracked_deepslate_tiles",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_tiles"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cracked_deepslate_tiles",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:cracked_nether_bricks",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:nether_bricks"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cracked_nether_bricks",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:cracked_polished_blackstone_bricks",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:polished_blackstone_bricks"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cracked_polished_blackstone_bricks",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:cracked_stone_bricks",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:stone_bricks"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cracked_stone_bricks",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:cyan_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:cyan_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:cyan_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:deepslate",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:cobbled_deepslate"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:deepslate",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:diamond_from_blasting_deepslate_diamond_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_diamond_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:diamond",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:diamond_from_blasting_diamond_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:diamond_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:diamond",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:diamond_from_smelting_deepslate_diamond_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_diamond_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:diamond",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:diamond_from_smelting_diamond_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:diamond_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:diamond",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:dried_kelp_from_campfire_cooking",
+      "station": "campfire",
+      "input": {
+        "choices": [
+          "minecraft:kelp"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:dried_kelp",
+        "count": 1
+      },
+      "cookingTimeTicks": 600,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:dried_kelp_from_smelting",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:kelp"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:dried_kelp",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:dried_kelp_from_smoking",
+      "station": "smoker",
+      "input": {
+        "choices": [
+          "minecraft:kelp"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:dried_kelp",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:emerald_from_blasting_deepslate_emerald_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_emerald_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:emerald",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:emerald_from_blasting_emerald_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:emerald_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:emerald",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:emerald_from_smelting_deepslate_emerald_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_emerald_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:emerald",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:emerald_from_smelting_emerald_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:emerald_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:emerald",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:glass",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:red_sand",
+          "minecraft:sand"
+        ],
+        "tag": "#minecraft:smelts_to_glass",
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:glass",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:gold_ingot_from_blasting_deepslate_gold_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_gold_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:gold_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:gold_ingot_from_blasting_gold_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:gold_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:gold_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:gold_ingot_from_blasting_nether_gold_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:nether_gold_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:gold_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:gold_ingot_from_blasting_raw_gold",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:raw_gold"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:gold_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:gold_ingot_from_smelting_deepslate_gold_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_gold_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:gold_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:gold_ingot_from_smelting_gold_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:gold_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:gold_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:gold_ingot_from_smelting_nether_gold_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:nether_gold_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:gold_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:gold_ingot_from_smelting_raw_gold",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:raw_gold"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:gold_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:gold_nugget_from_blasting",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:golden_axe",
+          "minecraft:golden_boots",
+          "minecraft:golden_chestplate",
+          "minecraft:golden_helmet",
+          "minecraft:golden_hoe",
+          "minecraft:golden_horse_armor",
+          "minecraft:golden_leggings",
+          "minecraft:golden_nautilus_armor",
+          "minecraft:golden_pickaxe",
+          "minecraft:golden_shovel",
+          "minecraft:golden_spear",
+          "minecraft:golden_sword"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:gold_nugget",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:gold_nugget_from_smelting",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:golden_axe",
+          "minecraft:golden_boots",
+          "minecraft:golden_chestplate",
+          "minecraft:golden_helmet",
+          "minecraft:golden_hoe",
+          "minecraft:golden_horse_armor",
+          "minecraft:golden_leggings",
+          "minecraft:golden_nautilus_armor",
+          "minecraft:golden_pickaxe",
+          "minecraft:golden_shovel",
+          "minecraft:golden_spear",
+          "minecraft:golden_sword"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:gold_nugget",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:gray_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:gray_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:gray_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:green_dye",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:cactus"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:green_dye",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 1
+    },
+    {
+      "id": "minecraft:green_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:green_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:green_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:iron_ingot_from_blasting_deepslate_iron_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_iron_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:iron_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:iron_ingot_from_blasting_iron_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:iron_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:iron_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:iron_ingot_from_blasting_raw_iron",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:raw_iron"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:iron_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:iron_ingot_from_smelting_deepslate_iron_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_iron_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:iron_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:iron_ingot_from_smelting_iron_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:iron_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:iron_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:iron_ingot_from_smelting_raw_iron",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:raw_iron"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:iron_ingot",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:iron_nugget_from_blasting",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:chainmail_boots",
+          "minecraft:chainmail_chestplate",
+          "minecraft:chainmail_helmet",
+          "minecraft:chainmail_leggings",
+          "minecraft:iron_axe",
+          "minecraft:iron_boots",
+          "minecraft:iron_chestplate",
+          "minecraft:iron_helmet",
+          "minecraft:iron_hoe",
+          "minecraft:iron_horse_armor",
+          "minecraft:iron_leggings",
+          "minecraft:iron_nautilus_armor",
+          "minecraft:iron_pickaxe",
+          "minecraft:iron_shovel",
+          "minecraft:iron_spear",
+          "minecraft:iron_sword"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:iron_nugget",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:iron_nugget_from_smelting",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:chainmail_boots",
+          "minecraft:chainmail_chestplate",
+          "minecraft:chainmail_helmet",
+          "minecraft:chainmail_leggings",
+          "minecraft:iron_axe",
+          "minecraft:iron_boots",
+          "minecraft:iron_chestplate",
+          "minecraft:iron_helmet",
+          "minecraft:iron_hoe",
+          "minecraft:iron_horse_armor",
+          "minecraft:iron_leggings",
+          "minecraft:iron_nautilus_armor",
+          "minecraft:iron_pickaxe",
+          "minecraft:iron_shovel",
+          "minecraft:iron_spear",
+          "minecraft:iron_sword"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:iron_nugget",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:lapis_lazuli_from_blasting_deepslate_lapis_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_lapis_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:lapis_lazuli",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.2
+    },
+    {
+      "id": "minecraft:lapis_lazuli_from_blasting_lapis_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:lapis_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:lapis_lazuli",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.2
+    },
+    {
+      "id": "minecraft:lapis_lazuli_from_smelting_deepslate_lapis_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_lapis_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:lapis_lazuli",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.2
+    },
+    {
+      "id": "minecraft:lapis_lazuli_from_smelting_lapis_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:lapis_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:lapis_lazuli",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.2
+    },
+    {
+      "id": "minecraft:leaf_litter",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:acacia_leaves",
+          "minecraft:azalea_leaves",
+          "minecraft:birch_leaves",
+          "minecraft:cherry_leaves",
+          "minecraft:dark_oak_leaves",
+          "minecraft:flowering_azalea_leaves",
+          "minecraft:jungle_leaves",
+          "minecraft:mangrove_leaves",
+          "minecraft:oak_leaves",
+          "minecraft:pale_oak_leaves",
+          "minecraft:spruce_leaves"
+        ],
+        "tag": "#minecraft:leaves",
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:leaf_litter",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:light_blue_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:light_blue_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:light_blue_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:light_gray_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:light_gray_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:light_gray_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:lime_dye_from_smelting",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:sea_pickle"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:lime_dye",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:lime_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:lime_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:lime_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:magenta_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:magenta_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:magenta_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:nether_brick",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:netherrack"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:nether_brick",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:netherite_scrap",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:ancient_debris"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:netherite_scrap",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 2
+    },
+    {
+      "id": "minecraft:netherite_scrap_from_blasting",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:ancient_debris"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:netherite_scrap",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 2
+    },
+    {
+      "id": "minecraft:orange_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:orange_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:orange_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:pink_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:pink_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:pink_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:popped_chorus_fruit",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:chorus_fruit"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:popped_chorus_fruit",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:purple_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:purple_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:purple_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:quartz",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:nether_quartz_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:quartz",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.2
+    },
+    {
+      "id": "minecraft:quartz_from_blasting",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:nether_quartz_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:quartz",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.2
+    },
+    {
+      "id": "minecraft:red_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:red_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:red_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:redstone_from_blasting_deepslate_redstone_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_redstone_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:redstone",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:redstone_from_blasting_redstone_ore",
+      "station": "blast_furnace",
+      "input": {
+        "choices": [
+          "minecraft:redstone_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:redstone",
+        "count": 1
+      },
+      "cookingTimeTicks": 100,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:redstone_from_smelting_deepslate_redstone_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:deepslate_redstone_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:redstone",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:redstone_from_smelting_redstone_ore",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:redstone_ore"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:redstone",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.7
+    },
+    {
+      "id": "minecraft:resin_brick",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:resin_clump"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:resin_brick",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:smooth_basalt",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:basalt"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:smooth_basalt",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:smooth_quartz",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:quartz_block"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:smooth_quartz",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:smooth_red_sandstone",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:red_sandstone"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:smooth_red_sandstone",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:smooth_sandstone",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:sandstone"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:smooth_sandstone",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:smooth_stone",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:stone"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:smooth_stone",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:sponge",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:wet_sponge"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:sponge",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.15
+    },
+    {
+      "id": "minecraft:stone",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:cobblestone"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:stone",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:clay"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.35
+    },
+    {
+      "id": "minecraft:white_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:white_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:white_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    },
+    {
+      "id": "minecraft:yellow_glazed_terracotta",
+      "station": "furnace",
+      "input": {
+        "choices": [
+          "minecraft:yellow_terracotta"
+        ],
+        "count": 1
+      },
+      "output": {
+        "item": "minecraft:yellow_glazed_terracotta",
+        "count": 1
+      },
+      "cookingTimeTicks": 200,
+      "experience": 0.1
+    }
+  ],
+  "fuels": [
+    {
+      "item": "minecraft:lava_bucket",
+      "seconds": 1000
+    },
+    {
+      "item": "minecraft:coal_block",
+      "seconds": 800
+    },
+    {
+      "item": "minecraft:dried_kelp_block",
+      "seconds": 200
+    },
+    {
+      "item": "minecraft:blaze_rod",
+      "seconds": 120
+    },
+    {
+      "item": "minecraft:coal",
+      "seconds": 80
+    },
+    {
+      "item": "minecraft:charcoal",
+      "seconds": 80
+    },
+    {
+      "item": "minecraft:oak_planks",
+      "seconds": 15
+    },
+    {
+      "item": "minecraft:oak_log",
+      "seconds": 15
+    },
+    {
+      "item": "minecraft:stick",
+      "seconds": 5
+    },
+    {
+      "item": "minecraft:oak_sapling",
+      "seconds": 5
+    },
+    {
+      "item": "minecraft:white_wool",
+      "seconds": 5
+    }
+  ]
+}

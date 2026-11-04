@@ -1,0 +1,1087 @@
+{
+  "meta": {
+    "schemaVersion": 1,
+    "minecraftVersion": "1.21.11",
+    "source": "https://github.com/misode/mcmeta.git",
+    "sourceTag": "1.21.11-data-json",
+    "dataVersion": 4671,
+    "generatedFrom": "2025-12-09T12:20:42+00:00"
+  },
+  "entities": [
+    {
+      "entity": "minecraft:blaze",
+      "drops": [
+        {
+          "item": "minecraft:blaze_rod",
+          "min": 0,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:bogged",
+      "drops": [
+        {
+          "item": "minecraft:arrow",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:bone",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:tipped_arrow",
+          "min": 0,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:breeze",
+      "drops": [
+        {
+          "item": "minecraft:breeze_rod",
+          "min": 1,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:camel_husk",
+      "drops": [
+        {
+          "item": "minecraft:rotten_flesh",
+          "min": 2,
+          "max": 3
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:cat",
+      "drops": [
+        {
+          "item": "minecraft:string",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:cave_spider",
+      "drops": [
+        {
+          "item": "minecraft:spider_eye",
+          "min": 0,
+          "max": 1
+        },
+        {
+          "item": "minecraft:string",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:chicken",
+      "drops": [
+        {
+          "item": "minecraft:chicken",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:feather",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:cod",
+      "drops": [
+        {
+          "item": "minecraft:bone_meal",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:cod",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:copper_golem",
+      "drops": [
+        {
+          "item": "minecraft:copper_ingot",
+          "min": 1,
+          "max": 3
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:cow",
+      "drops": [
+        {
+          "item": "minecraft:beef",
+          "min": 1,
+          "max": 3
+        },
+        {
+          "item": "minecraft:leather",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:creeper",
+      "drops": [
+        {
+          "item": "minecraft:gunpowder",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:dolphin",
+      "drops": [
+        {
+          "item": "minecraft:cod",
+          "min": 0,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:donkey",
+      "drops": [
+        {
+          "item": "minecraft:leather",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:drowned",
+      "drops": [
+        {
+          "item": "minecraft:copper_ingot",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:rotten_flesh",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:elder_guardian",
+      "drops": [
+        {
+          "item": "minecraft:cod",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:prismarine_crystals",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:prismarine_shard",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:tide_armor_trim_smithing_template",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:wet_sponge",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:enderman",
+      "drops": [
+        {
+          "item": "minecraft:ender_pearl",
+          "min": 0,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:evoker",
+      "drops": [
+        {
+          "item": "minecraft:emerald",
+          "min": 0,
+          "max": 1
+        },
+        {
+          "item": "minecraft:totem_of_undying",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:ghast",
+      "drops": [
+        {
+          "item": "minecraft:ghast_tear",
+          "min": 0,
+          "max": 1
+        },
+        {
+          "item": "minecraft:gunpowder",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:music_disc_tears",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:glow_squid",
+      "drops": [
+        {
+          "item": "minecraft:glow_ink_sac",
+          "min": 1,
+          "max": 3
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:guardian",
+      "drops": [
+        {
+          "item": "minecraft:cod",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:prismarine_crystals",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:prismarine_shard",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:hoglin",
+      "drops": [
+        {
+          "item": "minecraft:leather",
+          "min": 0,
+          "max": 1
+        },
+        {
+          "item": "minecraft:porkchop",
+          "min": 2,
+          "max": 4
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:horse",
+      "drops": [
+        {
+          "item": "minecraft:leather",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:husk",
+      "drops": [
+        {
+          "item": "minecraft:carrot",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:potato",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:rabbit_foot",
+          "min": 0,
+          "max": 1
+        },
+        {
+          "item": "minecraft:rotten_flesh",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:iron_golem",
+      "drops": [
+        {
+          "item": "minecraft:iron_ingot",
+          "min": 3,
+          "max": 5
+        },
+        {
+          "item": "minecraft:poppy",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:llama",
+      "drops": [
+        {
+          "item": "minecraft:leather",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:magma_cube",
+      "drops": [
+        {
+          "item": "minecraft:magma_cream",
+          "min": 0,
+          "max": 1
+        },
+        {
+          "item": "minecraft:ochre_froglight",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:pearlescent_froglight",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:verdant_froglight",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:mooshroom",
+      "drops": [
+        {
+          "item": "minecraft:beef",
+          "min": 1,
+          "max": 3
+        },
+        {
+          "item": "minecraft:leather",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:mule",
+      "drops": [
+        {
+          "item": "minecraft:leather",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:nautilus",
+      "drops": [
+        {
+          "item": "minecraft:nautilus_shell",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:panda",
+      "drops": [
+        {
+          "item": "minecraft:bamboo",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:parched",
+      "drops": [
+        {
+          "item": "minecraft:arrow",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:bone",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:tipped_arrow",
+          "min": 0,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:parrot",
+      "drops": [
+        {
+          "item": "minecraft:feather",
+          "min": 1,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:phantom",
+      "drops": [
+        {
+          "item": "minecraft:phantom_membrane",
+          "min": 0,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:pig",
+      "drops": [
+        {
+          "item": "minecraft:porkchop",
+          "min": 1,
+          "max": 3
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:pillager",
+      "drops": [
+        {
+          "item": "minecraft:ominous_bottle",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:polar_bear",
+      "drops": [
+        {
+          "item": "minecraft:cod",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:salmon",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:pufferfish",
+      "drops": [
+        {
+          "item": "minecraft:bone_meal",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:pufferfish",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:rabbit",
+      "drops": [
+        {
+          "item": "minecraft:rabbit",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:rabbit_foot",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:rabbit_hide",
+          "min": 0,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:ravager",
+      "drops": [
+        {
+          "item": "minecraft:saddle",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:salmon",
+      "drops": [
+        {
+          "item": "minecraft:bone_meal",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:salmon",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep",
+      "drops": [
+        {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/black",
+      "drops": [
+        {
+          "item": "minecraft:black_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/blue",
+      "drops": [
+        {
+          "item": "minecraft:blue_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/brown",
+      "drops": [
+        {
+          "item": "minecraft:brown_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/cyan",
+      "drops": [
+        {
+          "item": "minecraft:cyan_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/gray",
+      "drops": [
+        {
+          "item": "minecraft:gray_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/green",
+      "drops": [
+        {
+          "item": "minecraft:green_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/light_blue",
+      "drops": [
+        {
+          "item": "minecraft:light_blue_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/light_gray",
+      "drops": [
+        {
+          "item": "minecraft:light_gray_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/lime",
+      "drops": [
+        {
+          "item": "minecraft:lime_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/magenta",
+      "drops": [
+        {
+          "item": "minecraft:magenta_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/orange",
+      "drops": [
+        {
+          "item": "minecraft:orange_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/pink",
+      "drops": [
+        {
+          "item": "minecraft:pink_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/purple",
+      "drops": [
+        {
+          "item": "minecraft:purple_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/red",
+      "drops": [
+        {
+          "item": "minecraft:red_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/white",
+      "drops": [
+        {
+          "item": "minecraft:white_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:sheep/yellow",
+      "drops": [
+        {
+          "item": "minecraft:yellow_wool",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:shulker",
+      "drops": [
+        {
+          "item": "minecraft:shulker_shell",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:skeleton",
+      "drops": [
+        {
+          "item": "minecraft:arrow",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:bone",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:skeleton_horse",
+      "drops": [
+        {
+          "item": "minecraft:bone",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:slime",
+      "drops": [
+        {
+          "item": "minecraft:slime_ball",
+          "min": 0,
+          "max": 3
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:snow_golem",
+      "drops": [
+        {
+          "item": "minecraft:snowball",
+          "min": 0,
+          "max": 15
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:spider",
+      "drops": [
+        {
+          "item": "minecraft:spider_eye",
+          "min": 0,
+          "max": 1
+        },
+        {
+          "item": "minecraft:string",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:squid",
+      "drops": [
+        {
+          "item": "minecraft:ink_sac",
+          "min": 1,
+          "max": 3
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:stray",
+      "drops": [
+        {
+          "item": "minecraft:arrow",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:bone",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:tipped_arrow",
+          "min": 0,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:strider",
+      "drops": [
+        {
+          "item": "minecraft:string",
+          "min": 2,
+          "max": 5
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:trader_llama",
+      "drops": [
+        {
+          "item": "minecraft:leather",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:tropical_fish",
+      "drops": [
+        {
+          "item": "minecraft:bone_meal",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:tropical_fish",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:turtle",
+      "drops": [
+        {
+          "item": "minecraft:bowl",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:seagrass",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:vindicator",
+      "drops": [
+        {
+          "item": "minecraft:emerald",
+          "min": 0,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:warden",
+      "drops": [
+        {
+          "item": "minecraft:sculk_catalyst",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:witch",
+      "drops": [
+        {
+          "item": "minecraft:glass_bottle",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:glowstone_dust",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:gunpowder",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:redstone",
+          "min": 4,
+          "max": 8
+        },
+        {
+          "item": "minecraft:spider_eye",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:stick",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:sugar",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:wither_skeleton",
+      "drops": [
+        {
+          "item": "minecraft:bone",
+          "min": 0,
+          "max": 2
+        },
+        {
+          "item": "minecraft:coal",
+          "min": 0,
+          "max": 1
+        },
+        {
+          "item": "minecraft:wither_skeleton_skull",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:zoglin",
+      "drops": [
+        {
+          "item": "minecraft:rotten_flesh",
+          "min": 1,
+          "max": 3
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:zombie",
+      "drops": [
+        {
+          "item": "minecraft:carrot",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:music_disc_lava_chicken",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:potato",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:red_mushroom",
+          "min": 0,
+          "max": 1
+        },
+        {
+          "item": "minecraft:rotten_flesh",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:zombie_horse",
+      "drops": [
+        {
+          "item": "minecraft:rotten_flesh",
+          "min": 2,
+          "max": 3
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:zombie_nautilus",
+      "drops": [
+        {
+          "item": "minecraft:rotten_flesh",
+          "min": 0,
+          "max": 3
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:zombie_villager",
+      "drops": [
+        {
+          "item": "minecraft:carrot",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:iron_ingot",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:potato",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:rotten_flesh",
+          "min": 0,
+          "max": 2
+        }
+      ]
+    },
+    {
+      "entity": "minecraft:zombified_piglin",
+      "drops": [
+        {
+          "item": "minecraft:gold_ingot",
+          "min": 1,
+          "max": 1
+        },
+        {
+          "item": "minecraft:gold_nugget",
+          "min": 0,
+          "max": 1
+        },
+        {
+          "item": "minecraft:rotten_flesh",
+          "min": 0,
+          "max": 1
+        }
+      ]
+    }
+  ]
+}
