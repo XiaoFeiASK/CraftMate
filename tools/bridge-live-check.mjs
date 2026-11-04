@@ -2,7 +2,6 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { setTimeout as wait } from "node:timers/promises";
 import { WebSocket } from "ws";
 
 const endpoint = process.argv[2] ?? "ws://127.0.0.1:4321/bridge";
@@ -13,7 +12,13 @@ const args = {
   block: process.env.CRAFTMATE_CHECK_BLOCK ?? "minecraft:stone",
   count: Number(process.env.CRAFTMATE_CHECK_COUNT ?? 1),
 };
-if (!/^[a-z0-9_.:-]+$/i.test(args.block) || !Number.isInteger(args.count) || args.count < 1 || args.count > 64) {
+const chopTrees = process.env.CRAFTMATE_CHECK_CHOP === "1";
+if (
+  (!chopTrees && !/^[a-z0-9_.:-]+$/i.test(args.block)) ||
+  !Number.isInteger(args.count) ||
+  args.count < 1 ||
+  args.count > (chopTrees ? 16 : 64)
+) {
   fail("CRAFTMATE_CHECK_BLOCK / CRAFTMATE_CHECK_COUNT are outside the accepted contract range");
 }
 
@@ -21,11 +26,19 @@ const socket = new WebSocket(endpoint);
 const commandId = crypto.randomUUID();
 const idempotencyKey = crypto.randomUUID();
 let sawHello = false;
+let timeoutTimer = null;
 
 function fail(message) {
+  if (timeoutTimer !== null) clearTimeout(timeoutTimer);
   console.error(`bridge live check failed: ${message}`);
   process.exitCode = 1;
   socket?.close();
+}
+
+function pass(message) {
+  if (timeoutTimer !== null) clearTimeout(timeoutTimer);
+  console.log(message);
+  socket.close();
 }
 
 socket.on("open", () => {
@@ -35,7 +48,7 @@ socket.on("open", () => {
     token,
     client: "craftmate-live-check/0.1.0",
     capabilities: ["sensor", "move", "mine", "attack", "use", "build", "camera", "hud"],
-    skills: ["goto", "look_at", "mine_block", "say", "wait", "attack", "equip", "eat", "use_block", "place_block"],
+    skills: ["goto", "look_at", "mine_block", "chop_tree", "say", "wait", "attack", "equip", "eat", "use_block", "place_block"],
   }));
 });
 
@@ -54,8 +67,8 @@ socket.on("message", (raw) => {
       v: 1,
       type: "cmd",
       id: commandId,
-      op: "mine_block",
-      args,
+      op: chopTrees ? "chop_tree" : "mine_block",
+      args: chopTrees ? { count: args.count } : args,
       priority: "command",
       idempotencyKey,
       deadlineTick: frame.heartbeatMs ? Math.floor(Date.now() / 50 + 20_000) : undefined,
@@ -80,14 +93,17 @@ socket.on("message", (raw) => {
       return fail(`completion lacked evidence for ${args.count} block(s)`);
     }
     for (const mined of evidence.mined) {
-      if (mined.block !== args.block || !Number.isInteger(mined.position?.x) || !Number.isInteger(mined.position?.y) || !Number.isInteger(mined.position?.z)) {
+      if (
+        (!chopTrees && mined.block !== args.block) ||
+        !Number.isInteger(mined.position?.x) ||
+        !Number.isInteger(mined.position?.y) ||
+        !Number.isInteger(mined.position?.z)
+      ) {
         return fail("completion evidence does not identify the block and position");
       }
       console.log(`verified ${mined.block} at ${mined.position.x}, ${mined.position.y}, ${mined.position.z}`);
     }
-    console.log("bridge live check passed");
-    socket.close();
-    return;
+    return pass("bridge live check passed");
   }
   if (frame.type === "error") return fail(`bridge error: ${frame.code} ${frame.detail}`);
 });
@@ -98,5 +114,5 @@ socket.on("close", (code, reason) => {
   if (!sawHello) fail(`closed before welcome: ${code} ${reason.toString()}`);
 });
 
-await wait(60_000);
-fail("timed out after 60 seconds");
+timeoutTimer = setTimeout(() => fail("timed out after 60 seconds"), 60_000);
+timeoutTimer.unref();

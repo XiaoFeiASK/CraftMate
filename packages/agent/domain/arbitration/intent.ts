@@ -7,7 +7,7 @@ interface IntentRule {
 
 const RULES: readonly IntentRule[] = [
   { intent: "danger", keywords: ["跳岩浆", "岩浆", "tnt", "炸掉", "自杀", "跳崖", "掉下去"] },
-  { intent: "mine", keywords: ["挖矿", "挖", "矿", "钻石", "铁矿", "煤", "砍树"] },
+  { intent: "mine", keywords: ["挖矿", "挖", "矿", "钻石", "铁矿", "煤", "砍树", "砍木头", "砍木", "砍"] },
   { intent: "build", keywords: ["盖房", "建", "造", "房子", "墙", "搭"] },
   { intent: "craft", keywords: ["合成", "工作台", "熔炉", "箱子", "床", "剑", "镐"] },
   { intent: "eat", keywords: ["吃", "饿", "白饭", "面包"] },

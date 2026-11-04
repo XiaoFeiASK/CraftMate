@@ -135,6 +135,7 @@ export const FABRIC_BODY_SKILLS = [
   "goto",
   "look_at",
   "mine_block",
+  "chop_tree",
   "say",
   "wait",
   "attack",

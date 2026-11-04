@@ -41,3 +41,7 @@ executor.
   world unusable.
 - Mining candidates must pass a current line-of-sight raycast. A nearby block
   hidden behind terrain is rejected before destruction starts.
+- `chop_tree` reuses the same destroy state machine with `BlockTags.LOGS` as
+  the target set. `count` is the number of log blocks, not a whole-tree BFS.
+  If the selected log is unreachable, it re-selects a visible log after 10
+  seconds and then fails with `E_TIMEOUT` instead of walking forever.

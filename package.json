@@ -25,6 +25,7 @@
     "db:check": "node tools/check-schema.mjs",
     "db:check:file": "node tools/check-schema.mjs .tmp-db",
     "check:bridge": "node tools/bridge-live-check.mjs",
+    "check:control": "node tools/control-live-check.mjs",
     "test": "node --test --experimental-strip-types \"packages/**/*.test.ts\" \"apps/**/*.test.ts\" \"services/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

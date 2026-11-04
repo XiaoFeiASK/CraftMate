@@ -34,6 +34,11 @@ describe("intent", () => {
     assert.equal(result.intent satisfies Intent, "mine");
   });
 
+  test("recognises chopping wood without requiring the exact word tree", () => {
+    assert.equal(classifyIntent(comment("去砍点木头")).intent, "mine");
+    assert.equal(classifyIntent(comment("就砍一根木头")).intent, "mine");
+  });
+
   test("falls back to chat for ordinary talk", () => {
     assert.equal(classifyIntent(comment("今天过得还行")).intent, "chat");
   });

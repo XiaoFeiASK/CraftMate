@@ -18,8 +18,8 @@ npm run db:check:file
 
 2026-11-03 CI 在 `c0c0562` 通过 Node 类型检查、测试、控制台构建和两种数据库检查。
 2026-11-04 开始区分契约目录与 Fabric 当前身体目录：契约 19 个技能，当前身体
-10 个技能；`mine_block` 终态要求“开始破坏时记录的同一位置”变为空气，并在结果
-中返回方块 ID 和位置证据。
+11 个技能；`mine_block` 和 `chop_tree` 的终态要求“开始破坏时记录的同一位置”
+变为空气，并在结果中返回方块 ID 和位置证据。
 
 游戏侧单独验证：
 
@@ -37,6 +37,20 @@ npm run check:bridge
 该检查等待真实 `mine_block` 完成，并校验结果包含每个目标方块的位置证据。
 默认挖 1 个 `minecraft:stone`；可用 `CRAFTMATE_CHECK_BLOCK` 和
 `CRAFTMATE_CHECK_COUNT` 覆盖，最多 64 个。
+注意：该脚本会以一个验收客户端身份连接 `/bridge`，验证的是协议和 Mod
+执行器，不是“评论 → 规划 → 下发”的产品链路。
+
+检查完整砍树链路（需要真实 Minecraft 身体、模型和 Orchestrator 已运行）：
+
+```bash
+npm run check:control
+CRAFTMATE_CHECK_COUNT=3 npm run check:control
+```
+
+该脚本通过 `/control` 注入“只砍 1 根木头”，要求规划器选择 `chop_tree`，再从
+SQLite `action_attempt` 校验真实 Mod 完成的原木方块 ID 与坐标。默认 1 根，
+最多 16 根；`CRAFTMATE_CHECK_COUNT` 会同时写入评论文本，
+`CRAFTMATE_CHECK_TIMEOUT_MS` 可调整等待时间。
 
 音频播放器单独检查：
 
@@ -87,10 +101,15 @@ CI 不包含真实直播间、真实模型计费、真实音频硬件、Minecraf
 - HMCL 开发实例进入真实单人世界，连接 Bridge，上报世界快照。
 - `mine_block` 命令进入真实 Mod 执行状态机并被接受；完成结果包含同一目标位置
   和开始破坏时的方块 ID。
+- `chop_tree` 使用同一执行状态机，从 `BlockTags.LOGS` 中选择可见原木并逐根破坏；
+  完成结果同样包含方块 ID 和坐标。2026-11-04 本机真实链路完成过 2 次
+  `minecraft:birch_log` 删除，证据坐标 `21, 76, 154` 和 `21, 79, 154`。
 
 **未验收**
 
 - 真实环境重复验收 `mine_block`：遮挡、外部移除、方块变更和完整破坏终态。
+- 真实环境重复验收 `chop_tree`：树干、树叶遮挡、跨树干移动、多根原木计数，
+  以及目标不可达时在 10 秒内重新选树或明确超时。
 - 实际移动落点、放置、建造等终态。
 - 窗口失焦时 tick 与安全释放。
 - 60 分钟和 4 小时稳定性。

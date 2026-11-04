@@ -175,6 +175,33 @@ describe("stage C planner", () => {
     assert.equal(planned.provider, "fake");
   });
 
+  test("guides the model to chop_tree for wood and accepts it", async () => {
+    let instructions = "";
+    const planner = new Planner({
+      provider: provider(async (request) => {
+        instructions = request.instructions;
+        return {
+          speech: "好，我去砍木头。",
+          skill: { name: "chop_tree", args: { count: 2 }, idempotencyKey: "k" },
+          reason: "可执行",
+          provider: "fake",
+          model: "fake-1",
+        };
+      }),
+    });
+
+    const planned = await planner.plan({
+      decision: decision({ text: "去砍两棵树", intent: "mine" }),
+      goal: "盖房",
+      persona,
+      availableSkills: ["goto", "chop_tree"],
+    });
+    assert.match(instructions, /chop_tree/);
+    assert.equal(planned.degraded, false);
+    assert.equal(planned.skill?.name, "chop_tree");
+    assert.deepEqual(planned.skill?.args, { count: 2 });
+  });
+
   test("rejects a valid contract skill when the connected body does not advertise it", async () => {
     let calls = 0;
     const requests: PlanRequest[] = [];

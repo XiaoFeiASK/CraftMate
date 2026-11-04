@@ -18,6 +18,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -38,7 +39,7 @@ import net.minecraft.world.phys.Vec3;
  */
 final class GameActions {
 	private static final List<String> SKILLS = List.of(
-		"goto", "look_at", "mine_block", "say", "wait", "attack", "equip", "eat", "use_block", "place_block"
+		"goto", "look_at", "mine_block", "chop_tree", "say", "wait", "attack", "equip", "eat", "use_block", "place_block"
 	);
 	private static final List<String> CAPABILITIES = List.of(
 		"sensor", "move", "mine", "attack", "use", "build", "camera", "hud"
@@ -147,6 +148,7 @@ final class GameActions {
 			case "look_at" -> new LookTask(id, args);
 			case "goto" -> new GotoTask(id, args);
 			case "mine_block" -> new MineTask(id, args);
+			case "chop_tree" -> new MineTask(id, args, true);
 			case "attack" -> new AttackTask(id, required(args, "target"));
 			case "equip" -> new EquipTask(id, required(args, "item"));
 			case "eat" -> new EatTask(id, optional(args, "item"));
@@ -432,6 +434,7 @@ final class GameActions {
 
 	private static final class MineTask extends Task {
 		private final String blockId;
+		private final boolean anyLog;
 		private final int count;
 		private int mined;
 		private BlockPos target;
@@ -439,6 +442,8 @@ final class GameActions {
 		private int lastMinedCount;
 		private int miningAge;
 		private boolean walking;
+		private int walkingAge;
+		private BlockPos walkingDestination;
 		private boolean destroying;
 		private float lastProgress;
 		private int stalledTicks;
@@ -446,14 +451,20 @@ final class GameActions {
 		private final JsonArray minedBlocks = new JsonArray();
 
 		MineTask(String id, JsonObject args) {
+			this(id, args, false);
+		}
+
+		MineTask(String id, JsonObject args, boolean anyLog) {
 			super(id);
-			this.blockId = required(args, "block");
+			this.anyLog = anyLog;
+			this.blockId = anyLog ? null : required(args, "block");
 			this.count = integer(args, "count", 1);
 		}
 
 		@Override
 		boolean validate(Minecraft client) {
 			if (!super.validate(client)) return false;
+			if (anyLog) return true;
 			Identifier id = Identifier.tryParse(blockId);
 			if (id == null || !BuiltInRegistries.BLOCK.containsKey(id)) {
 				validationError = "unknown block " + blockId;
@@ -465,13 +476,13 @@ final class GameActions {
 		@Override
 		void start(Minecraft client) {
 			send.accept(progress(id, "finding", 0, count));
-			Block block = BuiltInRegistries.BLOCK.getValue(Identifier.parse(blockId));
-			target = findBlock(client, block);
+			target = findTarget(client);
 			if (target == null) {
-				finish(id, "failed", "E_PRECONDITION", "no visible " + blockId + " within 32 blocks");
+				finish(id, "failed", "E_PRECONDITION", "no visible " + targetName() + " within 32 blocks");
 				return;
 			}
 			walking = !canReach(client.player, target);
+			walkingDestination = target;
 		}
 
 		@Override
@@ -493,13 +504,12 @@ final class GameActions {
 					finish(id, "completed", null, null, evidence);
 					return;
 				}
-				Block block = BuiltInRegistries.BLOCK.getValue(Identifier.parse(blockId));
-				target = findBlock(client, block);
+				target = findTarget(client);
 				if (target == null) {
 					walking = false;
 					JsonObject evidence = new JsonObject();
 					evidence.add("mined", minedBlocks);
-					finish(id, "failed", "E_PRECONDITION", "no further " + blockId + " within 32 blocks", evidence);
+					finish(id, "failed", "E_PRECONDITION", "no further " + targetName() + " within 32 blocks", evidence);
 					return;
 				}
 				side = Direction.UP;
@@ -516,14 +526,38 @@ final class GameActions {
 			player.setYRot((float) Math.toDegrees(Math.atan2(-direction.x, direction.z)));
 			player.setXRot((float) Math.toDegrees(-Math.asin(direction.y)));
 			if (walking) {
+				if (player.horizontalCollision && player.onGround()) {
+					player.jumpFromGround();
+				}
 				if (player.input != null) {
 					player.input.keyPresses = new net.minecraft.world.entity.player.Input(true, false, false, false, false, false, false);
 				}
 				if (canReach(player, target)) {
 					walking = false;
+					walkingAge = 0;
+					walkingDestination = null;
 					lastProgress = 0;
 					stalledTicks = 0;
 					if (player.input != null) player.input.keyPresses = net.minecraft.world.entity.player.Input.EMPTY;
+				}
+				// The walk is only towards the target if the target is the
+				// next log. After the first log in a trunk, re-aiming at the
+				// block below would make the body step back forever.
+				if (!target.equals(walkingDestination)) {
+					walkingDestination = target;
+					walkingAge = 0;
+				}
+				walkingAge++;
+				if (walkingAge > 20 * 10) {
+					BlockPos nearest = findTarget(client);
+					if (nearest != null && !nearest.equals(target)) {
+						target = nearest;
+						walkingDestination = null;
+						walkingAge = 0;
+					} else {
+						stop(client);
+						finish(id, "timeout", "E_TIMEOUT", "could not reach " + targetName() + " in time");
+					}
 				}
 				return;
 			}
@@ -592,6 +626,16 @@ final class GameActions {
 			return evidence;
 		}
 
+		private BlockPos findTarget(Minecraft client) {
+			if (anyLog) return findBlock(client, state -> state.is(BlockTags.LOGS));
+			Block block = BuiltInRegistries.BLOCK.getValue(Identifier.parse(blockId));
+			return findBlock(client, state -> state.is(block));
+		}
+
+		private String targetName() {
+			return anyLog ? "log" : blockId;
+		}
+
 		@Override
 		void stop(Minecraft client) {
 			stopMining(client);
@@ -599,8 +643,10 @@ final class GameActions {
 		}
 
 		private static boolean canReach(LocalPlayer player, BlockPos target) {
-			Vec3 center = Vec3.atCenterOf(target);
-			return player.getEyePosition().distanceToSqr(center) <= 4.5 * 4.5;
+			// Use the client's own block interaction range. Eye-to-center
+			// rejects a log at the player's feet and leaves the walk loop
+			// pushing forever instead of starting to destroy it.
+			return player.isWithinBlockInteractionRange(target, 0.0);
 		}
 
 		private void stopMining(Minecraft client) {
@@ -778,13 +824,14 @@ final class GameActions {
 		return new Vec3(number(target, "x"), number(target, "y"), number(target, "z"));
 	}
 
-	private static BlockPos findBlock(Minecraft client, Block block) {
+	private static BlockPos findBlock(Minecraft client, java.util.function.Predicate<BlockState> matches) {
 		BlockPos origin = client.player.blockPosition();
 		BlockPos best = null;
 		double bestScore = Double.POSITIVE_INFINITY;
 		Vec3 eye = client.player.getEyePosition();
 		for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-32, -16, -32), origin.offset(32, 16, 32))) {
-			if (!client.level.getBlockState(pos).is(block)) continue;
+			BlockState state = client.level.getBlockState(pos);
+			if (!matches.test(state)) continue;
 			double distance = pos.distSqr(origin);
 			if (distance > 32.0 * 32.0) continue;
 			BlockPos candidate = pos.immutable();
