@@ -4,12 +4,15 @@ import com.craftmate.body.CraftMateBodyClient;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.client.gui.screens.recipebook.RecipeCollection;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
 import net.minecraft.client.player.AbstractClientPlayer;
@@ -26,13 +29,23 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.StackedItemContents;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.inventory.AbstractCraftingMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.crafting.display.RecipeDisplay;
+import net.minecraft.world.item.crafting.display.RecipeDisplayEntry;
+import net.minecraft.world.item.crafting.display.RecipeDisplayId;
+import net.minecraft.world.item.crafting.display.ShapedCraftingRecipeDisplay;
+import net.minecraft.world.item.crafting.display.ShapelessCraftingRecipeDisplay;
+import net.minecraft.world.item.crafting.display.SlotDisplay;
+import net.minecraft.world.item.crafting.display.SlotDisplayContext;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
@@ -45,8 +58,8 @@ import net.minecraft.world.phys.Vec3;
  */
 public final class GameActions {
 	private static final List<String> SKILLS = List.of(
-		"goto", "look_at", "mine_block", "chop_tree", "collect_items", "deposit", "say", "wait", "attack", "equip",
-		"eat", "use_block", "place_block"
+		"goto", "look_at", "mine_block", "chop_tree", "collect_items", "craft", "deposit", "say", "wait", "attack",
+		"equip", "eat", "use_block", "place_block"
 	);
 	private static final List<String> CAPABILITIES = List.of(
 		"sensor", "move", "mine", "container", "attack", "use", "build", "camera", "hud"
@@ -66,6 +79,12 @@ public final class GameActions {
 	private static final int CONTAINER_TOTAL_TIMEOUT = 20 * 60;
 	/** Let one predicted menu update settle long enough to be rolled back. */
 	private static final int CONTAINER_STABLE_TICKS = 10;
+	private static final int CRAFT_SEARCH_RADIUS = 16;
+	private static final int CRAFT_MENU_TIMEOUT = 20;
+	private static final int CRAFT_GRID_TIMEOUT = 20 * 3;
+	private static final int CRAFT_RESULT_TIMEOUT = 20 * 3;
+	private static final int CRAFT_STABLE_TICKS = 5;
+	private static final int CRAFT_TOTAL_TIMEOUT = 20 * 60;
 	private static final int PATH_STEP_UP = 1;
 	private static final int PATH_STEP_DOWN = 1;
 	private static final Map<String, Task> TASKS = new ConcurrentHashMap<>();
@@ -203,6 +222,11 @@ public final class GameActions {
 				case "collect_items" -> new CollectTask(
 					id,
 					optional(args, "item"),
+					integer(args, "count", 1)
+				);
+				case "craft" -> new CraftTask(
+					id,
+					required(args, "item"),
 					integer(args, "count", 1)
 				);
 				case "deposit" -> new DepositTask(
@@ -1652,6 +1676,687 @@ public final class GameActions {
 		@Override
 		void stop(Minecraft client) {
 			releaseWalkInput(client);
+		}
+	}
+
+	/**
+	 * Crafts through the vanilla recipe book so the server, not this client,
+	 * decides which ingredients fit the grid. The task opens the nearest
+	 * crafting table (or falls back to the 2x2 inventory grid), asks the server
+	 * to place one batch, then takes the result and confirms the inventory
+	 * gained that exact batch. The recipe is submitted again for later batches
+	 * so the caller's count cannot stall after the first result.
+	 */
+	private static final class CraftTask extends Task {
+		private static final int WALK_BUDGET_TICKS = 20 * 15;
+		private static final int APPROACH_STALL_TICKS = 20 * 3;
+		private final String itemId;
+		private final int requested;
+		private Item item;
+		private boolean table;
+		private BlockPos tablePos;
+		private AbstractCraftingMenu menu;
+		private boolean openedByTask;
+		private boolean walking;
+		private int walkingAge;
+		private int lastWalkProgressAge;
+		private double lastApproachDistance = Double.POSITIVE_INFINITY;
+		private List<Vec3> approachWaypoints = List.of();
+		private int approachWaypoint;
+		private BlockPos approachTarget;
+		private int nextApproachPlanAt;
+		private int menuSubmittedAt = -1;
+		private int inventorySubmittedAt = -1;
+		private int gridReadyAt = -1;
+		private int gridSubmitAt = -1;
+		private Map<String, Integer> inputsBefore;
+		private int resultSubmittedAt = -1;
+		private int stableTicks;
+		private Map<String, Integer> lastInputs;
+		private Map<String, Integer> lastInventory;
+		private int made;
+		private Map<String, Integer> inventoryAtTake;
+		private int resultAtTake;
+
+		CraftTask(String id, String itemId, int requested) {
+			super(id);
+			this.itemId = itemId;
+			this.requested = requested;
+		}
+
+		@Override
+		boolean validate(Minecraft client) {
+			if (!super.validate(client)) return false;
+			if (requested <= 0) {
+				validationError = "count must be positive";
+				return false;
+			}
+			Identifier id = Identifier.tryParse(itemId);
+			if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
+				validationError = "unknown item " + itemId;
+				return false;
+			}
+			item = BuiltInRegistries.ITEM.getValue(id);
+			return true;
+		}
+
+		@Override
+		void start(Minecraft client) {
+			tablePos = nearestCraftingTable(client);
+			table = tablePos != null;
+			walking = table && !canInteract(client, client.player, tablePos);
+			send.accept(progress(id, walking ? "walking" : "opening", 0, requested));
+		}
+
+		@Override
+		void tick(Minecraft client) {
+			if (age > CRAFT_TOTAL_TIMEOUT) {
+				stop(client);
+				finish(
+					id,
+					"timeout",
+					"E_TIMEOUT",
+					made > 0
+						? "only crafted " + made + " of " + requested + " before the time limit"
+						: "crafting did not complete in time",
+					evidence("crafting timed out")
+				);
+				return;
+			}
+			if (menu == null) {
+				if (walking) {
+					approach(client);
+					return;
+				}
+				open(client);
+				return;
+			}
+			craft(client);
+		}
+
+		@Override
+		boolean keepScreen(Minecraft client) {
+			return openedByTask || menuSubmittedAt >= 0 || inventorySubmittedAt >= 0;
+		}
+
+		private void approach(Minecraft client) {
+			LocalPlayer player = client.player;
+			MineTask.aimAt(player, Vec3.atCenterOf(tablePos));
+			if (canInteract(client, player, tablePos)) {
+				walking = false;
+				releaseWalkInput(client);
+				send.accept(progress(id, "opening", 0, requested));
+				return;
+			}
+			walkingAge++;
+			if (walkingAge > WALK_BUDGET_TICKS) {
+				stop(client);
+				finish(
+					id,
+					"timeout",
+					"E_TIMEOUT",
+					"could not reach the crafting table in time",
+					evidence("crafting table approach timed out")
+				);
+				return;
+			}
+			Vec3 center = Vec3.atCenterOf(tablePos);
+			if (!tablePos.equals(approachTarget) || walkingAge >= nextApproachPlanAt) {
+				ApproachRoute.Route route = ApproachRoute.to(client, tablePos);
+				if (route != null && route.waypoints().size() > 1) {
+					approachWaypoints = route.waypoints();
+					approachWaypoint = 1;
+				} else {
+					approachWaypoints = List.of();
+					approachWaypoint = 0;
+				}
+				approachTarget = tablePos;
+				nextApproachPlanAt = walkingAge + 20;
+			}
+			Vec3 step = approachWaypoints.size() > approachWaypoint
+				? approachWaypoints.get(approachWaypoint)
+				: center;
+			while (
+				approachWaypoint < approachWaypoints.size() - 1
+					&& Math.hypot(step.x - player.getX(), step.z - player.getZ()) < 0.75
+					&& Math.abs(step.y - player.getY()) < 1.25
+			) {
+				approachWaypoint++;
+				step = approachWaypoints.get(approachWaypoint);
+			}
+			double progressDistance = player.position().distanceTo(step);
+			if (progressDistance + 0.1 < lastApproachDistance) {
+				lastApproachDistance = progressDistance;
+				lastWalkProgressAge = walkingAge;
+			} else if (walkingAge - lastWalkProgressAge > APPROACH_STALL_TICKS) {
+				stop(client);
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"crafting table approach made no progress for 3 seconds",
+					evidence("could not reach a safe interaction spot beside the table")
+				);
+				return;
+			}
+			double heading = Math.atan2(-(step.x - player.getX()), step.z - player.getZ());
+			player.setYRot((float) Math.toDegrees(heading));
+			Vec3 ahead = player.position().add(
+				-Math.sin(heading) * 0.6,
+				0,
+				Math.cos(heading) * 0.6
+			);
+			BlockPos foot = BlockPos.containing(ahead.x, player.getY() - 0.5, ahead.z);
+			boolean ledge = client.level.getBlockState(foot).isAir()
+				&& client.level.getBlockState(foot.below()).isAir();
+			if (ledge && player.onGround()) {
+				stop(client);
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"dangerous drop on the route to the crafting table",
+					evidence("refused an unsafe crafting table approach")
+				);
+				return;
+			}
+			if (player.horizontalCollision && player.onGround()) player.jumpFromGround();
+			if (player.input != null) setWalkInput(client, true);
+			if (walkingAge % 20 == 0) {
+				send.accept(progress(id, "walking", (int) Math.round(player.position().distanceTo(center)), 0));
+			}
+		}
+
+		private void open(Minecraft client) {
+			if (table) {
+				if (tablePos == null || !client.level.getBlockState(tablePos).is(Blocks.CRAFTING_TABLE)) {
+					finish(id, "failed", "E_WORLD_CHANGED", "crafting table disappeared", evidence("the crafting table was removed"));
+					return;
+				}
+				if (!canInteract(client, client.player, tablePos)) {
+					walking = true;
+					lastApproachDistance = Double.POSITIVE_INFINITY;
+					lastWalkProgressAge = walkingAge;
+					return;
+				}
+			}
+			if (menuSubmittedAt >= 0 || inventorySubmittedAt >= 0) {
+				AbstractCraftingMenu opened = client.screen instanceof AbstractContainerScreen<?> screen
+					&& screen.getMenu() instanceof AbstractCraftingMenu craftMenu
+					? craftMenu
+					: null;
+				if (opened == null) {
+					if (
+						(menuSubmittedAt >= 0 && age - menuSubmittedAt > CRAFT_MENU_TIMEOUT)
+							|| (inventorySubmittedAt >= 0 && age - inventorySubmittedAt > CRAFT_MENU_TIMEOUT)
+					) {
+						finish(id, "failed", "E_PRECONDITION", "crafting screen did not open", evidence("no crafting menu opened"));
+					}
+					return;
+				}
+				if (table && !(opened instanceof net.minecraft.world.inventory.CraftingMenu)) {
+					finish(id, "failed", "E_WORLD_CHANGED", "a different menu replaced the crafting table", evidence("menu identity changed"));
+					closeOwnMenu(client);
+					return;
+				}
+				if (!table && !(opened instanceof net.minecraft.world.inventory.InventoryMenu)) {
+					finish(id, "failed", "E_WORLD_CHANGED", "a different menu replaced the inventory", evidence("menu identity changed"));
+					closeOwnMenu(client);
+					return;
+				}
+				menu = opened;
+				openedByTask = true;
+				menuSubmittedAt = -1;
+				inventorySubmittedAt = -1;
+				send.accept(progress(id, "finding_recipe", 0, requested));
+				return;
+			}
+			if (table) {
+				Vec3 center = Vec3.atCenterOf(tablePos);
+				MineTask.aimAt(client.player, center);
+				BlockHitResult hit = MineTask.clip(client, client.player, center);
+				if (hit.getType() != HitResult.Type.BLOCK || !hit.getBlockPos().equals(tablePos)) {
+					// A blocked face does not make the 2x2 inventory grid
+					// unusable. Prefer it over reporting a false "no recipe"
+					// failure when the requested recipe fits.
+					if (hasInventoryRecipe(client)) {
+						table = false;
+						walking = false;
+						approachTarget = null;
+						open(client);
+						return;
+					}
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"crafting table is outside reach or not visible",
+						evidence("could not aim at the table")
+					);
+					return;
+				}
+				releaseWalkInput(client);
+				menuSubmittedAt = age;
+				client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, hit);
+				return;
+			}
+
+			// Opening the inventory is a client prediction backed by the
+			// server's OPEN_INVENTORY command; the task only proceeds once a
+			// real inventory menu exists.
+			releaseWalkInput(client);
+			client.player.sendOpenInventory();
+			client.setScreen(new InventoryScreen(client.player));
+			inventorySubmittedAt = age;
+		}
+
+		private void craft(Minecraft client) {
+			if (!openedByTask) {
+				finish(id, "failed", "E_PRECONDITION", "crafting menu was not opened by this task", evidence("unowned menu"));
+				return;
+			}
+			AbstractCraftingMenu current = client.screen instanceof AbstractContainerScreen<?> screen
+				&& screen.getMenu() instanceof AbstractCraftingMenu value
+				? value
+				: null;
+			if (current == null) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					made > 0
+						? "only crafted " + made + " of " + requested + " before the menu closed"
+						: "crafting screen closed before any craft was confirmed",
+					evidence("the crafting screen closed")
+				);
+				closeOwnMenu(client);
+				return;
+			}
+			if (current != menu) {
+				finish(id, "failed", "E_WORLD_CHANGED", "a different crafting menu replaced the crafting screen", evidence("menu identity changed"));
+				closeOwnMenu(client);
+				return;
+			}
+			if (!current.stillValid(client.player)) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					made > 0 ? "only crafted " + made + " of " + requested + " before the table became unreachable" : "crafting table is no longer reachable",
+					evidence("menu became invalid")
+				);
+				closeOwnMenu(client);
+				return;
+			}
+			if (resultSubmittedAt < 0 && gridSubmitAt < 0 && gridReadyAt < 0) {
+				// Taking one result can leave enough ingredients for the
+				// recipe book to refill the output slot immediately. Take
+				// that natural next batch before asking the server to place
+				// the recipe again.
+				Slot existing = current.getResultSlot();
+				if (
+					existing != null
+						&& !existing.getItem().isEmpty()
+						&& existing.getItem().getItem() == item
+				) {
+					gridReadyAt = age;
+				}
+			}
+			if (resultSubmittedAt >= 0) {
+				Map<String, Integer> inputs = gridCounts(current);
+				Map<String, Integer> inventory = inventoryCounts(client.player);
+				if (!inputs.equals(lastInputs) || !inventory.equals(lastInventory)) {
+					lastInputs = inputs;
+					lastInventory = inventory;
+					stableTicks = 0;
+					return;
+				}
+				stableTicks++;
+				if (stableTicks < CRAFT_STABLE_TICKS) return;
+				if (!CraftEvidence.transferConfirmed(resultAtTake, inventoryAtTake, inventory, itemId, resultAtTake)) {
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						made > 0
+							? "only crafted " + made + " of " + requested + " before the result was not confirmed"
+							: "the crafting result was not confirmed by the inventory gain",
+						evidence("the result was not confirmed by the inventory gain")
+					);
+					closeOwnMenu(client);
+					return;
+				}
+				made += resultAtTake;
+				if (made >= requested) {
+					finish(id, "completed", null, null, evidence(null));
+					return;
+				}
+				inventoryAtTake = inventory;
+				resultAtTake = 0;
+				resultSubmittedAt = -1;
+				stableTicks = 0;
+				lastInputs = null;
+				lastInventory = null;
+				// `useMaxItems=false` requests one batch. The next tick finds
+				// the recipe again so a count above one batch gets submitted
+				// repeatedly without assuming leftover ingredients in the grid.
+				send.accept(progress(id, "submitting_recipe", made, requested));
+				return;
+			}
+			if (gridSubmitAt >= 0) {
+				Map<String, Integer> inputs = gridCounts(current);
+				Slot result = current.getResultSlot();
+				boolean resultReady = result != null
+					&& !result.getItem().isEmpty()
+					&& result.getItem().getItem() == item;
+				if (!inputs.equals(inputsBefore) || resultReady) {
+					gridReadyAt = age;
+					gridSubmitAt = -1;
+					send.accept(progress(id, "crafting", made, requested));
+				} else if (age - gridSubmitAt > CRAFT_GRID_TIMEOUT) {
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"the server did not place ingredients in the grid",
+						evidence("the server did not place ingredients in the grid")
+					);
+					closeOwnMenu(client);
+					return;
+				}
+				if (gridSubmitAt >= 0) return;
+			}
+			if (gridReadyAt >= 0) {
+				Slot result = current.getResultSlot();
+				if (result == null || result.getItem().isEmpty() || result.getItem().getItem() != item) {
+					if (age - gridReadyAt > CRAFT_RESULT_TIMEOUT) {
+						finish(
+							id,
+							"failed",
+							"E_PRECONDITION",
+							table
+								? "the crafting table did not produce " + itemId
+								: "the 2x2 inventory grid did not produce " + itemId,
+							evidence(
+								table
+									? "the crafting table did not produce the requested item"
+									: "the 2x2 inventory grid did not produce the requested item"
+							)
+						);
+						closeOwnMenu(client);
+						return;
+					}
+					return;
+				}
+				if (!hasRoomFor(client, result.getItem())) {
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"the inventory has no room for the crafting result",
+						evidence("the inventory has no room for the crafting result")
+					);
+					closeOwnMenu(client);
+					return;
+				}
+				gridReadyAt = -1;
+				resultSubmittedAt = age;
+				inventoryAtTake = inventoryCounts(client.player);
+				resultAtTake = result.getItem().getCount();
+				int resultIndex = resultSlotIndex(current, result);
+				if (resultIndex < 0) {
+					finish(id, "failed", "E_PRECONDITION", "crafting result slot is not addressable", evidence("result slot not found"));
+					closeOwnMenu(client);
+					return;
+				}
+				client.gameMode.handleInventoryMouseClick(current.containerId, resultIndex, 0, ClickType.QUICK_MOVE, client.player);
+				send.accept(progress(id, "taking_result", made, requested));
+				return;
+			}
+
+			RecipeChoice choice = findRecipe(client);
+			if (choice == null) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					table
+						? "no synced crafting table recipe produces " + itemId
+						: "no synced 2x2 inventory recipe produces " + itemId,
+					evidence(
+						table
+							? "no synced crafting table recipe produces " + itemId
+							: "no synced 2x2 inventory recipe produces " + itemId
+					)
+				);
+				closeOwnMenu(client);
+				return;
+			}
+			inputsBefore = gridCounts(current);
+			gridSubmitAt = age;
+			// The server can accept the packet and still decline to place
+			// anything when ingredients are missing. Distinguish that from
+			// a recipe/grid failure, and use the 2x2 grid when the table
+			// path cannot satisfy the recipe.
+			if (!choice.craftable()) {
+				if (table && hasInventoryRecipe(client)) {
+					table = false;
+					tablePos = null;
+					closeOwnMenu(client);
+					open(client);
+					return;
+				}
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"the inventory is missing ingredients for " + itemId,
+					evidence("the inventory is missing ingredients for the requested item")
+				);
+				closeOwnMenu(client);
+				return;
+			}
+			ItemStack expected = new ItemStack(item, choice.output());
+			if (!hasRoomFor(client, expected)) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"the inventory has no room for the crafting result",
+					evidence("the inventory has no room for the crafting result")
+				);
+				closeOwnMenu(client);
+				return;
+			}
+			client.gameMode.handlePlaceRecipe(current.containerId, choice.id(), false);
+			send.accept(progress(id, "placing_ingredients", made, requested));
+		}
+
+		private boolean hasRoomFor(Minecraft client, ItemStack result) {
+			Inventory inventory = client.player.getInventory();
+			int emptySlots = 0;
+			int matchingFree = 0;
+			for (int index = 0; index < Inventory.INVENTORY_SIZE; index++) {
+				ItemStack stack = inventory.getItem(index);
+				if (stack.isEmpty()) {
+					emptySlots++;
+					continue;
+				}
+				if (ItemStack.isSameItemSameComponents(stack, result)) {
+					matchingFree += Math.min(stack.getMaxStackSize(), result.getMaxStackSize()) - stack.getCount();
+				}
+			}
+			return CraftEvidence.inventoryHasRoom(
+				emptySlots,
+				matchingFree,
+				result.getCount(),
+				result.getMaxStackSize()
+			);
+		}
+
+		private RecipeChoice findRecipe(Minecraft client) {
+			int width = menu.getGridWidth();
+			int height = menu.getGridHeight();
+			StackedItemContents contents = new StackedItemContents();
+			client.player.getInventory().fillStackedContents(contents);
+			RecipeChoice fallback = null;
+			for (RecipeCollection collection : client.player.getRecipeBook().getCollections()) {
+				for (RecipeDisplayEntry entry : collection.getRecipes()) {
+					RecipeDisplay display = entry.display();
+					if (!fits(display, width, height)) continue;
+					if (!produces(display, client)) continue;
+					int output = outputCount(display, client);
+					if (output <= 0) continue;
+					boolean craftable = entry.canCraft(contents);
+					RecipeChoice choice = new RecipeChoice(entry.id(), output, craftable);
+					if (craftable && made + output >= requested) return choice;
+					if (fallback == null || (craftable && !fallback.craftable())) fallback = choice;
+				}
+			}
+			return fallback;
+		}
+
+		private boolean hasInventoryRecipe(Minecraft client) {
+			for (RecipeCollection collection : client.player.getRecipeBook().getCollections()) {
+				for (RecipeDisplayEntry entry : collection.getRecipes()) {
+					RecipeDisplay display = entry.display();
+					if (fits(display, 2, 2) && produces(display, client)) return true;
+				}
+			}
+			return false;
+		}
+
+		private boolean fits(RecipeDisplay display, int width, int height) {
+			if (display instanceof ShapedCraftingRecipeDisplay shaped) {
+				return shaped.width() <= width && shaped.height() <= height;
+			}
+			if (display instanceof ShapelessCraftingRecipeDisplay shapeless) {
+				return shapeless.ingredients().size() <= width * height;
+			}
+			return false;
+		}
+
+		private boolean produces(RecipeDisplay display, Minecraft client) {
+			SlotDisplay result = display.result();
+			var context = SlotDisplayContext.fromLevel(client.level);
+			return result.resolveForStacks(context).stream().anyMatch(stack -> !stack.isEmpty() && stack.getItem() == item);
+		}
+
+		private int outputCount(RecipeDisplay display, Minecraft client) {
+			SlotDisplay result = display.result();
+			var context = SlotDisplayContext.fromLevel(client.level);
+			return result.resolveForStacks(context).stream()
+				.filter(stack -> !stack.isEmpty() && stack.getItem() == item)
+				.mapToInt(ItemStack::getCount)
+				.max()
+				.orElse(0);
+		}
+
+		private Map<String, Integer> gridCounts(AbstractCraftingMenu current) {
+			Map<String, Integer> counts = new LinkedHashMap<>();
+			for (Slot slot : current.getInputGridSlots()) {
+				ItemStack stack = slot.getItem();
+				if (stack.isEmpty()) continue;
+				String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+				counts.merge(id, stack.getCount(), Integer::sum);
+			}
+			return counts;
+		}
+
+		private int resultSlotIndex(AbstractCraftingMenu current, Slot result) {
+			for (int index = 0; index < current.slots.size(); index++) {
+				if (current.getSlot(index) == result) return index;
+			}
+			return -1;
+		}
+
+		private Map<String, Integer> inventoryCounts(LocalPlayer player) {
+			Map<String, Integer> counts = new LinkedHashMap<>();
+			Inventory inventory = player.getInventory();
+			for (int slot = 0; slot < Inventory.INVENTORY_SIZE; slot++) {
+				ItemStack stack = inventory.getItem(slot);
+				if (stack.isEmpty()) continue;
+				String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+				counts.merge(id, stack.getCount(), Integer::sum);
+			}
+			return counts;
+		}
+
+		private BlockPos nearestCraftingTable(Minecraft client) {
+			BlockPos origin = client.player.blockPosition();
+			BlockPos best = null;
+			double bestDistance = Double.POSITIVE_INFINITY;
+			for (BlockPos pos : BlockPos.betweenClosed(
+				origin.offset(-CRAFT_SEARCH_RADIUS, -8, -CRAFT_SEARCH_RADIUS),
+				origin.offset(CRAFT_SEARCH_RADIUS, 8, CRAFT_SEARCH_RADIUS)
+			)) {
+				BlockPos candidate = pos.immutable();
+				if (candidate.distSqr(origin) > (double) CRAFT_SEARCH_RADIUS * CRAFT_SEARCH_RADIUS) continue;
+				if (!client.level.getBlockState(candidate).is(Blocks.CRAFTING_TABLE)) continue;
+				double distance = client.player.distanceToSqr(
+					candidate.getX() + 0.5,
+					candidate.getY() + 0.5,
+					candidate.getZ() + 0.5
+				);
+				if (distance < bestDistance) {
+					bestDistance = distance;
+					best = candidate;
+				}
+			}
+			return best;
+		}
+
+		private boolean canInteract(Minecraft client, LocalPlayer player, BlockPos target) {
+			return player.isWithinBlockInteractionRange(target, 0.0)
+				&& MineTask.clip(client, player, Vec3.atCenterOf(target)).getBlockPos().equals(target);
+		}
+
+		private JsonObject evidence(String problem) {
+			JsonObject outcome = new JsonObject();
+			outcome.addProperty(
+				"summary",
+				made > 0
+					? "crafted " + made + " x " + itemId
+					: "no craft was confirmed"
+			);
+			JsonArray changes = new JsonArray();
+			if (made > 0) {
+				JsonObject change = new JsonObject();
+				change.addProperty("kind", "item_crafted");
+				change.addProperty("detail", made + " x " + itemId);
+				if (tablePos != null) change.add("position", position(tablePos));
+				changes.add(change);
+			}
+			outcome.add("changes", changes);
+			if (problem != null) {
+				outcome.addProperty("problem", problem);
+				JsonArray unconfirmed = new JsonArray();
+				unconfirmed.add("craft result was not confirmed by ingredient consumption and inventory gain");
+				outcome.add("unconfirmed", unconfirmed);
+			}
+			return outcome;
+		}
+
+		private void closeOwnMenu(Minecraft client) {
+			if (!openedByTask && menuSubmittedAt < 0 && inventorySubmittedAt < 0) return;
+			openedByTask = false;
+			menuSubmittedAt = -1;
+			inventorySubmittedAt = -1;
+			menu = null;
+			if (client.player != null && client.screen instanceof AbstractContainerScreen<?>) {
+				client.player.closeContainer();
+			} else if (client.screen instanceof AbstractContainerScreen<?>) {
+				client.setScreen(null);
+			}
+		}
+
+		@Override
+		void stop(Minecraft client) {
+			releaseWalkInput(client);
+			closeOwnMenu(client);
+		}
+
+		private record RecipeChoice(RecipeDisplayId id, int output, boolean craftable) {
 		}
 	}
 

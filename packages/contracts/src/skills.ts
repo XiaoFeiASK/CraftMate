@@ -140,6 +140,7 @@ export const FABRIC_BODY_SKILLS = [
   "mine_block",
   "chop_tree",
   "collect_items",
+  "craft",
   "deposit",
   "say",
   "wait",
