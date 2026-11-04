@@ -28,6 +28,16 @@ cd mods/craftmate-body
 ./gradlew build
 ```
 
+真实身体通道验收（需要 Minecraft 客户端已连接到运行中的 CraftMate）：
+
+```bash
+npm run check:bridge
+```
+
+该检查等待真实 `mine_block` 完成，并校验结果包含每个目标方块的位置证据。
+默认挖 1 个 `minecraft:stone`；可用 `CRAFTMATE_CHECK_BLOCK` 和
+`CRAFTMATE_CHECK_COUNT` 覆盖，最多 64 个。
+
 音频播放器单独检查：
 
 ```bash
