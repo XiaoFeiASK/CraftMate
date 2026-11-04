@@ -102,6 +102,8 @@ export interface ControlServer {
   publishWorldEvent(event: { readonly name: string; readonly data: unknown; readonly at: number }): void;
   /** Local single-shot acceptance path; disabled unless wired by the host. */
   injectDecision?(raw: unknown): void;
+  /** True while an audience decision is being planned or dispatched. */
+  isPlanning(): boolean;
   close(): Promise<void>;
 }
 
@@ -251,6 +253,7 @@ export function createControlServer({
   };
 
   const injectDecision = (raw: unknown): void => handleDecision(raw);
+  let planning = 0;
 
   const publishDecision = (decision: Decision): void => {
     broadcast({ type: "decision", payload: decision });
@@ -267,6 +270,8 @@ export function createControlServer({
 
   const planAndSpeak = async (decision: Decision, generation: number): Promise<void> => {
     if (generation !== controlGeneration || show.snapshot().mode !== "agent") return;
+    planning += 1;
+    try {
     let planned: Decision;
     try {
       planned = await show.plan(decision);
@@ -319,6 +324,9 @@ export function createControlServer({
           error instanceof Error ? error.message : String(error)
         }`,
       );
+    }
+    } finally {
+      planning -= 1;
     }
   };
 
@@ -620,6 +628,7 @@ export function createControlServer({
     publishDecision,
     publishWorldEvent,
     injectDecision,
+    isPlanning: () => planning > 0,
     close: async () => {
       for (const { socket } of connections) socket.close();
       await new Promise<void>((resolve) => wss.close(() => resolve()));

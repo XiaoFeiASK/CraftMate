@@ -1,5 +1,6 @@
 package com.craftmate.body.bridge;
 
+import com.craftmate.body.CraftMateBodyClient;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import java.util.ArrayList;
@@ -11,6 +12,7 @@ import java.util.function.Consumer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.multiplayer.MultiPlayerGameMode;
+import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.player.KeyboardInput;
 import net.minecraft.core.BlockPos;
@@ -37,7 +39,7 @@ import net.minecraft.world.phys.Vec3;
  * Commands are state machines advanced by the client thread. A task remains
  * accepted/running until the world shows observable progress or it fails.
  */
-final class GameActions {
+public final class GameActions {
 	private static final List<String> SKILLS = List.of(
 		"goto", "look_at", "mine_block", "chop_tree", "say", "wait", "attack", "equip", "eat", "use_block", "place_block"
 	);
@@ -55,6 +57,7 @@ final class GameActions {
 	private static final Map<String, Task> TASKS = new ConcurrentHashMap<>();
 	private static int clientTick;
 	private static Reflexes reflexes;
+	private static volatile boolean miningInputHeld;
 
 	private GameActions() {
 	}
@@ -96,8 +99,25 @@ final class GameActions {
 		world.add("position", position);
 		world.addProperty("yaw", round(player.getYRot()));
 		world.addProperty("pitch", round(player.getXRot()));
+		world.addProperty("cameraYaw", round(CameraController.displayYaw(player)));
+		world.addProperty("cameraPitch", round(CameraController.displayPitch(player)));
 		world.addProperty("health", round(player.getHealth()));
 		world.addProperty("food", player.getFoodData().getFoodLevel());
+		world.addProperty("onGround", player.onGround());
+		world.addProperty("fallDistance", round(player.fallDistance));
+		world.addProperty("verticalVelocity", round(player.getDeltaMovement().y));
+		BlockPos feet = player.blockPosition();
+		BlockState floor = client.level.getBlockState(feet.below());
+		world.addProperty(
+			"floor",
+			floor.isAir() ? null : BuiltInRegistries.BLOCK.getKey(floor.getBlock()).toString()
+		);
+		BlockPos spawn = client.level.getRespawnData().pos();
+		JsonObject spawnPoint = new JsonObject();
+		spawnPoint.addProperty("x", spawn.getX() + 0.5);
+		spawnPoint.addProperty("y", spawn.getY());
+		spawnPoint.addProperty("z", spawn.getZ() + 0.5);
+		world.add("spawn", spawnPoint);
 		ItemStack selected = player.getInventory().getSelectedItem();
 		world.addProperty(
 			"selectedItem",
@@ -157,20 +177,25 @@ final class GameActions {
 			return StartDecision.rejected("E_BUSY", "duplicate task id");
 		}
 		closeBlockingScreen(client);
-		Task task = switch (op) {
-			case "wait" -> new WaitTask(id, integer(args, "ticks", 1));
-			case "say" -> new SayTask(id, required(args, "text"));
-			case "look_at" -> new LookTask(id, args);
-			case "goto" -> new GotoTask(id, args);
-			case "mine_block" -> new MineTask(id, args);
-			case "chop_tree" -> new MineTask(id, args, true);
-			case "attack" -> new AttackTask(id, required(args, "target"));
-			case "equip" -> new EquipTask(id, required(args, "item"));
-			case "eat" -> new EatTask(id, optional(args, "item"));
-			case "use_block" -> new UseBlockTask(id, optional(args, "block"));
-			case "place_block" -> new PlaceTask(id, required(args, "block"), integer(args, "count", 1));
-			default -> null;
-		};
+		Task task;
+		try {
+			task = switch (op) {
+				case "wait" -> new WaitTask(id, integer(args, "ticks", 1));
+				case "say" -> new SayTask(id, required(args, "text"));
+				case "look_at" -> new LookTask(id, args);
+				case "goto" -> new GotoTask(id, args);
+				case "mine_block" -> new MineTask(id, args);
+				case "chop_tree" -> new MineTask(id, args, true);
+				case "attack" -> new AttackTask(id, required(args, "target"));
+				case "equip" -> new EquipTask(id, required(args, "item"));
+				case "eat" -> new EatTask(id, optional(args, "item"));
+				case "use_block" -> new UseBlockTask(id, optional(args, "block"));
+				case "place_block" -> new PlaceTask(id, required(args, "block"), integer(args, "count", 1));
+				default -> null;
+			};
+		} catch (RuntimeException error) {
+			return StartDecision.rejected("E_PRECONDITION", "invalid args for " + op + ": " + message(error));
+		}
 		if (task == null) {
 			return StartDecision.rejected("E_UNKNOWN_OP", "unsupported skill " + op);
 		}
@@ -230,6 +255,7 @@ final class GameActions {
 	static void stopLocally(Minecraft client) {
 		LocalPlayer player = client.player;
 		if (player != null && player.input != null) player.input.tick();
+		releaseInputs(client);
 		MultiPlayerGameMode mode = client.gameMode;
 		if (mode != null && mode.isDestroying()) {
 			mode.stopDestroyBlock();
@@ -265,6 +291,7 @@ final class GameActions {
 				finish(task.id, "failed", "E_INTERNAL", message(error));
 			}
 		}
+		if (TASKS.isEmpty() && !CameraController.retained()) CameraController.release();
 	}
 
 	private static void finish(String id, String status, String code, String detail) {
@@ -331,8 +358,12 @@ final class GameActions {
 		return args.has(name) ? args.get(name).getAsInt() : fallback;
 	}
 
-	private static double number(JsonObject args, String name) {
-		return args.getAsJsonObject("target").get(name).getAsDouble();
+	private static double number(JsonObject value, String name) {
+		var found = value.get(name);
+		if (found == null || !found.isJsonPrimitive() || !found.getAsJsonPrimitive().isNumber()) {
+			throw new IllegalArgumentException("missing number " + name);
+		}
+		return found.getAsDouble();
 	}
 
 	private static String message(Throwable error) {
@@ -422,30 +453,78 @@ final class GameActions {
 
 	private static final class LookTask extends Task {
 		private final Vec3 target;
+		private final String targetName;
+		private int settledTicks;
 
 		LookTask(String id, JsonObject args) {
 			super(id);
-			this.target = vec(args);
+			this.targetName = optional(args, "player");
+			this.target = targetName == null ? vec(args) : null;
+		}
+
+		@Override
+		boolean validate(Minecraft client) {
+			if (!super.validate(client)) return false;
+			if (targetName != null && namedPlayer(client, targetName) == null) {
+				validationError = "no visible player named " + targetName;
+				return false;
+			}
+			return true;
 		}
 
 		@Override
 		void start(Minecraft client) {
 			LocalPlayer player = client.player;
-			Vec3 eyes = player.getEyePosition();
-			Vec3 direction = target.subtract(eyes).normalize();
-			player.setYRot((float) Math.toDegrees(Math.atan2(-direction.x, direction.z)));
-			player.setXRot((float) Math.toDegrees(-Math.asin(direction.y)));
-			finish(id, "completed", null, null);
+			Vec3 look = resolveLookTarget(client);
+			if (look == null) {
+				finish(id, "failed", "E_PRECONDITION", "look target is no longer available");
+				return;
+			}
+			CameraController.steerTo(player, look);
+			send.accept(progress(id, "turning", 0, 1));
 		}
 
 		@Override
 		void tick(Minecraft client) {
+			Vec3 look = resolveLookTarget(client);
+			if (look == null) {
+				finish(id, "failed", "E_WORLD_CHANGED", "look target left the visible area");
+				return;
+			}
+			CameraController.steerTo(client.player, look);
+			settledTicks = CameraController.settled(2.0f) ? settledTicks + 1 : 0;
+			if (settledTicks >= 3) {
+				CameraController.retain();
+				finish(id, "completed", null, null);
+			} else if (age > 20 * 4) {
+				finish(id, "failed", "E_TIMEOUT", "camera did not settle on the target");
+			}
+		}
+
+		private Vec3 resolveLookTarget(Minecraft client) {
+			if (targetName == null) return target;
+			AbstractClientPlayer player = namedPlayer(client, targetName);
+			return player == null ? null : player.getEyePosition();
+		}
+
+		private static AbstractClientPlayer namedPlayer(Minecraft client, String name) {
+			return client.level.players().stream()
+				.filter(candidate -> candidate.getName().getString().equalsIgnoreCase(name))
+				.findFirst()
+				.orElse(null);
 		}
 	}
 
 	private static final class GotoTask extends Task {
 		private static final int STUCK_TICKS = 20 * 3;
+		private static final double ARRIVE_DISTANCE = 0.75;
+		private static final double ARRIVE_HEIGHT = 1.25;
+		private static final double ROUTE_STEP = 0.5;
+		private static final int MAX_STEP_UP = 1;
+		private static final int MAX_DROP = 1;
 		private final Vec3 target;
+		private Vec3 destination;
+		private boolean routeComplete;
 		private int lastProgressTick;
 		private double lastHorizontal;
 		private int stuckTicks;
@@ -457,19 +536,67 @@ final class GameActions {
 
 		@Override
 		void start(Minecraft client) {
+			destination = target;
+			// A recovered respawn may carry a stale fallDistance from the
+			// death tick. Reset it only when the body is actually on ground;
+			// an airborne body must keep the real fall for the safety reflex.
+			if (client.player.onGround()) client.player.resetFallDistance();
 			lastHorizontal = horizontalDistance(client.player);
+			Route route = safeRouteEnd(client, client.player);
+			if (route == null) {
+				finish(id, "failed", "E_PRECONDITION", "no safe route from the current position");
+				return;
+			}
+			destination = route.destination();
+			routeComplete = route.complete();
+			lastHorizontal = horizontalDistance(client.player);
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate goto start target={} destination={} position={}",
+				target,
+				destination,
+				client.player.position()
+			);
 			send.accept(progress(id, "walking", 0, 1));
 		}
 
 		@Override
 		void tick(Minecraft client) {
 			LocalPlayer player = client.player;
-			Vec3 offset = target.subtract(player.position());
+			Vec3 offset = destination.subtract(player.position());
 			double horizontal = horizontalDistance(player);
-			if (horizontal < 1.25 || age > 20 * 60) {
+			boolean arrived = horizontal < ARRIVE_DISTANCE
+				&& Math.abs(player.getY() - destination.y) <= ARRIVE_HEIGHT;
+			if (arrived || horizontal < ARRIVE_DISTANCE || age > 20 * 60) {
 				stop(client);
-				if (horizontal < 1.25) finish(id, "completed", null, null);
-				else finish(id, "timeout", "E_TIMEOUT", "bounded walk did not reach target");
+				if (arrived && routeComplete && atTarget()) {
+					finish(id, "completed", null, null);
+				} else if (arrived) {
+					JsonObject evidence = partialRoute(horizontal);
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						routeComplete
+							? "reached the target column at the wrong height"
+							: "safe route stopped short of the requested target",
+						evidence
+					);
+				} else if (age > 20 * 60) {
+					finish(id, "timeout", "E_TIMEOUT", "bounded walk did not reach target");
+				} else {
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"stopped at the requested column's edge",
+						partialRoute(horizontal)
+					);
+				}
+				return;
+			}
+			if (player.onGround() && unsafeNextStep(client, player, offset)) {
+				stop(client);
+				finish(id, "failed", "E_PRECONDITION", "dangerous drop or water ahead");
 				return;
 			}
 			if (player.horizontalCollision && player.onGround()) {
@@ -487,28 +614,154 @@ final class GameActions {
 				return;
 			}
 			player.setYRot((float) Math.toDegrees(Math.atan2(-offset.x, offset.z)));
+			CameraController.steerHeading(
+				player,
+				player.getYRot(),
+				CameraController.displayPitch(player)
+			);
 			if (player.input != null) {
 				setWalkInput(client, true);
 			}
 			if (age - lastProgressTick >= 20) {
 				lastProgressTick = age;
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate goto tick position={} destination={} horizontal={} ground={} collision={} delta={}",
+					player.position(),
+					destination,
+					round(horizontal),
+					player.onGround(),
+					player.horizontalCollision,
+					player.getDeltaMovement()
+				);
 				send.accept(progress(id, "walking", (int) Math.round(horizontal), (int) Math.round(age)));
 			}
 		}
 
 		private double horizontalDistance(LocalPlayer player) {
-			return Math.hypot(target.x - player.getX(), target.z - player.getZ());
+			return Math.hypot(destination.x - player.getX(), destination.z - player.getZ());
+		}
+
+		private boolean atTarget() {
+			return Math.hypot(target.x - destination.x, target.z - destination.z) < 0.01
+				&& Math.abs(target.y - destination.y) <= ARRIVE_HEIGHT;
+		}
+
+		private JsonObject partialRoute(double remaining) {
+			JsonObject evidence = new JsonObject();
+			JsonObject outcome = new JsonObject();
+			outcome.addProperty(
+				"summary",
+				"只走到安全路线的可用终点，未到达请求的位置"
+			);
+			outcome.addProperty("problem", "剩下的路线上有断崖、水面或无法站立的区域");
+			JsonObject stopped = new JsonObject();
+			stopped.addProperty("x", round(destination.x));
+			stopped.addProperty("y", round(destination.y));
+			stopped.addProperty("z", round(destination.z));
+			JsonObject requested = new JsonObject();
+			requested.addProperty("x", round(target.x));
+			requested.addProperty("y", round(target.y));
+			requested.addProperty("z", round(target.z));
+			evidence.add("stoppedAt", stopped);
+			evidence.add("requested", requested);
+			evidence.addProperty("remainingHorizontal", round(remaining));
+			evidence.add("outcome", outcome);
+			return evidence;
+		}
+
+		/**
+		 * The direct route is intentionally conservative: a two-block drop or
+		 * an unplanned water entry would either hurt the body or hand control
+		 * to the safety reflex. Let the autonomy loop choose another heading
+		 * instead of walking to the edge every time.
+		 */
+		private boolean unsafeNextStep(Minecraft client, LocalPlayer player, Vec3 offset) {
+			double length = Math.hypot(offset.x, offset.z);
+			if (length < 0.01) return false;
+			BlockPos next = BlockPos.containing(
+				player.getX() + offset.x / length * 0.65,
+				player.getY(),
+				player.getZ() + offset.z / length * 0.65
+			);
+			return standingY(
+				client,
+				new BlockPos(next.getX(), player.blockPosition().getY(), next.getZ())
+			) == Integer.MIN_VALUE;
+		}
+
+		/**
+		 * A direct route is only safe if every sampled step has a solid floor,
+		 * no fluid at foot height, and no drop deeper than one block. Walking
+		 * first and relying on the fall reflex is too late: the body is already
+		 * over the edge when the reflex fires.
+		 */
+		private Route safeRouteEnd(Minecraft client, LocalPlayer player) {
+			if (!player.onGround()) return null;
+			Vec3 start = player.position();
+			double distance = Math.hypot(target.x - start.x, target.z - start.z);
+			int samples = Math.max(1, (int) Math.ceil(distance / ROUTE_STEP));
+			int feetY = player.blockPosition().getY();
+			double lastSafeProgress = 0;
+			for (int index = 1; index <= samples; index++) {
+				double progress = (double) index / samples;
+				int x = (int) Math.floor(start.x + (target.x - start.x) * progress);
+				int z = (int) Math.floor(start.z + (target.z - start.z) * progress);
+				int nextY = standingY(client, new BlockPos(x, feetY, z));
+				if (nextY == Integer.MIN_VALUE) {
+					if (lastSafeProgress <= 0) return null;
+					return new Route(
+						new Vec3(
+							start.x + (target.x - start.x) * lastSafeProgress,
+							start.y,
+							start.z + (target.z - start.z) * lastSafeProgress
+						),
+						false
+					);
+				}
+				feetY = nextY;
+				lastSafeProgress = progress;
+			}
+			boolean vertical = Math.abs(feetY - target.y) <= ARRIVE_HEIGHT;
+			return new Route(vertical ? target : new Vec3(target.x, start.y, target.z), vertical);
+		}
+
+		private record Route(Vec3 destination, boolean complete) {
+		}
+
+		/**
+		 * Returns the feet Y of a standable column within one block of the
+		 * expected level, or `Integer.MIN_VALUE` for a gap, fluid, or wall.
+		 * The caller advances its expected level one sample at a time, so a
+		 * staircase is allowed but a two-block drop never is.
+		 */
+		private int standingY(Minecraft client, BlockPos at) {
+			for (int offset = -MAX_STEP_UP; offset <= MAX_STEP_UP; offset++) {
+				BlockPos candidate = at.above(offset);
+				BlockState floor = client.level.getBlockState(candidate.below());
+				BlockState feet = client.level.getBlockState(candidate);
+				BlockState head = client.level.getBlockState(candidate.above());
+				if (floor.blocksMotion()
+					&& floor.getFluidState().isEmpty()
+					&& (feet.isAir() || !feet.blocksMotion())
+					&& (head.isAir() || !head.blocksMotion())) {
+					return candidate.getY();
+				}
+			}
+			return Integer.MIN_VALUE;
 		}
 
 		@Override
 		void stop(Minecraft client) {
 			releaseWalkInput(client);
+			CameraController.release();
 		}
 	}
 
 	private static final class MineTask extends Task {
 		private static final int WALK_BASE_TICKS = 20 * 10;
 		private static final int BREAK_TICKS = 20 * 25;
+		private static final int APPROACH_STALL_TICKS = 20 * 3;
+		private static final int MAX_REPLANS = 3;
 		private final String blockId;
 		private final boolean anyLog;
 		private final int count;
@@ -526,6 +779,8 @@ final class GameActions {
 		private int lastReportedPercent = -1;
 		private BlockState blockBeforeDestroy;
 		private boolean breaking = false;
+		private boolean breakingLeaves = false;
+		private int replans;
 		private final JsonArray minedBlocks = new JsonArray();
 
 		MineTask(String id, JsonObject args) {
@@ -577,7 +832,19 @@ final class GameActions {
 			}
 			BlockState state = client.level.getBlockState(target);
 			if (destroying && state.isAir()) {
+				boolean wasClearingCanopy = breakingLeaves;
 				stopMining(client);
+				if (wasClearingCanopy) {
+					target = selectTarget(client);
+					if (target == null) {
+						finish(id, "failed", "E_PRECONDITION", "no " + targetName() + " left after clearing the canopy");
+						return;
+					}
+					walking = !canReach(client.player, target) || !canSee(client, client.player, target);
+					lastApproachDistance = Double.POSITIVE_INFINITY;
+					lastReportedPercent = -1;
+					return;
+				}
 				if (desiredTarget != null && !target.equals(desiredTarget)) {
 					// This was a natural cover block. It made the requested
 					// block visible; it is not part of the requested count.
@@ -617,7 +884,7 @@ final class GameActions {
 						id,
 						"failed",
 						"E_PRECONDITION",
-						"no further " + targetName() + " within " + TARGET_SEARCH_RADIUS + " blocks",
+						"only " + mined + " of " + count + " " + targetName() + " found",
 						evidence
 					);
 					return;
@@ -631,6 +898,7 @@ final class GameActions {
 			}
 			LocalPlayer player = client.player;
 			Vec3 center = Vec3.atCenterOf(target);
+			CameraController.hold(player);
 			aimAt(player, center);
 			if (walking) {
 				if (canReach(player, target) && canSee(client, player, target)) {
@@ -663,7 +931,24 @@ final class GameActions {
 				boolean ledge = client.level.getBlockState(foot).isAir()
 					&& client.level.getBlockState(foot.below()).isAir();
 				if (ledge && player.onGround()) {
-					player.setDeltaMovement(0, 0.35, 0);
+					if (client.level.getBlockState(foot.below(2)).blocksMotion()) {
+						player.jumpFromGround();
+					} else {
+						// The nearest log can be across a ravine. Do not walk
+						// off the edge and do not fail while another tree is
+						// still reachable; turn toward a different candidate.
+						BlockPos alternative = findApproachTarget(client, target);
+						if (alternative != null) {
+							target = alternative;
+							center = Vec3.atCenterOf(target);
+							lastApproachDistance = Double.POSITIVE_INFINITY;
+							lastWalkProgressAge = walkingAge;
+							return;
+						}
+						stop(client);
+						finish(id, "failed", "E_PRECONDITION", "no safe reachable " + targetName());
+						return;
+					}
 				} else if (player.horizontalCollision && player.onGround()) {
 					player.jumpFromGround();
 				}
@@ -674,9 +959,47 @@ final class GameActions {
 				if (walkingAge > walkBudgetTicks(player, target)) {
 					stop(client);
 					finish(id, "timeout", "E_TIMEOUT", "could not reach " + targetName() + " in time");
-				} else if (walkingAge - lastWalkProgressAge > 20 * 3) {
+				} else if (walkingAge - lastWalkProgressAge > APPROACH_STALL_TICKS) {
+					if (++replans > MAX_REPLANS) {
+						stop(client);
+						finish(id, "failed", "E_PRECONDITION", "no reachable " + targetName() + " after replanning");
+						return;
+					}
+					// The nearest log may be behind leaves or across a gap.
+					// Give the agent another visible candidate instead of
+					// reporting the same unreachable target every four seconds.
+					BlockPos alternative = findApproachTarget(client, target);
+					if (alternative != null) {
+						target = alternative;
+						center = Vec3.atCenterOf(target);
+						lastApproachDistance = Double.POSITIVE_INFINITY;
+						lastWalkProgressAge = walkingAge;
+						return;
+					}
+					BlockPos canopy = findBlock(client, candidateState ->
+						candidateState.is(BlockTags.LEAVES)
+					);
+					if (canopy != null) {
+						// A canopy can completely surround the trunk. The
+						// normal destroy state machine can clear the leaf that
+						// blocks the next step; it is not a chop count.
+						target = canopy;
+						desiredTarget = null;
+						side = Direction.UP;
+						miningAge = 0;
+						walking = false;
+						breaking = false;
+						breakingLeaves = true;
+						lastReportedPercent = -1;
+						return;
+					}
 					stop(client);
-					finish(id, "failed", "E_PRECONDITION", targetName() + " approach made no progress for 3 seconds");
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						targetName() + " approach made no progress for 3 seconds"
+					);
 				}
 				return;
 			}
@@ -684,6 +1007,26 @@ final class GameActions {
 			aimAt(player, center);
 			BlockHitResult hit = clip(client, player, center);
 			if (!hit.getBlockPos().equals(target)) {
+				// The trunk can be behind leaves after an earlier chop. Pick
+				// another visible log before giving up; only a task with no
+				// alternative should emit an obstruction failure.
+				BlockPos alternative = findBlock(client, candidateState ->
+					matchesTarget(candidateState) && !candidateState.equals(target)
+				);
+				if (alternative == null) {
+					alternative = findBlockUnclipped(client, candidateState ->
+						matchesTarget(candidateState) && !candidateState.equals(target)
+					);
+				}
+				if (alternative != null && !alternative.equals(target)) {
+					stopMining(client);
+					target = alternative;
+					walking = true;
+					lastApproachDistance = Double.POSITIVE_INFINITY;
+					lastWalkProgressAge = 0;
+					lastReportedPercent = -1;
+					return;
+				}
 				stopMining(client);
 				target = null;
 				finish(id, "failed", "E_PRECONDITION", "target is obstructed from the player's line of sight");
@@ -692,35 +1035,42 @@ final class GameActions {
 			if (!breaking) {
 				blockBeforeDestroy = client.level.getBlockState(target);
 				side = hit.getDirection();
-				if (!client.mouseHandler.isMouseGrabbed() && client.isWindowActive()) {
-					client.mouseHandler.grabMouse();
-				}
-				client.missTime = 0;
+				holdMiningInput(client);
 				miningAge = 0;
 				lastReportedPercent = -1;
-				// Vanilla starts the destroy state only here. Calling
-				// continueDestroyBlock first falls into its start branch and
-				// resets progress on every tick, which makes the hand swing
-				// forever while the block never breaks.
-				client.gameMode.startDestroyBlock(target, side);
+				// The vanilla key handler owns start/continue/stop. Holding
+				// keyAttack makes it use the same hit result and target every
+				// tick, so destroyProgress is not reset by an intervening
+				// stopDestroyBlock call from the input path.
+				client.hitResult = hit;
 				destroying = true;
 				breaking = true;
 				send.accept(progress(id, "breaking", 0, 100));
 			} else {
-				if (!client.mouseHandler.isMouseGrabbed() && client.isWindowActive()) {
-					client.mouseHandler.grabMouse();
-				}
-				client.gameMode.continueDestroyBlock(target, side);
+				holdMiningInput(client);
+				// Keep the client's pick result aligned with the face the task
+				// aimed at. Vanilla's key handler then advances the same
+				// destroy target instead of starting a new one.
+				client.hitResult = client.level.clip(
+					new ClipContext(
+						player.getEyePosition(),
+						Vec3.atCenterOf(target),
+						ClipContext.Block.OUTLINE,
+						ClipContext.Fluid.NONE,
+						player
+					)
+				);
 			}
 			client.missTime = 0;
 			// The vanilla destroy loop owns accumulated progress. The block
 			// state turning to air is the only trustworthy completion signal;
-			// `getDestroyProgress` is a per-tick coefficient, and summing it
-			// here only produced a fake progress bar while the block stayed.
+			// getDestroyStage exposes the real vanilla stage without summing
+			// per-block coefficients ourselves.
 			miningAge++;
 			BlockState current = client.level.getBlockState(target);
 			if (!current.isAir() && miningAge % 20 == 0) {
-				int percent = Math.min(99, (int) Math.floor(100.0f * miningAge / BREAK_TICKS));
+				int stage = client.gameMode.getDestroyStage();
+				int percent = stage < 0 ? 0 : Math.min(99, stage * 10);
 				if (percent >= lastReportedPercent + 5) {
 					lastReportedPercent = percent;
 					send.accept(progress(id, "breaking", percent, 100));
@@ -749,11 +1099,46 @@ final class GameActions {
 			return findBlock(client, state -> state.is(block));
 		}
 
+		/**
+		 * A different visible target can be reached without crossing the gap
+		 * that blocked the previous one. Prefer one whose shortest safe route
+		 * reaches it rather than merely selecting the next visible log.
+		 */
+		private BlockPos findApproachTarget(Minecraft client, BlockPos excluded) {
+			BlockPos origin = client.player.blockPosition();
+			BlockPos best = null;
+			double bestDistance = Double.POSITIVE_INFINITY;
+			int radius = TARGET_SEARCH_RADIUS;
+			for (BlockPos pos : BlockPos.betweenClosed(
+				origin.offset(-radius, -16, -radius),
+				origin.offset(radius, 16, radius)
+			)) {
+				BlockPos candidate = pos.immutable();
+				if (candidate.equals(excluded)) continue;
+				if (!matchesTarget(client.level.getBlockState(candidate))) continue;
+				double distance = candidate.distSqr(origin);
+				if (distance > (double) radius * radius) continue;
+				if (!reachableStandingSpot(client, candidate)) continue;
+				if (distance < bestDistance) {
+					bestDistance = distance;
+					best = candidate;
+				}
+			}
+			return best;
+		}
+
 		private BlockPos selectTarget(Minecraft client) {
 			// A tall trunk can hide its lower logs behind leaves or adjacent
 			// blocks. Prefer a directly visible log, then accept any log within
 			// the same bounded search instead of failing while nearbyBlocks
 			// clearly reports wood.
+			// For logs, prioritize a safe reachable target to avoid selecting
+			// a visible but unreachable log (e.g., across a gap or cliff).
+			if (anyLog) {
+				BlockPos reachable = findApproachTarget(client, null);
+				desiredTarget = null;
+				return reachable;
+			}
 			BlockPos direct = findTarget(client);
 			if (direct != null) {
 				desiredTarget = null;
@@ -842,6 +1227,7 @@ final class GameActions {
 		void stop(Minecraft client) {
 			stopMining(client);
 			releaseWalkInput(client);
+			CameraController.release();
 		}
 
 		private static boolean canReach(LocalPlayer player, BlockPos target) {
@@ -853,6 +1239,29 @@ final class GameActions {
 
 		private static boolean canSee(Minecraft client, LocalPlayer player, BlockPos target) {
 			return clip(client, player, Vec3.atCenterOf(target)).getBlockPos().equals(target);
+		}
+
+		/**
+		 * Use the same conservative sample walk as `GotoTask` to decide if the
+		 * body can stand beside a block. A visible log on a cliff is not a
+		 * usable target just because the line of sight is clear.
+		 */
+		private static boolean reachableStandingSpot(Minecraft client, BlockPos target) {
+			LocalPlayer player = client.player;
+			for (Direction direction : Direction.Plane.HORIZONTAL) {
+				BlockPos spot = target.relative(direction);
+				BlockState below = client.level.getBlockState(spot.below());
+				BlockState feet = client.level.getBlockState(spot);
+				BlockState head = client.level.getBlockState(spot.above());
+				if (!below.blocksMotion() || !below.getFluidState().isEmpty()) continue;
+				if (feet.blocksMotion() || head.blocksMotion()) continue;
+				double distance = Math.hypot(
+					spot.getX() + 0.5 - player.getX(),
+					spot.getZ() + 0.5 - player.getZ()
+				);
+				if (distance <= player.blockInteractionRange() + 0.5) return true;
+			}
+			return false;
 		}
 
 		private static BlockHitResult clip(Minecraft client, LocalPlayer player, Vec3 center) {
@@ -885,9 +1294,10 @@ final class GameActions {
 		}
 
 		private void stopMining(Minecraft client) {
-			if (client.gameMode != null && client.gameMode.isDestroying()) client.gameMode.stopDestroyBlock();
+			releaseMiningInput(client);
 			destroying = false;
 			breaking = false;
+			breakingLeaves = false;
 			lastReportedPercent = -1;
 		}
 	}
@@ -997,7 +1407,10 @@ final class GameActions {
 
 		@Override
 		void start(Minecraft client) {
-			BlockHitResult hit = client.player.pick(5.0, 1.0f, false) instanceof BlockHitResult blockHit ? blockHit : null;
+			HitResult raw = client.player.raycastHitResult(1.0f, client.player);
+			BlockHitResult hit = raw.getType() == HitResult.Type.BLOCK && raw instanceof BlockHitResult blockHit
+				? blockHit
+				: null;
 			if (hit != null && (blockId == null || blockMatches(client.level, hit.getBlockPos(), blockId))) {
 				client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, hit);
 				finish(id, "completed", null, null);
@@ -1025,6 +1438,17 @@ final class GameActions {
 		}
 
 		@Override
+		boolean validate(Minecraft client) {
+			if (!super.validate(client)) return false;
+			if (count > 1) {
+				validationError =
+					"place_block accepts count=1 in the current body; split the request into confirmed placements";
+				return false;
+			}
+			return true;
+		}
+
+		@Override
 		void start(Minecraft client) {
 			int slot = findHotbar(client.player, blockId);
 			if (slot < 0) {
@@ -1032,13 +1456,16 @@ final class GameActions {
 				return;
 			}
 			client.player.getInventory().setSelectedSlot(slot);
-			BlockHitResult hit = client.player.pick(5.0, 1.0f, false) instanceof BlockHitResult blockHit ? blockHit : null;
+			HitResult raw = client.player.raycastHitResult(1.0f, client.player);
+			BlockHitResult hit = raw.getType() == HitResult.Type.BLOCK && raw instanceof BlockHitResult blockHit
+				? blockHit
+				: null;
 			if (hit == null) {
 				finish(id, "failed", "E_PRECONDITION", "no placement surface in view");
 				return;
 			}
 			client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, hit);
-			finish(id, "completed", null, count == 1 ? null : "one placement per command");
+			finish(id, "completed", null, null);
 		}
 
 		@Override
@@ -1048,6 +1475,7 @@ final class GameActions {
 
 	private static Vec3 vec(JsonObject args) {
 		JsonObject target = args.getAsJsonObject("target");
+		if (target == null && args.has("x") && args.has("y") && args.has("z")) target = args;
 		if (target == null) throw new IllegalArgumentException("missing target");
 		return new Vec3(number(target, "x"), number(target, "y"), number(target, "z"));
 	}
@@ -1076,6 +1504,37 @@ final class GameActions {
 
 	private static void releaseWalkInput(Minecraft client) {
 		setWalkInput(client, false);
+	}
+
+	/**
+	 * Vanilla stops a destroy when the mouse is not grabbed, which happens
+	 * whenever another app is focused. The mixin keeps `continueAttack(true)`
+	 * for exactly this window so the agent can mine without stealing focus.
+	 */
+	private static void holdMiningInput(Minecraft client) {
+		miningInputHeld = true;
+		client.missTime = 0;
+	}
+
+	public static boolean holdsMiningInput() {
+		return miningInputHeld;
+	}
+
+	/**
+	 * A task must not leave the synthetic attack key held after it finishes,
+	 * is cancelled, or a reflex interrupts it.
+	 */
+	static void releaseMiningInput(Minecraft client) {
+		miningInputHeld = false;
+		if (client.gameMode != null && client.gameMode.isDestroying()) {
+			client.gameMode.stopDestroyBlock();
+		}
+	}
+
+	/** Releases every synthetic input a finished or interrupted task can own. */
+	public static void releaseInputs(Minecraft client) {
+		releaseMiningInput(client);
+		if (client.options != null) releaseWalkInput(client);
 	}
 
 	private static BlockPos findBlock(Minecraft client, java.util.function.Predicate<BlockState> matches) {
@@ -1152,7 +1611,8 @@ final class GameActions {
 				String key = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString();
 				return name.equalsIgnoreCase(targetName) || key.equalsIgnoreCase(targetName);
 			})
-			.findFirst()
+			.filter(entity -> client.player.hasLineOfSight(entity))
+			.min((left, right) -> Double.compare(left.distanceToSqr(client.player), right.distanceToSqr(client.player)))
 			.orElse(null);
 	}
 
@@ -1167,7 +1627,14 @@ final class GameActions {
 			counts.merge(id, 1, Integer::sum);
 		}
 		counts.entrySet().stream()
-			.sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+			.sorted((left, right) -> {
+				// Wood decides whether autonomy should chop next. A generic
+				// "most common blocks" limit let nearby water/sand hide a tree.
+				boolean leftLog = isLogId(left.getKey());
+				boolean rightLog = isLogId(right.getKey());
+				if (leftLog != rightLog) return leftLog ? -1 : 1;
+				return Integer.compare(right.getValue(), left.getValue());
+			})
 			.limit(32)
 			.forEach(block -> {
 			JsonObject summary = new JsonObject();
@@ -1176,6 +1643,10 @@ final class GameActions {
 			blocks.add(summary);
 			});
 		return blocks;
+	}
+
+	private static boolean isLogId(String id) {
+		return id.matches(".*[a-z_]+_(log|wood|stem|hyphae)$");
 	}
 
 	private static double round(double value) {

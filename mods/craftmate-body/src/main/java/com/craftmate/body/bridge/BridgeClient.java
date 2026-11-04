@@ -110,6 +110,11 @@ public final class BridgeClient {
 		if (current == null && running.get() && !closing && now >= nextReconnectAt) connect();
 	}
 
+	/** True while the server has granted this body to the agent. */
+	public boolean agentControlled() {
+		return agentControl;
+	}
+
 	public void close() {
 		running.set(false);
 		closing = true;

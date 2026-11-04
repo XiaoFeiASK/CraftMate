@@ -66,8 +66,29 @@ export const worldSnapshotSchema = z.object({
   }).nullable().optional(),
   yaw: z.number().nullable().optional(),
   pitch: z.number().nullable().optional(),
+  /**
+   * The audience-facing camera can be deliberately decoupled from the
+   * player's interaction rotation. These values describe what viewers see.
+   */
+  cameraYaw: z.number().nullable().optional(),
+  cameraPitch: z.number().nullable().optional(),
   health: z.number().nonnegative().nullable().optional(),
   food: z.number().int().nonnegative().nullable().optional(),
+  /**
+   * Physical state at the same instant as `position`. The body reports these
+   * so a planner can distinguish a real fall from a stale client value, and
+   * so acceptance runs can prove whether the feet are supported.
+   */
+  onGround: z.boolean().nullable().optional(),
+  fallDistance: z.number().nonnegative().nullable().optional(),
+  verticalVelocity: z.number().nullable().optional(),
+  floor: z.string().max(160).nullable().optional(),
+  /** World spawn, used as the safe centre for autonomous exploration. */
+  spawn: z.object({
+    x: z.number(),
+    y: z.number(),
+    z: z.number(),
+  }).nullable().optional(),
   selectedItem: z.string().max(160).nullable().optional(),
   hotbar: z.array(z.object({
     slot: z.number().int().min(0).max(8),

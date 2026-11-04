@@ -47,6 +47,8 @@ export interface PersistentShow {
   expireRawText(now?: number): number;
   /** Records a model call so the hourly budget is a query, not a counter. */
   recordCost(provider: string, model: string, cost: number): void;
+  /** Persists a locally generated action with a synthetic source. */
+  recordAutonomousDecision(decision: Decision): void;
   close(): void;
 }
 
@@ -205,6 +207,21 @@ export function createPersistentShow(options: {
     recordCost: (providerId, model, cost) => {
       if (cost <= 0) return;
       costs.record({ sessionId: context.sessionId, provider: providerId, model, cost });
+    },
+    recordAutonomousDecision: (decision) => {
+      const eventId = `craftmate:${decision.id}`;
+      // This is an agent-authored source, not an audience event. Storing it
+      // as `enter` would corrupt viewer/event statistics in the console.
+      const source = sources.append(context.sessionId, {
+        id: eventId,
+        source: "douyin",
+        kind: "comment",
+        userId: "craftmate-agent",
+        nickname: persona.name,
+        text: decision.text,
+        ts: decision.at,
+      });
+      decisions.append(context, source.id, decision, eventId);
     },
     close: () => db.close(),
   };

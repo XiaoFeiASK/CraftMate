@@ -38,6 +38,8 @@ final class Reflexes {
 	private static final float FALL_DAMAGE_DISTANCE = 3.0f;
 	/** Ignore a single airborne frame caused by jump/step-up physics. */
 	private static final float IGNORE_MOMENTARY_FALL = 0.75f;
+	/** A stale fallDistance with near-zero vertical motion is not a fall. */
+	private static final double REAL_FALL_SPEED = -0.1;
 
 	private final Consumer<JsonObject> send;
 	private final long[] lastReportedAt = new long[Kind.values().length];
@@ -72,7 +74,7 @@ final class Reflexes {
 		}
 		if (
 			player.fallDistance > FALL_DAMAGE_DISTANCE
-				&& player.getDeltaMovement().y < IGNORE_MOMENTARY_FALL
+				&& player.getDeltaMovement().y < REAL_FALL_SPEED
 				&& !player.onGround()
 				&& !player.isFallFlying()
 		) {
@@ -117,9 +119,7 @@ final class Reflexes {
 			player.input.keyPresses = net.minecraft.world.entity.player.Input.EMPTY;
 		}
 		Minecraft client = Minecraft.getInstance();
-		if (client.gameMode != null && client.gameMode.isDestroying()) {
-			client.gameMode.stopDestroyBlock();
-		}
+		GameActions.releaseMiningInput(client);
 	}
 
 	/**

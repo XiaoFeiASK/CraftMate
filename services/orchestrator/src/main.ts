@@ -7,10 +7,16 @@ import { createOps } from "./ops.ts";
 import { createBridgeUpgrade, SqliteActionPort } from "@craftmate/bridge";
 import { loadOrCreateBridgeToken } from "@craftmate/bridge";
 import { createIngressSupervisor } from "./ingress-supervisor.ts";
+import {
+  AUTONOMY_STUCK_TURN_DEGREES,
+  AUTONOMY_TURN_DEGREES,
+  nextAutonomousAction,
+} from "@craftmate/agent/application";
 import { readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { skillOutcomeSchema } from "@craftmate/contracts";
+import { skillCallSchema } from "@craftmate/contracts";
 
 const port = Number(process.env.CRAFTMATE_PORT ?? 4321);
 // Loopback by default. Set CRAFTMATE_HOST=0.0.0.0 only when another device
@@ -20,6 +26,15 @@ const ingressToken = loadOrCreateToken();
 // The bridge is assigned before the HTTP server starts accepting traffic.
 // The planner reads only the last semantic heartbeat snapshot from it.
 let bridge: ReturnType<typeof createBridgeUpgrade>;
+let autonomousInFlight: string | null = null;
+let autonomousCommandId: string | null = null;
+let autonomousStartedAt = 0;
+let lastAutonomousAt = 0;
+let autonomySequence = 0;
+let autonomyRouteFailures = 0;
+let autonomyMiningBlockedUntil = 0;
+let autonomyOrigin: { readonly x: number; readonly z: number } | null = null;
+let autonomyHeading: number | null = null;
 const persistent = createPersistentShow({
   world: () => bridge?.health().world ?? null,
   availableSkills: () => bridge?.health().skills ?? [],
@@ -116,6 +131,36 @@ bridge = createBridgeUpgrade({
     },
   },
   onOutcome: (outcome) => {
+    if (outcome.decisionId === autonomousInFlight) {
+      autonomousInFlight = null;
+      autonomousCommandId = null;
+      // Keep walking the same heading after success. Turn only when the body
+      // reports a blocked route, so exploration is a continuous line rather
+      // than a four-block square.
+      if (outcome.status !== "completed") {
+        autonomySequence += 1;
+        autonomyRouteFailures += 1;
+        if (autonomyHeading !== null) {
+          const turn =
+            autonomyRouteFailures >= 2
+              ? AUTONOMY_STUCK_TURN_DEGREES
+              : AUTONOMY_TURN_DEGREES;
+          autonomyHeading = (autonomyHeading + turn) % 360;
+        }
+        const decision = persistent.show
+          .recent()
+          .find((entry) => entry.id === outcome.decisionId);
+        // A nearby log can stay visible while every visible face is blocked.
+        // Back off for one exploration step instead of re-selecting the same
+        // tree on the next cooldown.
+        if (decision?.intent === "mine") {
+          autonomyMiningBlockedUntil = Date.now() + 6_000;
+        }
+      } else {
+        autonomyRouteFailures = 0;
+        autonomyMiningBlockedUntil = 0;
+      }
+    }
     // The decision id is the join between "it was asked to" and "what happened".
     // Without it the console would show two unrelated rows.
     const decision = persistent.show
@@ -319,8 +364,123 @@ const bridgePoll = setInterval(() => {
   server.publishBridgeHealth(bridge.health());
 }, 2_000);
 
+// One bounded step at a time. The next decision is made only after the body
+// settles the previous one, so autonomy cannot build a command backlog or
+// fight an audience command that is still being planned.
+const autonomousLoop = setInterval(() => {
+  if (process.env.CRAFTMATE_AUTONOMY === "0") return;
+  const health = bridge.health();
+  if (autonomousInFlight !== null && Date.now() - autonomousStartedAt > 35_000) {
+    // A lost terminal frame must not permanently freeze an always-on agent.
+    // Cancel by command id, not by health counters: the bridge can hold a
+    // task whose running count has already been lost in an older snapshot.
+    const stale = autonomousInFlight;
+    console.warn(`orchestrator: reclaiming stale autonomous step ${stale}`);
+    try {
+      // The bridge cancels by command id, so keep the exact id that was sent
+      // instead of reusing the decision id.
+      if (autonomousCommandId !== null) {
+        bridge.session.cancel(autonomousCommandId, "autonomous step lost its terminal frame");
+      }
+    } catch (error) {
+      console.warn(
+        `orchestrator: stale cancel failed — ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+    const failed = persistent.show.settleDecision(stale, {
+      status: "failed",
+      errorCode: "E_TIMEOUT",
+      detail: "autonomous step lost its terminal frame",
+      outcome: null,
+      at: Date.now(),
+    });
+    if (failed) server.publishDecision(failed);
+    autonomousInFlight = null;
+    autonomousCommandId = null;
+    autonomySequence += 1;
+    autonomyRouteFailures += 1;
+  }
+  if (autonomousInFlight !== null) return;
+  if (server.isPlanning()) return;
+  if (autonomyOrigin === null && health.world?.position) {
+    autonomyOrigin = {
+      x: health.world.position.x,
+      z: health.world.position.z,
+    };
+  }
+  if (autonomyHeading === null && health.world?.yaw !== undefined) {
+    autonomyHeading = health.world.yaw ?? 0;
+  }
+  const action = nextAutonomousAction({
+    now: Date.now(),
+    mode: persistent.show.snapshot().mode,
+    bridge: health,
+    lastAttemptAt: lastAutonomousAt,
+    sequence: autonomySequence,
+    origin: autonomyOrigin,
+    spawn: health.world?.spawn
+      ? { x: health.world.spawn.x, z: health.world.spawn.z }
+      : null,
+    heading: autonomyHeading,
+    miningBlockedUntil: autonomyMiningBlockedUntil,
+    routeFailures: autonomyRouteFailures,
+  });
+  if (action === null) return;
+  const skill = skillCallSchema.safeParse(action.skill);
+  if (!skill.success) return;
+  // The autonomous loop owns one decision at a time, but an audience command
+  // may have been dispatched after the health snapshot. Do not append a second
+  // cmd that would sit behind it and look like a frozen agent.
+  const latest = bridge.health();
+  if (latest.queued > 0 || latest.running > 0 || latest.connected !== true) return;
+  const decision = persistent.show.recordAutonomous({
+    ...action,
+    skill: skill.data,
+    recorder: {
+      record: (entry) => persistent.recordAutonomousDecision(entry),
+    },
+  });
+  if (decision === null) return;
+  autonomousInFlight = decision.id;
+  const commandId = crypto.randomUUID();
+  autonomousCommandId = commandId;
+  autonomousStartedAt = Date.now();
+  lastAutonomousAt = Date.now();
+  server.publishDecision(decision);
+  try {
+    bridge.session.issue({
+      v: 1,
+      type: "cmd",
+      id: commandId,
+      decisionId: decision.id,
+      op: decision.skill!.name,
+      args: decision.skill!.args,
+      priority: decision.priority,
+      idempotencyKey: decision.skill!.idempotencyKey,
+    });
+  } catch (error) {
+    autonomousInFlight = null;
+    autonomousCommandId = null;
+    const failed = persistent.show.settleDecision(decision.id, {
+      status: "failed",
+      errorCode:
+        error instanceof Error && "code" in error && typeof error.code === "string"
+          ? error.code
+          : "E_INTERNAL",
+      detail: error instanceof Error ? error.message : String(error),
+      outcome: null,
+      at: Date.now(),
+    });
+    if (failed) server.publishDecision(failed);
+  }
+  server.publishBridgeHealth(bridge.health());
+}, 1_000);
+
 const shutdown = async (): Promise<void> => {
   clearInterval(bridgePoll);
+  clearInterval(autonomousLoop);
   retention.stop();
   voiceLink?.close();
   await ingressSupervisor.close();
