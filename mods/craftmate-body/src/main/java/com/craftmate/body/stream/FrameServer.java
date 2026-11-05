@@ -26,12 +26,13 @@ import net.minecraft.client.Screenshot;
 import com.mojang.blaze3d.platform.NativeImage;
 
 /**
- * Loopback-only JPEG frame source for the console stage.
+ * Loopback-only JPEG frame source for optional local recording and debugging.
  *
- * <p>The game picture never crosses the bridge protocol: rendering is local
- * and the console already runs on this machine. Keeping it on its own port
- * means the frame stream can fail, restart or be absent without touching
- * command ownership or liveness.
+ * <p>The admin console no longer consumes this stream (#55). It remains behind
+ * {@link FrameDemand} so an external recorder can opt in without affecting
+ * command ownership, liveness, or the console's first paint. When nothing asks
+ * for frames, capture stays idle and this server costs one unused loopback
+ * port.
  */
 public final class FrameServer implements AutoCloseable {
 	private static final String HOST = "127.0.0.1";

@@ -9,4 +9,5 @@ export * from "./outcome.ts";
 export * from "./replay.ts";
 export * from "./skills.ts";
 export * from "./settings.ts";
+export * from "./telemetry.ts";
 export * from "./voice.ts";

@@ -33,6 +33,7 @@ import type {
 import { isLoopbackAddress, tokenMatches } from "@craftmate/local-auth";
 import type { BridgeUpgrade } from "@craftmate/bridge";
 import { speakDecision as deliverSpeech, type SpeechHooks } from "./speech.ts";
+import { AgentTelemetry } from "../telemetry.ts";
 
 export interface SettingsWriter {
   /** Returns null when the payload failed validation and was not persisted. */
@@ -82,6 +83,13 @@ interface ControlServerOptions {
   readonly goalRuntime?: GoalRuntimeHooks;
   /** Control ownership changes must interrupt or resume the goal runtime. */
   readonly onOperator?: (kind: "takeover" | "release" | "stop") => void;
+  /**
+   * The telemetry projection. When absent a local one is created so a plain
+   * test server still answers with a well-formed empty snapshot.
+   */
+  readonly telemetry?: AgentTelemetry;
+  /** Called after a metrics frame arrives so the host can augment it. */
+  readonly onIngressMetrics?: (metrics: import("@craftmate/contracts").IngressMetricsFrame) => void;
 }
 
 export interface GoalRuntimeHooks {
@@ -132,6 +140,10 @@ export interface ControlServer {
   publishGoal(progress: import("@craftmate/contracts").GoalProgress): void;
   /** One body event, already persisted by the host. */
   publishWorldEvent(event: { readonly name: string; readonly data: unknown; readonly at: number }): void;
+  /** Records an operator fact, persists it, and broadcasts the bounded view. */
+  publishAgentEvent(input: import("../telemetry.ts").AgentEventInput): void;
+  publishTelemetry(): void;
+  readonly telemetry: AgentTelemetry;
   /** Local single-shot acceptance path; disabled unless wired by the host. */
   injectDecision?(raw: unknown): void;
   /** True while an audience decision is being planned or dispatched. */
@@ -151,6 +163,15 @@ const DEFAULT_CONTROL_ORIGINS = [
   "http://127.0.0.1:5173",
 ] as const;
 
+function controlOrigins(): readonly string[] {
+  // The default stays a fixed allow-list. A second local preview port has to
+  // be opt-in, so a typo in the console URL cannot silently accept any origin.
+  const extra = process.env.CRAFTMATE_CONTROL_ORIGINS?.split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0) ?? [];
+  return [...DEFAULT_CONTROL_ORIGINS, ...extra];
+}
+
 /**
  * Transport adapter: wire messages in, application calls out. It owns no
  * business rules and no state beyond connection bookkeeping.
@@ -160,7 +181,7 @@ export function createControlServer({
   settings,
   port,
   host = "127.0.0.1",
-  allowedControlOrigins = DEFAULT_CONTROL_ORIGINS,
+  allowedControlOrigins = controlOrigins(),
   allowRemoteControl = false,
   ingressToken = "",
   allowRemoteIngress = false,
@@ -174,7 +195,10 @@ export function createControlServer({
   onSettingsApplied,
   goalRuntime,
   onOperator,
+  telemetry: providedTelemetry,
+  onIngressMetrics,
 }: ControlServerOptions): ControlServer {
+  const telemetry = providedTelemetry ?? new AgentTelemetry();
   const integrations = (): IntegrationSettingsView =>
     settings?.readIntegrations?.() ?? disabledIntegrations();
   const http = createServer((request, response) => {
@@ -277,6 +301,21 @@ export function createControlServer({
     if (health !== null) broadcast({ type: "bridge", payload: health });
   };
 
+  /**
+   * Persistence lives in the telemetry projection; this server only owns the
+   * wire. Replacing the snapshot on every event keeps a reconnect and a live
+   * tab on the same bounded window.
+   */
+  const publishTelemetry = (): void => {
+    broadcast({ type: "telemetry", payload: telemetry.snapshot() });
+  };
+
+  const publishAgentEvent = (input: import("../telemetry.ts").AgentEventInput): void => {
+    const event = telemetry.record(input);
+    broadcast({ type: "event", payload: event });
+    publishTelemetry();
+  };
+
   const controlBridge = (kind: "takeover" | "release" | "stop"): void => {
     if (!bridge) return;
     try {
@@ -305,10 +344,40 @@ export function createControlServer({
    * immediately; the planned rewrite replaces it in place once the model
    * answers, so a slow provider never delays the visible decision stream.
    */
-  const handleDecision = (raw: unknown): void => {
+  const handleDecision = (raw: unknown, origin: "control" | "ingress"): void => {
     const generation = controlGeneration;
+    const received = audienceEventSchema.safeParse(raw);
     const decision = show.ingest(raw);
     if (!decision) return;
+    if (origin === "control" && received.success) {
+      publishAgentEvent({
+        stage: "ingress_received",
+        traceId: decision.eventId,
+        decisionId: decision.id,
+        summary: `接入 ${received.data.kind}，已交给闸门`,
+        source: "ingress",
+      });
+      publishAgentEvent({
+        stage: "gated",
+        traceId: decision.eventId,
+        decisionId: decision.id,
+        summary: "去重、限流与队列闸门已通过",
+        source: "ingress",
+      });
+    }
+    // Rules-only decisions keep the same object through planning, so relying
+    // on the `planned` branch below would leave this panel showing a previous
+    // comment's judgement. Every arbitration gets a fresh, safe summary.
+    telemetry.setJudgement(judgementFor(decision, false));
+    publishTelemetry();
+    publishAgentEvent({
+      stage: "arbitrated",
+      traceId: decision.eventId,
+      decisionId: decision.id,
+      summary: `仲裁：${decisionLabel(decision.decision)}`,
+      status: decision.decision === "REFUSE" ? "skipped" : "ok",
+      source: decision.eventId.startsWith("goal:") ? "goal" : "agent",
+    });
     broadcast({ type: "decision", payload: decision });
     if (goalRuntime) {
       broadcast({
@@ -320,7 +389,7 @@ export function createControlServer({
     void planAndSpeak(decision, generation);
   };
 
-  const injectDecision = (raw: unknown): void => handleDecision(raw);
+  const injectDecision = (raw: unknown): void => handleDecision(raw, "control");
   let planning = 0;
 
   const publishDecision = (decision: Decision): void => {
@@ -349,6 +418,7 @@ export function createControlServer({
   const planAndSpeak = async (decision: Decision, generation: number): Promise<void> => {
     if (generation !== controlGeneration || show.snapshot().mode !== "agent") return;
     planning += 1;
+    const planningStarted = Date.now();
     try {
     let planned: Decision;
     try {
@@ -367,6 +437,17 @@ export function createControlServer({
     if (planned !== decision) {
       broadcast({ type: "decision", payload: planned });
       broadcast({ type: "snapshot", payload: show.snapshot() });
+      publishAgentEvent({
+        stage: "planned",
+        traceId: planned.eventId,
+        decisionId: planned.id,
+        durationMs: Math.max(0, Date.now() - planningStarted),
+        summary: plannedSummary(planned),
+        status: planned.trace?.degraded === true ? "degraded" : "ok",
+        source: "agent",
+      });
+      telemetry.setJudgement(judgementFor(planned, true));
+      publishTelemetry();
     }
     if (planned.skill !== null && dispatchSkill) {
       try {
@@ -390,7 +471,21 @@ export function createControlServer({
           outcome: null,
           at: Date.now(),
         });
-        if (failed) publishDecision(failed);
+        if (failed) {
+          publishDecision(failed);
+          publishAgentEvent({
+            stage: "failed",
+            status: "failed",
+            traceId: failed.eventId,
+            decisionId: failed.id,
+            durationMs: Math.max(0, Date.now() - planningStarted),
+            // The dispatch error message may contain local or body text. The
+            // code is allowlisted; the detail stays in the durable decision.
+            summary: "动作未下达",
+            errorCode: failed.outcome?.errorCode ?? "E_INTERNAL",
+            source: "agent",
+          });
+        }
       }
     }
     if (!speech) return;
@@ -426,6 +521,7 @@ export function createControlServer({
         snapshot: show.snapshot(),
         settings: show.currentSettings(),
         integrations: integrations(),
+        telemetry: telemetry.snapshot(),
       },
     });
     const voiceStatus = show.currentVoiceStatus();
@@ -457,6 +553,27 @@ export function createControlServer({
       if (parsed.data.type === "operator") {
         const command = parsed.data.payload;
         if (command.kind !== "whisper") controlGeneration += 1;
+        if (command.kind === "takeover" || command.kind === "stop") {
+          telemetry.setJudgement({
+            summary:
+              command.kind === "takeover"
+                ? "操作员已接管，Agent 暂停自主动作"
+                : "急停已生效，Agent 不再下达动作",
+            intent: "operator",
+            reason: "控制权状态由操作员明确变更",
+            nextStep:
+              command.kind === "takeover" ? "等待操作员交还控制" : "等待操作员恢复运行",
+            confidence: "observed",
+          });
+        } else if (command.kind === "release") {
+          telemetry.setJudgement({
+            summary: "控制权已交还 Agent，等待新的观察结果",
+            intent: "observe",
+            reason: "操作员主动交还控制",
+            nextStep: "等待下一条评论或目标运行时任务",
+            confidence: "observed",
+          });
+        }
         if (command.kind === "takeover") voice?.stop("操作员接管");
         if (command.kind === "stop") voice?.stop("急停");
         if (command.kind === "takeover" || command.kind === "release" || command.kind === "stop") {
@@ -467,6 +584,12 @@ export function createControlServer({
         if (bridge) publishBridgeHealth(bridge.health());
         broadcast({ type: "operator", payload: command });
         broadcast({ type: "snapshot", payload: show.snapshot() });
+        publishAgentEvent({
+          stage: "connection_changed",
+          status: command.kind === "stop" ? "failed" : "ok",
+          summary: operatorSummary(command.kind),
+          source: "control",
+        });
         return;
       }
 
@@ -584,6 +707,12 @@ export function createControlServer({
           );
         }
         broadcast({ type: "snapshot", payload: show.snapshot() });
+        publishAgentEvent({
+          stage: "settings_applied",
+          status: "ok",
+          summary: "直播设置已写入并应用到运行中的 Agent",
+          source: "control",
+        });
         return;
       }
 
@@ -661,6 +790,12 @@ export function createControlServer({
           payload: integrationSettingsViewSchema.parse(settings.readIntegrations?.()),
         });
         broadcast({ type: "snapshot", payload: show.snapshot() });
+        publishAgentEvent({
+          stage: "settings_applied",
+          status: "ok",
+          summary: "接入配置已保存，模型、语音与 Ingress 已按新配置重载",
+          source: "control",
+        });
         return;
       }
 
@@ -677,6 +812,12 @@ export function createControlServer({
           priority: "operator",
           decisionId: null,
           commitmentId: null,
+        });
+        publishAgentEvent({
+          stage: "voice_started",
+          status: "ok",
+          summary: "操作员朗读已进入语音队列",
+          source: "voice",
         });
         return;
       }
@@ -726,7 +867,7 @@ export function createControlServer({
         return;
       }
 
-      handleDecision(parsed.data.payload);
+      handleDecision(parsed.data.payload, "control");
     });
 
     socket.on("close", () => connections.delete(connection));
@@ -793,10 +934,33 @@ export function createControlServer({
       if (parsed.data.type === "health") {
         show.setSourceHealth(parsed.data.payload);
         broadcast({ type: "source", payload: parsed.data.payload });
+        publishTelemetry();
         return;
       }
 
-      handleDecision(parsed.data.payload);
+      if (parsed.data.type === "metrics") {
+        const metrics = parsed.data.payload;
+        onIngressMetrics?.(metrics);
+        // The host callback owns the full projection when present. Applying
+        // the raw frame again here would race it with a roomId-less update.
+        if (!onIngressMetrics) {
+          const current = telemetry.currentIngress();
+          telemetry.setIngress({
+            ...metrics,
+            roomId: current.roomId,
+            updatedAt: Date.now(),
+          });
+        }
+        publishTelemetry();
+        return;
+      }
+
+      // Ingress facts arrive twice: once as this event frame, and again in the
+      // bounded metrics `recent` list. The child is the only process that can
+      // see gate drops, so it owns ingress_received/dropped; this socket must
+      // not synthesize a second copy. `gated` is likewise emitted from the
+      // metrics projection so both outcomes have one source of truth.
+      handleDecision(parsed.data.payload, "ingress");
     });
   });
 
@@ -835,6 +999,9 @@ export function createControlServer({
     publishProposals,
     publishGoal,
     publishWorldEvent,
+    publishAgentEvent,
+    publishTelemetry,
+    telemetry,
     injectDecision,
     isPlanning: () => planning > 0,
     close: async () => {
@@ -876,6 +1043,98 @@ function parseJson(text: string): unknown {
 /** Readable one-liner for a caught value, used by socket `error` handlers. */
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function decisionLabel(kind: Decision["decision"]): string {
+  switch (kind) {
+    case "EXECUTE":
+      return "执行";
+    case "REFUSE":
+      return "拒绝";
+    case "QUEUE":
+      return "排队";
+    case "ACK_ONLY":
+      return "回应";
+    case "OBSERVE":
+      return "观察";
+    default:
+      return "忽略";
+  }
+}
+
+/**
+ * A judgement is a structured projection, never planner prose. The reason is
+ * kept generic so a model-authored rationale cannot become a chain-of-thought
+ * substitute in the admin UI.
+ */
+function judgementFor(
+  decision: Decision,
+  planned: boolean,
+): import("@craftmate/contracts").AgentJudgement {
+  return {
+    summary: judgementSummary(decision),
+    intent: decision.intent,
+    reason: planned
+      ? decision.trace?.degraded === true
+        ? "模型不可用或超时，使用确定性模板"
+        : decision.trace === null
+          ? "仲裁规则给出的确定性判断"
+          : "模型基于结构化上下文完成规划"
+      : "仲裁与安全闸门给出的确定性判断",
+    nextStep:
+      decision.skill !== null
+        ? `准备执行 ${decision.skill.name}`
+        : decision.decision === "QUEUE"
+          ? "等待闸门与当前阶段"
+          : "只记录判断，不下达动作",
+    confidence: decision.trace === null ? "observed" : "inferred",
+  };
+}
+
+/**
+ * The arbiter stores its rationale in `reason`, but the planner may replace it
+ * only for a planned decision. This summary is built from the decision itself,
+ * never from the audience text or model prose.
+ */
+function judgementSummary(decision: Decision): string {
+  if (decision.decision === "EXECUTE" && decision.skill !== null) {
+    return `决定执行 ${decision.skill.name}`;
+  }
+  if (decision.decision === "IGNORE" || decision.decision === "OBSERVE") {
+    return `没有动作，${decisionLabel(decision.decision)}`;
+  }
+  if (decision.decision === "QUEUE") return "决定排队，等待当前阶段";
+  if (decision.decision === "ACK_ONLY") return "决定回应，不下达动作";
+  if (decision.decision === "REFUSE") return "决定拒绝，不执行这个请求";
+  return `决定${decisionLabel(decision.decision)}`;
+}
+
+/**
+ * The planned event is built only from structured decision fields. The
+ * planner's `reason` is model-authored prose, so it must never be copied into
+ * the telemetry boundary even though the decision row still carries it.
+ */
+function plannedSummary(decision: Decision): string {
+  if (decision.skill !== null) {
+    return `规划完成：执行 ${decision.skill.name}`;
+  }
+  if (decision.decision === "QUEUE") return "规划完成：排队等待";
+  if (decision.decision === "ACK_ONLY") return "规划完成：只回应";
+  if (decision.decision === "REFUSE") return "规划完成：拒绝";
+  return `规划完成：${decisionLabel(decision.decision)}`;
+}
+
+function operatorSummary(kind: "whisper" | "takeover" | "release" | "stop"): string {
+  switch (kind) {
+    case "takeover":
+      return "操作员已接管，Agent 退到旁白";
+    case "release":
+      return "控制权已交还 Agent";
+    case "stop":
+      return "已急停，目标运行时暂停";
+    default:
+      return "耳语已记录";
+  }
 }
 
 function disabledIntegrations(): IntegrationSettingsView {

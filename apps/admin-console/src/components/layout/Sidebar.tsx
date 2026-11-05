@@ -299,7 +299,7 @@ function SessionPanel({
         {goal ? (
           <div className="session-panel__goal-detail">
             <span>{goal.milestone.title}</span>
-            {goal.nextTask ? <span>下一任务：{goal.nextTask}</span> : null}
+            {goal.nextTask ? <span>目标运行时已产出下一任务</span> : null}
             {goal.lastFailure ? <span data-tone="bad">失败：{goal.lastFailure}</span> : null}
           </div>
         ) : null}
@@ -325,7 +325,7 @@ function SessionPanel({
 
       <dl className="session-panel__stats">
         <div>
-          <dt>已收到</dt>
+          <dt>本场输入</dt>
           <dd>{stats.received}</dd>
         </div>
         <div>
@@ -374,7 +374,9 @@ function NavigationButton({ item, selected, onClick }: NavigationButtonProps): R
       type="button"
       className="nav-item"
       data-selected={selected}
+      aria-label={item.label}
       aria-current={selected ? "page" : undefined}
+      title={`${item.label} · ${item.detail}`}
       onClick={onClick}
     >
       <span className="nav-item__icon">{item.icon}</span>

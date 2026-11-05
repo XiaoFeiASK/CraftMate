@@ -79,11 +79,11 @@ function describeId(entry: TimelineEntry): string {
 function describe(entry: TimelineEntry): string {
   switch (entry.kind) {
     case "source":
-      return `@${entry.actor ?? "未知"}：${entry.text ?? "（原文已按保留策略清空）"}`;
+      return `${entry.eventKind} · 来源 ${entry.sourceId} · 原文仅在数据库留存`;
     case "decision":
-      return `${entry.decision} · ${entry.intent} · ${entry.stage}${entry.skill ? ` · ${entry.skill}` : ""} · ${entry.reason}`;
+      return `${entry.decision} · ${entry.intent} · ${entry.stage}${entry.skill ? ` · ${entry.skill}` : ""}${entry.provider ? ` · ${entry.provider}/${entry.model}` : ""}`;
     case "commitment":
-      return `${entry.status}：${entry.utterance}（${entry.reason}）`;
+      return `${entry.status} · 承诺 ${entry.commitmentId} · 语音原文不进入管理端`;
     case "action":
       return `${entry.skill} · ${entry.status}${entry.errorCode ? ` · ${entry.errorCode}` : ""}`;
     default:

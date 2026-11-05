@@ -196,6 +196,55 @@ describe("bridge command lifecycle", () => {
     assert.deepEqual(harness.body.state().pressed, []);
   });
 
+  test("progress keeps the command's decision join key", () => {
+    const progresses: {
+      readonly taskId: string;
+      readonly decisionId?: string;
+      readonly phase: string;
+      readonly done: number;
+    }[] = [];
+    let now = 1_000;
+    const scheduler = createVirtualScheduler(() => now);
+    const clock = { now: () => now };
+    const body = new SimBody({
+      token: TOKEN,
+      clock,
+      scheduler,
+      ticksPerCommand: 20,
+      autoComplete: false,
+      send: (frame) => coordinator.handle(frame),
+    });
+    const coordinator = new BodySession({
+      token: TOKEN,
+      sessionId: "progress-join",
+      clock,
+      scheduler,
+      actions: new MemoryActionPort(),
+      onProgress: (progress) => progresses.push(progress),
+      transport: {
+        send: (frame) => body.handle(frame),
+        close: () => {},
+      },
+    });
+    body.start();
+    coordinator.issue({
+      v: 1,
+      type: "cmd",
+      id: "c-progress",
+      op: "mine_block",
+      args: {},
+      priority: "command",
+      idempotencyKey: "c-progress-key",
+      decisionId: "decision-1",
+    });
+    now += 10;
+    coordinator.handle({ v: 1, type: "heartbeat", tick: 1, owner: "agent" });
+
+    assert.equal(progresses[0]?.phase, "starting");
+    assert.equal(progresses[0]?.decisionId, "decision-1");
+    coordinator.close("test done");
+  });
+
   test("the same idempotency key never reaches the body twice", () => {
     const harness = createHarness();
     connectHarness(harness);

@@ -51,7 +51,8 @@ Admin Console 崩溃不中断直播；外部系统故障只降级对应能力，
 4. 只有胜出意图进入 Stage C，由模型生成回应与技能计划。
 5. 涉及说话的承诺先落库；语音开始后更新 `spoken` 状态。
 6. 技能必须属于游戏身体声明的能力白名单，才会进入 Bridge 队列。
-7. Fabric Mod 执行动作，Bridge 记录 ack、进度、终态；管理端展示结果。
+7. Fabric Mod 执行动作，Bridge 记录 ack、进度、终态；Orchestrator 把同一
+   `traceId` 的闸门、仲裁、规划、任务和终态投影为 telemetry，管理端只读这个投影。
 
 ### 4.2 三层节奏
 
@@ -101,6 +102,40 @@ AGENT --takeover--> OPERATOR --release--> AGENT
 所有服务默认只绑 loopback。Orchestrator、Ingress、Voice 共用 ingress token；
 Bridge 使用独立 token。协议消息都经 zod 校验。
 
+管理端首屏和正常操作不请求 `4324`，不加载 MP4 或 MJPEG。
+
+### 6.1 Agent telemetry 契约
+
+`packages/contracts/src/telemetry.ts` 定义管理端可观测事件：
+
+```text
+ingress_received → gated/dropped → arbitrated → planned
+  → task_queued → task_running/progress → task_settled/failed
+  → voice_started/voice_settled
+```
+
+另有 `settings_applied` 和 `connection_changed` 两类系统事实。每个事件最多带
+`traceId`、`taskId`、`decisionId`、`goalId`、阶段、状态、耗时、脱敏摘要和错误码。
+`traceId` 对评论是平台事件 id，对目标任务是 GoalRuntime 生成的 `goal:...`；任务
+先以 Bridge command id 入队，收到 ack 后用真实 `taskId` 终态回填。管理端分组时
+同时用 `traceId`、`taskId`、`decisionId` 做并查集，所以语音或 Bridge 帧即使只带
+task/decision 也会归回同一条评论，而不依赖到达顺序。
+
+控制面在 `/control` 上发送两类消息：
+
+- `event`：单条 append-only 事实，便于低延迟更新；
+- `telemetry`：替换整个有界快照（最多 160 条），确保重连和实时视图一致；
+- `ready.payload.telemetry`：新连接先拿到同一快照，不依赖补播 socket buffer。
+
+每个事件都经 `AgentTelemetry.record` 的 allow-list 与 zod 校验后写
+`agent_event`。摘要由结构化字段拼接；控制面边界不接收 prompt、模型原文、
+弹幕原文或 chain-of-thought。Ingress 只上报计数、drop reason、重连次数和
+无文本的 `recent` 事实。
+
+管理端对未知值使用 `unknown` / “未上报” / “未接入”，不把缺失指标显示为零。
+当前判断只展示后端生成的 `AgentJudgement`（摘要、意图、通用依据、下一步和
+置信来源），不从决策原文反推。
+
 ## 7. 数据流原则
 
 - 原始评论是可过期证据；决策、动作、承诺、记忆版本保留可解释链路。
@@ -108,7 +143,20 @@ Bridge 使用独立 token。协议消息都经 zod 校验。
 - 模型失败降级为模板，Bridge 不可用时技能不发命令；两者都写 incident。
 - 配置凭据保存在本机文件，API Key 不回传、不入库、不写日志。
 
-## 8. 演进接缝
+## 9. 身体抓流兼容边界
+
+Issue #55 的最终决定是**解除管理端依赖，保留可选录制/调试能力**：
+
+- 管理端已删除 `LiveHero`、`pond-loop.mp4`、poster、`4324` 的 CSP 允许项和
+  MJPEG `<img>` 消费；
+- `FrameServer` 仍由 `CraftMateBodyClient` 挂在 loopback `4324`，只有
+  `FrameDemand` 被录制端请求时才截图，未请求时保持空闲；
+- 该端口不参与控制权、liveness、Bridge 命令或首屏；没有它管理端仍完整工作；
+- 删除身体侧采集需要先确认没有外部录制/调试消费者，因此不在本次改造中删除。
+
+未来若接入外部录制，应由录制工具显式 opt-in；管理端不应重新把视频作为默认主路径。
+
+## 10. 演进接缝
 
 | 接缝 | 当前实现 | 扩展方式 |
 | --- | --- | --- |

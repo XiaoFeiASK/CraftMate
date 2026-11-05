@@ -10,6 +10,7 @@ import {
 import { defaultTokenPath, loadOrCreateToken } from "@craftmate/local-auth";
 import { DyhubSource } from "./dyhub-source.ts";
 import { EventGate } from "./gate.ts";
+import { createRelay, type Relay } from "./relay.ts";
 
 const roomId = process.env.DOUYIN_ROOM_ID ?? "";
 const dyhubUrl = process.env.DYHUB_URL ?? "ws://127.0.0.1:8757";
@@ -34,7 +35,7 @@ const gate = new EventGate({
 });
 
 let health: SourceHealth = { state: "closed", detail: "启动中", lastEventAt: null };
-const counters = { received: 0, forwarded: 0 };
+const relay = createRelay({ gate });
 
 const source = new DyhubSource({
   url: dyhubUrl,
@@ -46,16 +47,28 @@ const source = new DyhubSource({
   onDrop: (reason) => console.warn(`ingress: ignored frame (${reason})`),
 });
 
-/** Buffered until the orchestrator link is open, so a restart loses nothing. */
-const pending: string[] = [];
 let upstream: WebSocket | null = null;
 let upstreamAttempt = 0;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let shuttingDown = false;
 
 function sendHealth(next: SourceHealth): void {
-  const frame = JSON.stringify({ type: "health", payload: next });
-  if (upstream?.readyState === WebSocket.OPEN) upstream.send(frame);
+  if (upstream?.readyState !== WebSocket.OPEN) return;
+  upstream.send(JSON.stringify({ type: "health", payload: next }));
+  // Connection state is part of the metrics projection too. Send it on every
+  // health transition so an idle room does not stay "connecting" until the
+  // first comment arrives.
+  upstream.send(metricsFrame(relay));
+}
+
+/** A bounded, secret-free projection of this process's own counters. */
+function metricsFrame(relay: Relay): string {
+  return relay.metrics({
+    state: health.state,
+    detail: health.detail,
+    lastEventAt: health.lastEventAt,
+    upstreamConnected: upstream?.readyState === WebSocket.OPEN,
+  });
 }
 
 function connectOrchestrator(): void {
@@ -64,9 +77,17 @@ function connectOrchestrator(): void {
 
   socket.on("open", () => {
     upstreamAttempt = 0;
+    // A reconnect is a new listener. Re-sending the bounded window is
+    // intentional: the orchestrator dedupes facts and can rebuild a missed
+    // outcome, but the ordering must remain old-to-new.
     socket.send(JSON.stringify({ type: "hello", role: "ingress", token }));
     sendHealth(health);
-    for (const frame of pending.splice(0)) socket.send(frame);
+    socket.send(metricsFrame(relay));
+    const flushed = relay.flush((frame) => socket.send(frame));
+    // Flushed events change `forwarded` (and drain the buffer), so the frame
+    // sent before the flush is already stale. A post-flush metrics frame is
+    // the operator's proof that the reconnect did not lose throughput.
+    if (flushed > 0) socket.send(metricsFrame(relay));
     console.log("ingress: orchestrator connected");
   });
 
@@ -92,6 +113,7 @@ function connectOrchestrator(): void {
     if (upstream === socket) upstream = null;
     if (shuttingDown) return;
     const delay = Math.min(1_000 * 2 ** upstreamAttempt, 30_000);
+    relay.noteReconnect();
     upstreamAttempt = Math.min(upstreamAttempt + 1, 5);
     // Deferred so the retry never runs inside the socket's own close stack.
     retryTimer = setTimeout(() => {
@@ -106,19 +128,14 @@ function connectOrchestrator(): void {
 }
 
 function forward(event: AudienceEvent): void {
-  counters.received += 1;
   // Admit returns false for a shed event, but the queue may still hold earlier
   // accepted ones, so draining must not depend on this result.
-  gate.admit(event);
-
-  for (const admitted of gate.drain()) {
-    const frame = JSON.stringify({ type: "event", payload: admitted });
-    if (upstream?.readyState === WebSocket.OPEN) {
-      upstream.send(frame);
-      counters.forwarded += 1;
-    } else if (pending.length < 64) {
-      pending.push(frame);
-    }
+  const socket = upstream;
+  const live = socket?.readyState === WebSocket.OPEN;
+  const frames = relay.receive(event, live === true);
+  if (live && socket !== null) {
+    for (const frame of frames) socket.send(frame);
+    socket.send(metricsFrame(relay));
   }
 }
 
@@ -147,6 +164,10 @@ process.on("message", (raw) => {
   void source.reconfigure(config.roomId, config.dyhubUrl).catch((error: unknown) => {
     console.error(`ingress: reconfigure failed — ${error instanceof Error ? error.message : String(error)}`);
   });
+  // A room change is a new ingestion domain. The relay resets its gate too, so
+  // the old room's dedupe window and drop reasons cannot leak into the new one.
+  relay.reset();
+  sendHealth(health);
 });
 
 const healthServer = createServer((request, response) => {
@@ -159,10 +180,15 @@ const healthServer = createServer((request, response) => {
     JSON.stringify({
       ok: health.state === "open",
       source: health,
-      counters,
-      gate: gate.stats(),
-      dropReasons: gate.dropCounts(),
+      counters: {
+        received: relay.state.received,
+        forwarded: relay.state.forwarded,
+        reconnects: relay.state.reconnects,
+      },
+      gate: relay.stats(),
+      dropReasons: relay.stats().dropReasons,
       upstream: upstream?.readyState === WebSocket.OPEN,
+      reconnects: relay.state.reconnects,
     }),
   );
 });

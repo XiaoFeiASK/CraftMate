@@ -29,6 +29,7 @@ export type {
   BridgeTerminalStatus,
   Clock,
   CommandOutcome,
+  CommandProgress,
   NegotiatedBody,
   OwnershipState,
   TimerScheduler,

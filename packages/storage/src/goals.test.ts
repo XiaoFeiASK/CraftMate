@@ -58,6 +58,8 @@ describe("goal runtime storage", () => {
         completed: 0,
         unverified: 0,
         lastFailure: null,
+        consecutiveFailures: 0,
+        retryAt: null,
         updatedAt: 1_000,
       },
       currentDecisionId: "decision-1",
