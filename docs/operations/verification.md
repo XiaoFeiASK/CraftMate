@@ -3,7 +3,7 @@
 > 本文区分自动化验证、本机真实验收和未验收项。计划与任务跟踪在
 > [Issue #32](https://github.com/XiaoFeiASK/CraftMate/issues/32)。
 
-最后核对：2026-11-04，工作区 `main`。
+最后核对：2026-11-05，工作区 `fix/issue-55-agent-observability`。
 
 ## 1. 自动化基线
 
@@ -17,6 +17,16 @@ npm run db:check:file
 ```
 
 2026-11-03 CI 在 `c0c0562` 通过 Node 类型检查、测试、控制台构建和两种数据库检查。
+2026-11-05 Issue #55 分支的最新自动化结果为：
+
+- `npm run typecheck`：通过；
+- `npm test`：328 个测试、62 个 suite 全部通过；
+- `npm run db:check`：31 个对象、29 个索引，约束/视图/FTS 通过；
+- `npm run build`：Admin Console 生产构建通过；
+- `node tools/check-schema.mjs <新建临时目录>`：真实 WAL 文件库 31 个对象、
+  29 个索引通过；
+- `git diff --check`：通过。
+
 2026-11-04 开始区分契约目录与 Fabric 当前身体目录：契约 19 个技能，当前身体
 13 个技能；`mine_block` 和 `chop_tree` 的终态要求“开始破坏时记录的同一位置”
 变为空气，并在结果中返回方块 ID 和位置证据。
@@ -75,6 +85,8 @@ CI 不包含真实直播间、真实模型计费、真实音频硬件、Minecraf
 | 链路 | 状态 | 已验证 | 未验收 |
 | --- | --- | --- | --- |
 | 管理端连接与操作指令 | 已实现 | WebSocket 自动重连、四类操作指令、服务端错误展示 | 长会话与真实直播画面下的操作体验 |
+| Agent 可观测工作台 | 已实现 | telemetry contract/store/control-plane 测试，Ingress 计数与 drop reason，admitted/dropped 投影，trace/task/decision join，任务生命周期，replay lookup，未知/未配置空态 | 真实直播间长时采样；桌面安装包本机视觉复核 |
+| 配置真实闭环 | 已实现 | settings/integrations 同时保存、运行中 provider/语音/Ingress 重载、重启恢复、密钥不广播 | 真实模型/语音供应商断网与部分失败组合 |
 | Orchestrator 持久化 | 已实现 | 迁移、重启恢复、承诺恢复、决策优先级、回放 | 4 小时连续运行 |
 | Stage A/B 仲裁 | 已实现 | 注入、冷却、意图、权重、优先级单测 | 真实直播间分布下的阈值调优 |
 | Stage C 模型 | 部分 | YYAPI/DeepSeek 真实请求返回计划；坏输出降级有测试 | 长 JSON 稳定性、成本和成功率实播采样 |
@@ -89,6 +101,32 @@ CI 不包含真实直播间、真实模型计费、真实音频硬件、Minecraf
 健康上报、Orchestrator 自动启停。
 
 **自动化**：本地 dyhub stand-in 覆盖订阅、断线重连、房间关闭、坏输入和洪峰。
+
+**Issue #55 新增**：Ingress 上报 `received/forwarded/queued/dropped`、
+`dropReasons`、`reconnects` 和有界的无文本 `recent` 事实；控制面把所有事实
+投影为 `ingress_received`，再按结果投影 `gated` 或 `dropped`。管理端
+在 metrics 未到达或房间未配置时显示 unknown/未配置，不显示伪造的零。
+
+**UI 本机检查（2026-11-05）**：Web 预览在 1280×720、850×900、580×900
+三档宽度均无横向溢出；设置抽屉在窄屏可打开；导航图标在折叠文字后有可访问名称；
+合成评论经过真实控制面、Ingress 计数、任务和 replay 链路时，工作台会更新且
+不显示注入的弹幕原文；点击「查看回放」后时间轴在 1280×720、850×900、
+580×900 三档都进入视口并可读取来源与决策。实时事件流每组只渲染最近 4 条、
+最多 5 组，并标注收起数量；否则同一 trace 的上百条重试会把回放卡推走。
+系统配置事件不会覆盖「处理链路」中最近一条带 trace 的评论。
+
+**配置与房间切换（2026-11-05）**：从设置界面把房间改为测试房间后，控制面返回
+「已保存到当前场次」，integrations 文件写入新 room id，fake dyhub 收到新房间
+订阅；Ingress 的 `received/forwarded/queued/dropped` 与 gate/relay 去重窗口
+一起清零，再按新房间重新累计。连续重启 Orchestrator 两次后，配置文件和 UI
+仍显示新房间，fake dyhub 每次都按该房间重新订阅，控制面自动恢复在线。
+
+**隐私检查（2026-11-05）**：在「评论与决策」提交唯一测试耳语后，界面只显示
+「耳语已记录」及“内容只在服务端留存”，工作台、事件流和服务端提示均未渲染
+耳语原文。
+
+桌面安装包本身未重新打包，真实 Minecraft 身体、真实直播间和真实语音生命周期
+仍未验收。
 
 **未验收**：
 

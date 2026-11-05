@@ -25,6 +25,7 @@ import {
   type BridgeTerminalStatus,
   type Clock,
   type CommandOutcome,
+  type CommandProgress,
   type NegotiatedBody,
   type OwnershipState,
   type TimerScheduler,
@@ -71,6 +72,8 @@ export interface BodySessionOptions {
   readonly control?: ControlAuthority;
   readonly onOwnership?: (state: OwnershipState) => void;
   readonly onOutcome?: (outcome: CommandOutcome) => void;
+  /** One body-reported progress fact, after its command was matched. */
+  readonly onProgress?: (progress: CommandProgress) => void;
   /** Every body event, before the coordinator reacts to it. */
   readonly onEvent?: (event: { readonly name: string; readonly data: unknown }) => void;
 }
@@ -430,6 +433,17 @@ export class BodySession {
     this.queue.progress(record.taskId, this.clock.now());
     this.queue.extend(record.taskId, this.tick + 20 * 30);
     this.audit("progress", record, undefined, `${frame.phase} ${frame.done}/${frame.total ?? "?"}`);
+    this.options.onProgress?.({
+      commandId: record.command.id,
+      taskId: record.taskId,
+      ...(record.command.decisionId === undefined
+        ? {}
+        : { decisionId: record.command.decisionId }),
+      phase: frame.phase,
+      done: frame.done,
+      ...(frame.total === undefined ? {} : { total: frame.total }),
+      at: this.clock.now(),
+    });
   }
 
   /**

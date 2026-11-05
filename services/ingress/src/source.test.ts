@@ -178,6 +178,45 @@ describe("dyhub source", () => {
 });
 
 describe("event gate under burst", () => {
+  test("a room switch clears duplicate, queue and drop history", () => {
+    const gate = new EventGate({ perSecond: 1, capacity: 4 });
+    const first: AudienceEvent = {
+      id: "room-a-1",
+      source: "douyin",
+      kind: "comment",
+      userId: "viewer-a",
+      nickname: "观众",
+      text: "冲",
+      ts: 1_000,
+    };
+    assert.equal(gate.admit(first, 1_000), true);
+    assert.equal(gate.admit(first, 1_000), false);
+    assert.equal(gate.dropCounts().duplicate, 1);
+
+    gate.reset();
+    assert.deepEqual(gate.dropCounts(), {});
+    assert.equal(gate.lastDropReason("comment"), null);
+    assert.equal(gate.stats().dropped, 0);
+    assert.equal(gate.admit(first, 1_000), true, "the new room can receive the same platform id");
+  });
+
+  test("retains the last drop reason for the metrics frame", () => {
+    const gate = new EventGate({ perSecond: 1, capacity: 4 });
+    const comment: AudienceEvent = {
+      id: "reason-1",
+      source: "douyin",
+      kind: "comment",
+      userId: "viewer-a",
+      nickname: "观众",
+      text: "冲",
+      ts: 1_000,
+    };
+    assert.equal(gate.admit(comment, 1_000), true);
+    assert.equal(gate.admit({ ...comment, id: "reason-2" }, 1_000), false);
+    assert.equal(gate.lastDropReason("comment"), "rate limited");
+    assert.deepEqual(gate.dropCounts(), { "rate limited": 1 });
+  });
+
   test("sheds beyond the rate limit and reports the reason", () => {
     const drops: string[] = [];
     const gate = new EventGate({ perSecond: 50, capacity: 32, onDrop: (_kind, reason) => drops.push(reason) });
@@ -249,6 +288,34 @@ describe("event gate under burst", () => {
       );
     }
     assert.equal(gate.drain().some((event) => event.kind === "gift"), true);
+  });
+
+  test("queue eviction is counted once and attributed to the evicted event", () => {
+    const drops: string[] = [];
+    const gate = new EventGate({
+      perSecond: 50,
+      capacity: 1,
+      onDrop: (_kind, reason) => drops.push(reason),
+    });
+    const oldest: AudienceEvent = {
+      id: "evict-a",
+      source: "douyin",
+      kind: "comment",
+      userId: "viewer-a",
+      nickname: "观众",
+      text: "第一条",
+      ts: 1_000,
+    };
+    const newest: AudienceEvent = { ...oldest, id: "evict-b", text: "第二条" };
+
+    assert.equal(gate.admit(oldest, 1_000), true);
+    assert.equal(gate.admit(newest, 1_000), true);
+
+    assert.deepEqual(gate.drain().map((event) => event.id), ["evict-b"]);
+    assert.equal(gate.stats().dropped, 1);
+    assert.deepEqual(gate.dropCounts(), { "queue evicted": 1 });
+    assert.equal(gate.lastDropReason("comment"), "queue evicted");
+    assert.deepEqual(drops, ["queue evicted"]);
   });
 });
 

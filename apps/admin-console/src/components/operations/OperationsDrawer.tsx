@@ -217,11 +217,11 @@ function DecisionsView({
       {snapshot.operatorNotice ? (
         <p className="panel-note" role="status">
           {snapshot.operatorNotice.detail}
-          {snapshot.operatorNotice.text ? `：${snapshot.operatorNotice.text}` : ""}
+          {snapshot.operatorNotice.kind === "whisper" ? " · 内容只在服务端留存" : ""}
         </p>
       ) : null}
       <dl className="decision-summary">
-        <div><dt>收到</dt><dd>{snapshot.stats.received}</dd></div>
+        <div><dt>本场输入</dt><dd>{snapshot.stats.received}</dd></div>
         <div><dt>执行</dt><dd>{snapshot.stats.executed}</dd></div>
         <div><dt>拒绝</dt><dd>{snapshot.stats.refused}</dd></div>
       </dl>
@@ -378,12 +378,13 @@ function ConnectionsView({
       ) : null}
       <VoicePreview disabled={state !== "open"} onSpeak={onSpeak} />
       {subtitles.length > 0 ? (
-        <section className="subtitle-log" aria-label="最近字幕">
-          <h3>字幕</h3>
+        <section className="subtitle-log" aria-label="最近语音">
+          <h3>语音状态</h3>
           {subtitles.slice(0, 5).map((subtitle) => (
             <p key={`${subtitle.id}-${subtitle.state}`} data-state={subtitle.state}>
               <span>{subtitle.state === "spoken" ? "已播" : subtitle.state === "speaking" ? "正在说" : "未播出"}</span>
-              {subtitle.text}
+              {`#${subtitle.id.slice(-6)}`}
+              <small>语音原文不进入管理端</small>
               {subtitle.state === "failed" && subtitle.detail ? (
                 <small>播放器错误：{subtitle.detail}</small>
               ) : null}
@@ -626,8 +627,12 @@ function ProposalsView({
                 </span>
                 <time>{clock(proposal.createdAt)}</time>
               </div>
-              <p className="proposal-item__text">{proposal.text}</p>
-              <p className="proposal-item__reason">{proposal.reason}</p>
+              <p className="proposal-item__text">
+                意图 {proposal.intent} · 观众 {audienceRef(proposal.audienceRef)}
+              </p>
+              <p className="proposal-item__reason">
+                {proposal.reason}（原始提议留在数据库，管理端不展示）
+              </p>
               {proposal.status === "pending" ? (
                 <div className="proposal-item__actions">
                   <input
@@ -684,4 +689,9 @@ function modeLabel(mode: ShowMode): string {
   if (mode === "operator") return "操作员接管";
   if (mode === "stopped") return "已急停";
   return "Agent 自主";
+}
+
+function audienceRef(value: string): string {
+  if (value.length === 0) return "身份未上报";
+  return value.length <= 10 ? value : `${value.slice(0, 7)}…${value.slice(-3)}`;
 }

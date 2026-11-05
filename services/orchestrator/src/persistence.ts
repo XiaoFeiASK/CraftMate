@@ -27,6 +27,7 @@ import {
   SessionStore,
   SourceStore,
   WorldEventStore,
+  AgentEventStore,
   GoalRuntimeSqliteStore,
   SqliteProposalRepository,
   SqliteRecorder,
@@ -44,6 +45,7 @@ export interface PersistentShow {
   readonly replay: ReplayStore;
   readonly costs: CostStore;
   readonly worldEvents: WorldEventStore;
+  readonly agentEvents: AgentEventStore;
   readonly runtimeConfig: RuntimeConfigStore;
   readonly goals: GoalRuntime;
   /** Persists a settings edit, then applies it to the running show. */
@@ -93,6 +95,7 @@ export function createPersistentShow(options: {
   const replay = new ReplayStore(db);
   const costs = new CostStore(db);
   const worldEvents = new WorldEventStore(db);
+  const agentEvents = new AgentEventStore(db, context);
   const proposalRepository = new SqliteProposalRepository(db, context);
   const goalStore = new GoalRuntimeSqliteStore(db, context);
   const runtimeConfig = options.env?.CRAFTMATE_INTEGRATIONS_FILE
@@ -227,6 +230,7 @@ export function createPersistentShow(options: {
     replay,
     costs,
     worldEvents,
+    agentEvents,
     runtimeConfig,
     goals,
     saveSettings: (next) => {

@@ -270,6 +270,8 @@ export class GoalRuntime {
       completed: 0,
       unverified: 0,
       lastFailure: null,
+      consecutiveFailures: 0,
+      retryAt: null,
       updatedAt: at,
     };
     this.lastFailure = null;
@@ -552,6 +554,8 @@ export class GoalRuntime {
           ...this.progress,
           status: this.progress.status === "completed" ? "completed" : this.resumedStatus(),
           lastFailure: null,
+          consecutiveFailures: 0,
+          retryAt: null,
           updatedAt: outcome.at,
         };
       }
@@ -651,6 +655,9 @@ export class GoalRuntime {
               : "active",
         nextTask: "",
         lastFailure: detail,
+        consecutiveFailures: this.consecutiveFailures,
+        retryAt:
+          status === "cancelled" || status === "preempted" ? null : this.retryAt,
         updatedAt: at,
       };
     }

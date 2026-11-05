@@ -92,6 +92,7 @@ for (const required of [
   "memory_fts",
   "review_candidate",
   "incident",
+  "agent_event",
   "decision_current",
   "commitment_open",
   "memory_active",
@@ -284,6 +285,47 @@ db.prepare(
 db.prepare(
   "INSERT INTO incident (id, session_id, severity, code, created_at_ms) VALUES (?, ?, ?, ?, ?)",
 ).run("incident-1", "session-1", "warn", "E_TIMEOUT", 12_000);
+
+db.prepare(
+  `INSERT INTO agent_event
+    (id, session_id, stage, status, trace_id, task_id, decision_id, goal_id,
+     duration_ms, summary, error_code, source, created_at_ms)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+).run(
+  "agent-event-1",
+  "session-1",
+  "task_settled",
+  "ok",
+  "trace-1",
+  "task-1",
+  "decision-2",
+  null,
+  240,
+  "任务完成",
+  null,
+  "bridge",
+  14_000,
+);
+expectThrow(
+  "INSERT INTO agent_event (id, session_id, stage, source, created_at_ms) VALUES (?, ?, ?, ?, ?)",
+  ["agent-event-bad-stage", "session-1", "thinking", "agent", 14_100],
+  "unknown telemetry stage",
+);
+expectThrow(
+  "INSERT INTO agent_event (id, session_id, stage, source, created_at_ms) VALUES (?, ?, ?, ?, ?)",
+  ["agent-event-bad-source", "session-1", "planned", "model", 14_200],
+  "unknown telemetry source",
+);
+expectThrow(
+  "INSERT INTO agent_event (id, session_id, stage, source, duration_ms, created_at_ms) VALUES (?, ?, ?, ?, ?, ?)",
+  ["agent-event-bad-duration", "session-1", "planned", "agent", -1, 14_300],
+  "negative telemetry duration",
+);
+expectThrow(
+  "INSERT INTO agent_event (id, session_id, stage, source, created_at_ms) VALUES (?, ?, ?, ?, ?)",
+  ["agent-event-1", "session-1", "gated", "ingress", 14_400],
+  "duplicate telemetry id",
+);
 
 expectThrow(
   "INSERT INTO memory (id, lineage_id, subject_ref, family, content, disclosure, confidence, state, revision, created_at_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",

@@ -26,6 +26,7 @@ export class EventGate {
   private windowCount = 0;
   private queue: AudienceEvent[] = [];
   private dropped = 0;
+  private readonly lastReasons = new Map<string, string>();
   private readonly reasons: Record<string, number> = {};
   private readonly options: GateOptions;
 
@@ -61,8 +62,8 @@ export class EventGate {
         this.report(event.kind, "queue full");
         return false;
       }
-      this.queue.splice(victim, 1);
-      this.dropped += 1;
+      const [evicted] = this.queue.splice(victim, 1);
+      if (evicted !== undefined) this.report(evicted.kind, "queue evicted");
     }
     this.queue.push(event);
     // Only an admitted event counts as "seen". Marking it first swallowed the
@@ -88,6 +89,22 @@ export class EventGate {
     return { ...this.reasons };
   }
 
+  /** Most recent drop reason for one event kind, for a bounded metrics frame. */
+  lastDropReason(kind: string): string | null {
+    return this.lastReasons.get(kind) ?? null;
+  }
+
+  /** A room change starts with no duplicate or counter history from the old room. */
+  reset(): void {
+    this.seen.clear();
+    this.windowStart = 0;
+    this.windowCount = 0;
+    this.queue = [];
+    this.dropped = 0;
+    this.lastReasons.clear();
+    for (const reason of Object.keys(this.reasons)) delete this.reasons[reason];
+  }
+
   private prune(now: number): void {
     for (const [key, at] of this.seen) {
       if (now - at >= this.dedupeWindowMs) this.seen.delete(key);
@@ -96,6 +113,7 @@ export class EventGate {
 
   private report(kind: string, reason: string): void {
     this.dropped += 1;
+    this.lastReasons.set(kind, reason);
     this.reasons[reason] = (this.reasons[reason] ?? 0) + 1;
     this.options.onDrop?.(kind, reason);
   }

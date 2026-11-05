@@ -158,8 +158,31 @@ describe("goal runtime", () => {
     });
     assert.equal(value.beginStep(context()), null);
     advance(2_000);
+    assert.equal(value.currentProgress?.consecutiveFailures, 1);
+    assert.equal(value.currentProgress?.retryAt, 3_000);
     assert.equal(value.beginStep(context()), null);
     assert.match(value.currentProgress?.lastFailure ?? "", /同一策略已经失败/);
+  });
+
+  test("a success clears the retry projection instead of leaving a stale backoff", () => {
+    const { value, advance } = runtime();
+    const first = value.beginStep(context());
+    assert.ok(first);
+    value.settle(first.decision.id, {
+      status: "failed",
+      errorCode: "E_PRECONDITION",
+      detail: "暂时无法接近",
+      at: 1_000,
+    });
+    assert.notEqual(value.currentProgress?.retryAt, null);
+    advance(2_000);
+
+    value.setGoal({ title: "重新开始", description: "清除旧退避" });
+    const next = value.beginStep(context());
+    assert.ok(next);
+    value.settle(next.decision.id, { status: "completed", at: 4_000 });
+    assert.equal(value.currentProgress?.consecutiveFailures, 0);
+    assert.equal(value.currentProgress?.retryAt, null);
   });
 
   test("failure evidence keeps the task id separate from the strategy key", () => {
@@ -230,6 +253,8 @@ describe("goal runtime", () => {
         completed: 0,
         unverified: 0,
         lastFailure: null,
+        consecutiveFailures: 0,
+        retryAt: null,
         updatedAt: 1_000,
       },
       world: {
@@ -270,6 +295,8 @@ describe("goal runtime", () => {
         completed: 0,
         unverified: 0,
         lastFailure: null,
+        consecutiveFailures: 0,
+        retryAt: null,
         updatedAt: 1_000,
       },
       world: { inWorld: true, inventory: [] },
@@ -487,6 +514,8 @@ function progress() {
     completed: 0,
     unverified: 0,
     lastFailure: null,
+    consecutiveFailures: 0,
+    retryAt: null,
     updatedAt: 1_000,
   };
 }

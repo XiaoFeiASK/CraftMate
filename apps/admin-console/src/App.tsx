@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useControlLink } from "./lib/use-control-link.ts";
 import { TitleBar } from "./components/layout/TitleBar.tsx";
 import { Sidebar } from "./components/layout/Sidebar.tsx";
-import { LiveHero } from "./components/scene/LiveHero.tsx";
+import { AgentWorkbench } from "./components/workbench/AgentWorkbench.tsx";
 import { OperationsDrawer, type DrawerMode } from "./components/operations/OperationsDrawer.tsx";
 import { usePreferences } from "./lib/preferences.ts";
 
@@ -18,8 +18,10 @@ export function App(): React.JSX.Element {
     subtitles,
     ops,
     timeline,
+    timelineTraceId,
     timelinePending,
     worldEvents,
+    telemetry,
     sendComment,
     sendOperator,
     saveSettings,
@@ -61,9 +63,15 @@ export function App(): React.JSX.Element {
           goal={snapshot.goal}
           onSelect={setDrawer}
         />
-        <LiveHero
-          reduceMotion={preferences.reduceMotion}
-          bridge={snapshot.bridge}
+        <AgentWorkbench
+          state={state}
+          snapshot={snapshot}
+          telemetry={telemetry}
+          timeline={timeline}
+          timelineTraceId={timelineTraceId}
+          timelinePending={timelinePending}
+          budget={ops?.budget ?? null}
+          onLookupTrace={lookupTrace}
         />
       </div>
 
