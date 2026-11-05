@@ -23,7 +23,7 @@ import type { WireState } from "../../lib/connection.ts";
 import type { Preferences } from "../../lib/preferences.ts";
 import { clock } from "../../lib/format.ts";
 
-export type DrawerMode =
+export type WorkspaceView =
   | "decisions"
   | "persona"
   | "connections"
@@ -32,8 +32,8 @@ export type DrawerMode =
   | "memory"
   | "replay";
 
-interface OperationsDrawerProps {
-  readonly mode: DrawerMode;
+interface OperationsPageProps {
+  readonly mode: WorkspaceView;
   readonly state: WireState;
   readonly showMode: ShowMode;
   readonly personaName: string;
@@ -43,7 +43,6 @@ interface OperationsDrawerProps {
   readonly settings: ShowSettings | null;
   readonly integrations: IntegrationSettingsView | null;
   readonly preferences: Preferences;
-  readonly onClose: () => void;
   readonly onComment: (nickname: string, text: string) => void;
   readonly onOperator: (kind: OperatorKind, text?: string) => void;
   readonly onSpeak: (text: string) => void;
@@ -73,7 +72,7 @@ interface OperationsDrawerProps {
   ) => void;
 }
 
-const TITLES: Record<DrawerMode, { readonly title: string; readonly detail: string }> = {
+const TITLES: Record<WorkspaceView, { readonly title: string; readonly detail: string }> = {
   decisions: { title: "评论与决策", detail: "每条弹幕为什么被执行、排队或拒绝" },
   persona: { title: "角色与人格", detail: "当前以单一人格运行，可在这里查看设定" },
   connections: { title: "接入与语音", detail: "抖音评论、模型与语音的连接状态" },
@@ -83,7 +82,7 @@ const TITLES: Record<DrawerMode, { readonly title: string; readonly detail: stri
   replay: { title: "回放", detail: "按 traceId 查看来源、决策、承诺与动作" },
 };
 
-export function OperationsDrawer({
+export function OperationsPage({
   mode,
   state,
   showMode,
@@ -94,7 +93,6 @@ export function OperationsDrawer({
   settings,
   integrations,
   preferences,
-  onClose,
   onComment,
   onOperator,
   onSpeak,
@@ -115,23 +113,16 @@ export function OperationsDrawer({
   onPauseGoal,
   onResumeGoal,
   onDecideProposal,
-}: OperationsDrawerProps): React.JSX.Element {
+}: OperationsPageProps): React.JSX.Element {
   const title = TITLES[mode];
 
   return (
-    <div className="drawer-layer">
-      <button className="drawer-scrim" type="button" aria-label="关闭操作面板" onClick={onClose} />
-      <section className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <main className="operations-page" aria-labelledby="operations-title">
         <header className="drawer__head">
           <div>
-            <h2 id="drawer-title">{title.title}</h2>
+            <h1 id="operations-title">{title.title}</h1>
             <p>{title.detail}</p>
           </div>
-          <button className="drawer__close" type="button" aria-label="关闭" onClick={onClose}>
-            <svg viewBox="0 0 20 20" aria-hidden="true">
-              <path d="m5 5 10 10M15 5 5 15" />
-            </svg>
-          </button>
         </header>
 
         <div className="drawer__body">
@@ -200,8 +191,7 @@ export function OperationsDrawer({
             disabled={state !== "open"}
           />
         ) : null}
-      </section>
-    </div>
+    </main>
   );
 }
 
