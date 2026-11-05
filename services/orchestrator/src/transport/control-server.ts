@@ -44,6 +44,7 @@ export interface SettingsWriter {
     readonly runtime: RuntimeIntegrationConfig;
   } | null;
   readIntegrations?(): IntegrationSettingsView;
+  resetActivity?(): void;
 }
 
 interface ControlServerOptions {
@@ -131,6 +132,7 @@ export interface ControlServer {
   publishSourceHealth(health: unknown): void;
   publishVoiceStatus(status: unknown): void;
   publishSubtitle(subtitle: VoiceSubtitle): void;
+  publishStats(): void;
   publishBridgeHealth(health: BridgeHealth | null): void;
   /** A decision whose late outcome arrived from the body. */
   publishDecision(decision: Decision): void;
@@ -716,6 +718,17 @@ export function createControlServer({
         return;
       }
 
+      if (parsed.data.type === "activityReset") {
+        if (!settings?.resetActivity) {
+          send(socket, { type: "error", payload: { code: "E_SETTINGS", detail: "当前内核不支持重置统计" } });
+          return;
+        }
+        settings.resetActivity();
+        broadcast({ type: "snapshot", payload: show.snapshot() });
+        publishAgentEvent({ stage: "settings_applied", status: "ok", summary: "统计与决策视图已重置，历史仍可回放", source: "control" });
+        return;
+      }
+
       if (parsed.data.type === "settingsSave") {
         if (!settings?.saveIntegrationSettings) {
           send(socket, {
@@ -991,6 +1004,7 @@ export function createControlServer({
       show.setVoiceStatus(parsed.data);
       broadcast({ type: "voice", payload: parsed.data });
     },
+    publishStats: () => broadcast({ type: "stats", payload: show.snapshot().stats }),
     publishSubtitle: (subtitle) => {
       broadcast({ type: "subtitle", payload: subtitle });
     },

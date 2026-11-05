@@ -245,28 +245,25 @@ public final class FrameServer implements AutoCloseable {
 					grabbed.set(false);
 					return;
 				}
-				// Downscale on the GPU readback when the window is large; JPEG
-				// encoding then happens off the render thread.
-				int factor = client.getWindow().getWidth() > MAX_WIDTH * 2 ? 2 : 1;
-				Screenshot.takeScreenshot(client.getMainRenderTarget(), factor, image -> {
-					grabbed.set(false);
-					if (!encoding.compareAndSet(false, true)) {
-						image.close();
-						return;
+				// Read pixels on the render thread; JPEG encoding runs in the worker.
+				NativeImage image = Screenshot.takeScreenshot(client.getMainRenderTarget());
+				grabbed.set(false);
+				if (!encoding.compareAndSet(false, true)) {
+					image.close();
+					return;
+				}
+				encoder.execute(() -> {
+					long capturedAt = System.currentTimeMillis();
+					try (image) {
+						byte[] frame = encode(image);
+						latest.set(frame);
+						lastFrameAt = capturedAt;
+						publish(frame, capturedAt);
+					} catch (IOException error) {
+						CraftMateBodyClient.LOGGER.debug("CraftMate frame encode failed", error);
+					} finally {
+						encoding.set(false);
 					}
-					encoder.execute(() -> {
-						long capturedAt = System.currentTimeMillis();
-						try (image) {
-							byte[] frame = encode(image);
-							latest.set(frame);
-							lastFrameAt = capturedAt;
-							publish(frame, capturedAt);
-						} catch (IOException error) {
-							CraftMateBodyClient.LOGGER.debug("CraftMate frame encode failed", error);
-						} finally {
-							encoding.set(false);
-						}
-					});
 				});
 			} catch (RuntimeException error) {
 				grabbed.set(false);
@@ -281,7 +278,14 @@ public final class FrameServer implements AutoCloseable {
 		if (width <= 0 || height <= 0) throw new IOException("empty frame");
 
 		BufferedImage output = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
-		output.setRGB(0, 0, width, height, image.getPixels(), 0, width);
+		int[] pixels = new int[width * height];
+		for (int y = 0; y < height; y++) {
+			for (int x = 0; x < width; x++) {
+				int rgba = image.getPixelRGBA(x, y);
+				pixels[y * width + x] = (rgba & 0xFF) << 16 | rgba & 0xFF00 | (rgba >>> 16) & 0xFF;
+			}
+		}
+		output.setRGB(0, 0, width, height, pixels, 0, width);
 		BufferedImage scaled = output;
 		if (width > MAX_WIDTH) {
 			int targetHeight = Math.max(1, (int) Math.round(height * (MAX_WIDTH / (double) width)));

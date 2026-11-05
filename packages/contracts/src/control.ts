@@ -24,6 +24,8 @@ export const operatorCommandSchema = z.object({
 export type OperatorCommand = z.infer<typeof operatorCommandSchema>;
 
 export const showStatsSchema = z.object({
+  /** Dashboard counters since its last reset; audit records are retained. */
+  since: z.number().int().nonnegative().optional(),
   received: z.number().int().nonnegative(),
   /** Every decision produced, including IGNORE / ACK_ONLY / QUEUE. */
   decided: z.number().int().nonnegative(),
@@ -181,6 +183,7 @@ export type PersonaSummary = z.infer<typeof personaSummarySchema>;
 
 export const clientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("hello") }),
+  z.object({ type: z.literal("activityReset") }),
   z.object({ type: z.literal("comment"), payload: audienceEventSchema }),
   z.object({ type: z.literal("operator"), payload: operatorCommandSchema }),
   z.object({

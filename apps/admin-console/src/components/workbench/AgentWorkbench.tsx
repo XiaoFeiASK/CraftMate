@@ -84,15 +84,14 @@ export function AgentWorkbench({
         <div className="workbench__identity">
           <span className="workbench__signal" data-tone={work.tone} aria-hidden="true" />
           <div>
-            <span className="workbench__eyebrow">Agent 可观测工作台</span>
             <h1>{work.label}</h1>
             <p>{work.detail}</p>
           </div>
         </div>
         <div className="workbench__head-facts">
-          <Fact label="控制面" value={linkLabel(state)} tone={state === "open" ? "good" : "bad"} />
+          <Fact label="内核" value={linkLabel(state)} tone={state === "open" ? "good" : "bad"} />
           <Fact
-            label="身体"
+            label="游戏"
             value={bridgeLabel(snapshot)}
             tone={snapshot.bridge?.connected ? "good" : "quiet"}
           />
@@ -100,102 +99,239 @@ export function AgentWorkbench({
         </div>
       </header>
 
+      <BroadcastStrip
+        snapshot={snapshot}
+        telemetry={telemetry}
+        budget={budget}
+      />
+
       <div className="workbench__grid">
-        <section className="wb-card wb-card--focus" aria-labelledby="wb-focus">
-          <CardHead id="wb-focus" title="当前判断" meta={telemetry.judgement ? "来自运行时" : "尚无判断"} />
-          <JudgementPanel judgement={telemetry.judgement} snapshot={snapshot} />
-        </section>
-
-        <section className="wb-card wb-card--goal" aria-labelledby="wb-goal">
-          <CardHead
-            id="wb-goal"
-            title="目标与里程碑"
-            meta={goal === null ? "未建立" : `${goal.completed}/${goal.milestones.length} 已验证`}
-          />
-          <GoalPanel goal={goal} />
-        </section>
-
-        <section className="wb-card wb-card--pipeline" aria-labelledby="wb-pipeline">
-          <CardHead
-            id="wb-pipeline"
-            title="处理链路"
-            meta={latest?.traceId === null || latest === undefined ? "等待事件" : shortId(latest.traceId)}
-          />
-          <ol className="pipeline" aria-label="最近一条 trace 的处理阶段">
-            {steps.map((step, index) => (
-              <li key={step.stage} data-status={step.status} className="pipeline__step">
-                <span className="pipeline__rail" aria-hidden="true" />
-                <span className="pipeline__dot" aria-hidden="true" />
-                <div>
-                  <strong>{step.label}</strong>
-                  <small>{pipelineMeta(step.status, step.at, step.durationMs)}</small>
-                </div>
-                {index < steps.length - 1 ? <span className="pipeline__arrow" aria-hidden="true" /> : null}
-              </li>
-            ))}
-          </ol>
-          {latest?.traceId ? (
-            <button
-              type="button"
-              className="action action--ghost wb-link"
-              onClick={() => requestReplay(latest.traceId!)}
-            >
-              {timelinePending ? "正在读取回放…" : `查看回放 ${shortId(latest.traceId)}`}
-            </button>
-          ) : (
-            <p className="wb-empty">还没有可回放的评论。真实评论进入后，这里会生成 trace。</p>
-          )}
-        </section>
-
-        <section className="wb-card wb-card--queue" aria-labelledby="wb-queue">
-          <CardHead id="wb-queue" title="任务队列" meta={`${queueCount(snapshot.proposals)} 条待定`} />
-          <QueuePanel snapshot={snapshot} telemetry={telemetry} />
-        </section>
-
-        <section className="wb-card wb-card--comments" aria-labelledby="wb-comments">
-          <CardHead
-            id="wb-comments"
-            title="评论与决策"
-            meta={
-              ingressIsKnown(telemetry.ingress) && telemetry.ingress.received !== null
-                ? `收到 ${telemetry.ingress.received}`
-                : "Ingress 未上报"
-            }
-          />
-          <CommentPanel
-            decisions={snapshot.decisions}
-            proposals={snapshot.proposals}
-            ingress={telemetry.ingress}
-            onLookupTrace={requestReplay}
-          />
-        </section>
-
-        <section className="wb-card wb-card--voice" aria-labelledby="wb-voice">
-          <CardHead id="wb-voice" title="模型、成本与语音" meta={voiceLabel(snapshot.voiceStatus)} />
-          <VoicePanel voice={snapshot.voiceStatus} model={snapshot.model} budget={budget} />
-        </section>
-
-        <section className="wb-card wb-card--events" aria-labelledby="wb-events">
-          <CardHead
-            id="wb-events"
-            title="实时事件"
-            meta={`${telemetry.events.length} 条 · 最近${relativeTime(telemetry.events[0]?.at ?? null)}`}
-          />
-          <EventPanel groups={groups} onLookupTrace={requestReplay} />
-        </section>
-
-        {timelineTraceId !== null ? (
-          <section
-            ref={timelineRef}
-            className="wb-card wb-card--timeline"
-            aria-labelledby="wb-timeline"
-          >
-            <CardHead id="wb-timeline" title="回放时间轴" meta={shortId(timelineTraceId)} />
-            <TimelinePanel entries={timeline} pending={timelinePending} />
+        <div className="workbench__column workbench__column--main">
+          <section className="wb-card wb-card--focus" aria-labelledby="wb-focus">
+            <CardHead
+              id="wb-focus"
+              title="当前判断"
+              meta={telemetry.judgement ? "运行时反馈" : "尚无判断"}
+            />
+            <JudgementPanel judgement={telemetry.judgement} snapshot={snapshot} />
           </section>
-        ) : null}
+
+          <section className="wb-card wb-card--pipeline" aria-labelledby="wb-pipeline">
+            <CardHead
+              id="wb-pipeline"
+              title="评论处理链"
+              meta={latest?.traceId === null || latest === undefined ? "等待事件" : shortId(latest.traceId)}
+            />
+            <PipelineTrack steps={steps} />
+            {latest?.traceId ? (
+              <button
+                type="button"
+                className="action action--ghost wb-link"
+                onClick={() => requestReplay(latest.traceId!)}
+              >
+                {timelinePending ? "正在读取回放…" : `查看回放 ${shortId(latest.traceId)}`}
+              </button>
+            ) : (
+              <p className="wb-empty">真实评论进入后，这里会生成可从接入到终态查看的 trace。</p>
+            )}
+          </section>
+
+          <section className="wb-card wb-card--comments" aria-labelledby="wb-comments">
+            <CardHead
+              id="wb-comments"
+              title="弹幕与决策"
+              meta={
+                ingressIsKnown(telemetry.ingress) && telemetry.ingress.received !== null
+                  ? `收到 ${telemetry.ingress.received}`
+                  : "尚未上报"
+              }
+            />
+            <CommentPanel
+              decisions={snapshot.decisions}
+              proposals={snapshot.proposals}
+              ingress={telemetry.ingress}
+              onLookupTrace={requestReplay}
+            />
+          </section>
+
+          <section className="wb-card wb-card--events" aria-labelledby="wb-events">
+            <CardHead
+              id="wb-events"
+              title="实时事件"
+              meta={`${telemetry.events.length} 条 · 最近${relativeTime(telemetry.events[0]?.at ?? null)}`}
+            />
+            <EventPanel groups={groups} onLookupTrace={requestReplay} />
+          </section>
+
+          {timelineTraceId !== null ? (
+            <section
+              ref={timelineRef}
+              className="wb-card wb-card--timeline"
+              aria-labelledby="wb-timeline"
+            >
+              <CardHead id="wb-timeline" title="回放时间轴" meta={shortId(timelineTraceId)} />
+              <TimelinePanel entries={timeline} pending={timelinePending} />
+            </section>
+          ) : null}
+        </div>
+
+        <div className="workbench__column workbench__column--rail">
+          <section className="wb-card wb-card--goal" aria-labelledby="wb-goal">
+            <CardHead
+              id="wb-goal"
+              title="今日主线"
+              meta={goal === null ? "未建立" : `${goal.completed}/${goal.milestones.length} 已验证`}
+            />
+            <GoalPanel goal={goal} />
+          </section>
+
+          <section className="wb-card wb-card--queue" aria-labelledby="wb-queue">
+            <CardHead id="wb-queue" title="任务队列" meta={`${queueCount(snapshot.proposals)} 条待定`} />
+            <QueuePanel snapshot={snapshot} telemetry={telemetry} />
+          </section>
+
+          <section className="wb-card wb-card--body" aria-labelledby="wb-body">
+            <CardHead
+              id="wb-body"
+              title="身体状态"
+              meta={snapshot.bridge?.connected ? "Bridge 已连接" : "未连接"}
+            />
+            <BodyPanel snapshot={snapshot} />
+          </section>
+
+          <section className="wb-card wb-card--voice" aria-labelledby="wb-voice">
+            <CardHead id="wb-voice" title="模型与语音" meta={voiceLabel(snapshot.voiceStatus)} />
+            <VoicePanel voice={snapshot.voiceStatus} model={snapshot.model} budget={budget} />
+          </section>
+        </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * The top strip is the broadcast itself: audience numbers lead, cost and
+ * delivery follow. It replaces the old floating status cards with one
+ * continuous read of the show.
+ */
+function BroadcastStrip({
+  snapshot,
+  telemetry,
+  budget,
+}: {
+  readonly snapshot: ShowSnapshot;
+  readonly telemetry: TelemetrySnapshot;
+  readonly budget: Budget | null;
+}): React.JSX.Element {
+  const ingress = telemetry.ingress;
+  const known = ingressIsKnown(ingress);
+  const stats = [
+    ["收到", known && ingress.received !== null ? ingress.received : "—"],
+    ["执行", snapshot.stats.executed],
+    ["拒绝", snapshot.stats.refused],
+    ["待办", queueCount(snapshot.proposals)],
+  ] as const;
+  return (
+    <section className="broadcast-strip" aria-label="本场数据">
+      <div className="broadcast-strip__source">
+        <span className="broadcast-strip__dot" data-state={ingress.state} aria-hidden="true" />
+        <div>
+          <strong>{ingressLabel(ingress)}</strong>
+          <small>
+            {snapshot.bridge?.world?.inWorld
+              ? `${shortDimension(snapshot.bridge.world.world)} · 已接入身体`
+              : "游戏身体未连接，观察与判断仍照常运行"}
+          </small>
+        </div>
+      </div>
+      <dl className="broadcast-strip__stats">
+        {stats.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className="broadcast-strip__cost">
+        <span>本小时成本</span>
+        <strong>{budget === null ? "未上报" : `¥${budget.spent.toFixed(4)}`}</strong>
+        <small>{budget?.degraded ? "额度已降级" : "额度内运行"}</small>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The body is the agent's hands, but not its whole brain. Show the numbers an
+ * operator checks before trusting an action; absent telemetry stays absent.
+ */
+function BodyPanel({ snapshot }: { readonly snapshot: ShowSnapshot }): React.JSX.Element {
+  const world = snapshot.bridge?.world;
+  if (!snapshot.bridge?.connected) {
+    return (
+      <div className="wb-empty">
+        <strong>游戏身体未接入</strong>
+        <p>观察、判断与评论处理仍可运行；动作会停在授权前。</p>
+      </div>
+    );
+  }
+  if (!world?.inWorld) {
+    return (
+      <div className="wb-empty">
+        <strong>已连接客户端，尚未进入世界</strong>
+        <p>进入存档后，坐标、生命与快捷栏会显示在这里。</p>
+      </div>
+    );
+  }
+  return (
+    <dl className="body-panel">
+      <div>
+        <dt>维度</dt>
+        <dd>{shortDimension(world.world)}</dd>
+      </div>
+      <div>
+        <dt>坐标</dt>
+        <dd>
+          {world.position
+            ? `${Math.round(world.position.x)} / ${Math.round(world.position.y)} / ${Math.round(world.position.z)}`
+            : "未知"}
+        </dd>
+      </div>
+      <div>
+        <dt>生命</dt>
+        <dd>{world.health == null ? "未上报" : formatNumber(world.health)}</dd>
+      </div>
+      <div>
+        <dt>饥饿</dt>
+        <dd>{world.food == null ? "未上报" : formatNumber(world.food)}</dd>
+      </div>
+      <div className="body-panel__wide">
+        <dt>手持</dt>
+        <dd>{world.selectedItem ?? "空手"}</dd>
+      </div>
+    </dl>
+  );
+}
+
+function formatNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function PipelineTrack({
+  steps,
+}: {
+  readonly steps: ReturnType<typeof pipelineFor>;
+}): React.JSX.Element {
+  return (
+    <ol className="pipeline" aria-label="最近一条 trace 的处理阶段">
+      {steps.map((step) => (
+        <li key={step.stage} data-status={step.status} className="pipeline__step">
+          <span className="pipeline__dot" aria-hidden="true" />
+          <strong>{step.label}</strong>
+          <small>{pipelineMeta(step.status, step.at, step.durationMs)}</small>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -248,11 +384,11 @@ function JudgementPanel({
   if (judgement === null) {
     return (
       <div className="wb-empty wb-empty--tall">
-        <strong>Agent 尚未给出判断</strong>
+        <strong>还在等第一条可判断的弹幕</strong>
         <p>
           {snapshot.model?.state === "disabled"
-            ? "模型未配置；规则仍会在本地给出确定性判断。"
-            : "等待下一条评论或目标运行时产生可展示的判断摘要。"}
+            ? "模型尚未配置；安全与规则判断仍会在本地照常运行。"
+            : "收到评论后，这里会说明为什么执行、排队或拒绝。"}
         </p>
       </div>
     );
@@ -278,7 +414,7 @@ function JudgementPanel({
         {judgement.confidence === "observed"
           ? "基于已观测事实"
           : judgement.confidence === "inferred"
-            ? "基于模型推断"
+            ? "基于运行时判断"
             : "依据不足"}
       </span>
     </div>
@@ -288,9 +424,9 @@ function JudgementPanel({
 function GoalPanel({ goal }: { readonly goal: GoalProgress | null }): React.JSX.Element {
   if (goal === null) {
     return (
-      <div className="wb-empty">
-        <p>目标运行时还没有可验证的进度。</p>
-        <small>在设置里建立目标后，阶段、里程碑和下一步会显示在这里。</small>
+      <div className="wb-empty wb-empty--tall">
+        <strong>尚未建立今日主线</strong>
+        <p>打开目标模式后，阶段、里程碑和下一步会在这里持续更新。</p>
       </div>
     );
   }
@@ -333,9 +469,9 @@ function GoalPanel({ goal }: { readonly goal: GoalProgress | null }): React.JSX.
           <dt>连续失败</dt>
           <dd>{goal.consecutiveFailures === 0 ? "0 次" : `${goal.consecutiveFailures} 次`}</dd>
         </div>
-        <div>
-          <dt>下次重试</dt>
-          <dd>{goal.retryAt === null ? "无退避" : clock(goal.retryAt)}</dd>
+        <div className="goal__fact-wide">
+          <dt>恢复方式</dt>
+          <dd>{goal.status === "blocked" ? "检查游戏状态后，在设置 → 目标模式中继续" : goal.retryAt !== null && goal.retryAt > Date.now() ? `等待至 ${clock(goal.retryAt)} 重试` : "自动观察与规划"}</dd>
         </div>
         <div>
           <dt>更新时间</dt>
@@ -385,7 +521,7 @@ function QueuePanel({
         {failureEvents === 0
           ? "尚无失败事件；这不代表链路已通过完整验收。"
           : `最近窗口内记录到 ${failureEvents} 次失败。${
-              snapshot.goal?.retryAt
+              snapshot.goal?.status !== "blocked" && snapshot.goal?.retryAt && snapshot.goal.retryAt > Date.now()
                 ? `下次重试 ${clock(snapshot.goal.retryAt)}。`
                 : "当前没有排定的重试。"
             }`}
@@ -423,12 +559,12 @@ function CommentPanel({
           <b>{relativeTime(ingress.lastEventAt)}</b>
         </div>
       </div>
-      <dl className="comments__counts">
+      {known ? <dl className="comments__counts">
         <div><dt>收到</dt><dd>{numberOrUnknown(ingress.received, known)}</dd></div>
         <div><dt>转发</dt><dd>{numberOrUnknown(ingress.forwarded, known)}</dd></div>
         <div><dt>排队</dt><dd>{numberOrUnknown(ingress.queued, known)}</dd></div>
         <div><dt>丢弃</dt><dd>{numberOrUnknown(ingress.dropped, known)}</dd></div>
-      </dl>
+      </dl> : null}
       {Object.keys(ingress.dropReasons).length > 0 ? (
         <ul className="comments__drops" aria-label="丢弃原因">
           {Object.entries(ingress.dropReasons).map(([reason, count]) => (
@@ -683,6 +819,14 @@ function ingressLabel(ingress: IngressMetrics): string {
     default:
       return "Ingress 状态未知";
   }
+}
+
+function shortDimension(dimension: string | null | undefined): string {
+  if (!dimension) return "维度未知";
+  if (dimension === "minecraft:overworld") return "主世界";
+  if (dimension === "minecraft:the_nether") return "下界";
+  if (dimension === "minecraft:the_end") return "末地";
+  return dimension;
 }
 
 function modelLabel(model: ShowSnapshot["model"]): string {

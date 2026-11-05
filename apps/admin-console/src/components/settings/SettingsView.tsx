@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, cloneElement, isValidElement, type FormEvent, type ReactNode } from "react";
 import {
   integrationSettingsUpdateSchema,
   showSettingsSchema,
   type IntegrationSettingsUpdate,
   type IntegrationSettingsView,
   type GoalProgress,
+  type ShowSnapshot,
   type PersonaProfile,
   type ShowSettings,
   SEASON_GOAL_PRESETS,
@@ -16,6 +17,9 @@ interface SettingsViewProps {
   readonly settings: ShowSettings | null;
   readonly integrations: IntegrationSettingsView | null;
   readonly state: WireState;
+  readonly integrationRevision: number;
+  readonly lastError: string | null;
+  readonly model: ShowSnapshot["model"];
   readonly preferences: Preferences;
   readonly onPreferences: (patch: Partial<Preferences>) => void;
   readonly onResetPreferences: () => void;
@@ -36,6 +40,9 @@ export function SettingsView({
   settings,
   integrations,
   state,
+  integrationRevision,
+  lastError,
+  model,
   preferences,
   onPreferences,
   onResetPreferences,
@@ -57,6 +64,9 @@ export function SettingsView({
   const savedSnapshot = useRef<string>(settings ? JSON.stringify(settings) : "");
   const draftRef = useRef(draft);
   const pendingSave = useRef(false);
+  const submittedRevision = useRef(integrationRevision);
+  const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState("接入");
 
   useEffect(() => {
     draftRef.current = draft;
@@ -76,17 +86,38 @@ export function SettingsView({
   }, [settings]);
 
   useEffect(() => {
-    if (integrations && !pendingSave.current) setIntegrationDraft(integrations);
-  }, [integrations]);
+    if (!pendingSave.current) {
+      if (integrations) setIntegrationDraft(integrations);
+      return;
+    }
+    if (integrationRevision <= submittedRevision.current || !settings || !integrations) return;
+    pendingSave.current = false;
+    setSaving(false);
+    setDraft(settings);
+    setIntegrationDraft(integrations);
+    savedSnapshot.current = JSON.stringify(settings);
+    setSecrets({ model: "", voice: "" });
+    setSaved("已保存并应用。模型连接状态见下方；凭据无需另存到 .env。");
+  }, [integrationRevision, integrations, settings]);
 
   useEffect(() => {
-    if (!settings || !pendingSave.current) return;
-    if (draft && JSON.stringify(draft) === JSON.stringify(settings)) {
+    if (!saving) return;
+    if (lastError || state !== "open") {
       pendingSave.current = false;
-      savedSnapshot.current = JSON.stringify(settings);
-      setSaved("已保存到当前场次");
+      setSaving(false);
+      setSaved(lastError ? `保存失败：${lastError}` : "连接已断开，保存结果未确认，请重连后核对。");
     }
-  }, [settings, draft]);
+  }, [lastError, state, saving]);
+
+  useEffect(() => {
+    if (!saving) return;
+    const timer = window.setTimeout(() => {
+      pendingSave.current = false;
+      setSaving(false);
+      setSaved("未收到保存确认，请检查连接后重试。");
+    }, 10_000);
+    return () => window.clearTimeout(timer);
+  }, [saving]);
 
   const validation = useMemo(
     () => (draft ? showSettingsSchema.safeParse(draft) : null),
@@ -98,7 +129,7 @@ export function SettingsView({
     integrations !== null &&
     JSON.stringify(integrationDraft) !== JSON.stringify(integrations);
   const canSave =
-    state === "open" &&
+    !saving && state === "open" &&
     (dirty || integrationDirty || secrets.model.length > 0 || secrets.voice.length > 0) &&
     validation?.success === true;
 
@@ -139,6 +170,8 @@ export function SettingsView({
       return;
     }
     pendingSave.current = true;
+    submittedRevision.current = integrationRevision;
+    setSaving(true);
     onSaveIntegrations(
       {
         ...validation.data,
@@ -157,7 +190,6 @@ export function SettingsView({
       },
       integrationValidation.data,
     );
-    setSecrets({ model: "", voice: "" });
     setSaved("正在保存并应用…");
   };
 
@@ -201,8 +233,15 @@ export function SettingsView({
   };
 
   return (
-    <form className="settings-view" onSubmit={submit}>
-      <Section title="直播资料" hint="保存后立即写入 SQLite，并在下次启动时恢复">
+    <form className="settings-view" onSubmit={submit} data-tab={tab}>
+      <div className="settings-tabs" role="tablist" aria-label="设置分类">
+        {["接入", "直播资料", "目标模式", "角色与人格", "界面"].map((name) => (
+          <button key={name} type="button" role="tab" aria-selected={tab === name}
+            onClick={() => setTab(name)}>{name}</button>
+        ))}
+      </div>
+      <fieldset className="settings-fields" disabled={saving}>
+      <Section activeTab={tab} title="直播资料" hint="保存后立即写入 SQLite，并在下次启动时恢复">
         <Field label="终极目标" hint="只读描述由预设提供；观众不能修改目标">
           <select
             className="input"
@@ -256,13 +295,13 @@ export function SettingsView({
         </Field>
       </Section>
 
-      <Section title="目标模式" hint="只由操作员开关；运行状态与里程碑来自目标运行时">
+      <Section activeTab={tab} title="目标模式" hint="只由操作员开关；运行状态与里程碑来自目标运行时">
         <Field
           label="目标模式"
           hint={
             draft.goalMode
               ? "开启：运行时一次只下达一个任务，终态后才重新观察和规划"
-              : "关闭：运行时不会主动下达任务，评论仍会入提议收件箱"
+              : "关闭：停止自主任务，观众评论按常规仲裁处理"
           }
         >
           <button
@@ -315,7 +354,7 @@ export function SettingsView({
         </Field>
       </Section>
 
-      <Section title="角色与人格" hint="权重会直接进入仲裁打分，不只是展示">
+      <Section activeTab={tab} title="角色与人格" hint="权重会直接进入仲裁打分，不只是展示">
         <Field label="角色名">
           <input
             className="input"
@@ -390,33 +429,23 @@ export function SettingsView({
         </div>
       </Section>
 
-      <Section title="接入" hint="保存后立即替换运行中的模型和端到端实时语音连接">
-        <Field label="抖音房间号">
-          <input
-            className="input input--short"
-            value={integrationDraft.douyin.roomId}
-            maxLength={64}
-            placeholder="未配置"
-            onChange={(event) =>
-              setIntegrationsDraft({ douyin: { roomId: event.target.value } })
-            }
-          />
-        </Field>
-        <Field label="dyhub 地址">
-          <input
-            className="input"
-            value={integrationDraft.douyin.dyhubUrl}
-            maxLength={200}
-            placeholder="ws://127.0.0.1:8757"
-            onChange={(event) =>
-              setIntegrationsDraft({ douyin: { dyhubUrl: event.target.value } })
-            }
-          />
-        </Field>
+      <Section activeTab={tab} title="接入" hint="保存后立即替换运行中的模型和端到端实时语音连接">
+        <div className="settings-connection" data-state={model?.state ?? "disabled"} role="status">
+          <strong>{model?.state === "ready"
+            ? "模型最近调用成功"
+            : model?.state === "error"
+              ? "模型调用失败"
+              : integrationDraft.model.apiKeyConfigured
+                ? "API Key 已保存，等待下一次模型请求验证"
+                : "模型连接尚未配置"}</strong>
+          <p>{model?.state === "error" ? model.detail : "新 Key 保存在本机配置中，后续运行会立即使用；无需另存到 .env。"}</p>
+          <small>凭据已保存与模型调用成功分别显示。</small>
+        </div>
         <Field label="模型供应商">
-          <div className="inline-pair">
+          <div>
             <input
               className="input"
+              aria-label="模型供应商"
               value={integrationDraft.model.provider}
               maxLength={32}
               onChange={(event) =>
@@ -425,11 +454,16 @@ export function SettingsView({
                 })
               }
             />
+          </div>
+        </Field>
+        <Field label="模型名称" hint="DeepSeek 官方接口使用 deepseek-flash 或 deepseek-v4-pro">
+          <div>
             <input
               className="input"
+              aria-label="模型名称"
               value={integrationDraft.model.model}
               maxLength={96}
-              placeholder="deepseek-v4.1-flash"
+              placeholder="deepseek-flash"
               onChange={(event) =>
                 setIntegrationsDraft({ model: { model: event.target.value } })
               }
@@ -457,6 +491,28 @@ export function SettingsView({
             autoComplete="new-password"
             placeholder={integrationDraft.model.apiKeyConfigured ? "••••••••（保持不变）" : "输入 API Key"}
             onChange={(event) => setSecrets((current) => ({ ...current, model: event.target.value }))}
+          />
+        </Field>
+        <Field label="抖音房间号">
+          <input
+            className="input input--short"
+            value={integrationDraft.douyin.roomId}
+            maxLength={64}
+            placeholder="未配置"
+            onChange={(event) =>
+              setIntegrationsDraft({ douyin: { roomId: event.target.value } })
+            }
+          />
+        </Field>
+        <Field label="dyhub 地址">
+          <input
+            className="input"
+            value={integrationDraft.douyin.dyhubUrl}
+            maxLength={200}
+            placeholder="ws://127.0.0.1:8757"
+            onChange={(event) =>
+              setIntegrationsDraft({ douyin: { dyhubUrl: event.target.value } })
+            }
           />
         </Field>
         <Field label="语音音色 ID" hint="豆包端到端实时语音（Seeduplex）">
@@ -494,7 +550,7 @@ export function SettingsView({
         </Field>
       </Section>
 
-      <Section title="界面" hint="只保存在这台机器，立即生效，不写入直播数据">
+      <Section activeTab={tab} title="界面" hint="只保存在这台机器，立即生效，不写入直播数据">
         <Field label="外观">
           <Segmented
             value={preferences.theme}
@@ -556,18 +612,19 @@ export function SettingsView({
         </Field>
       </Section>
 
+      </fieldset>
       <div className="settings-foot">
         <p role="status">
           {validation && !validation.success
             ? `有 ${validation.error.issues.length} 项需要修正`
-            : saved ?? (dirty ? "有未保存的修改" : "配置与本地内核一致")}
+            : saved ?? (dirty || integrationDirty || secrets.model || secrets.voice ? "有未保存的修改" : "配置已读取；API Key 留空会保留已保存的凭据")}
         </p>
         <div>
           <button type="button" className="action" onClick={onResetPreferences}>
             重置界面
           </button>
           <button type="submit" className="action action--primary" disabled={!canSave}>
-            保存到本场
+            {saving ? "正在保存…" : "保存并应用"}
           </button>
         </div>
       </div>
@@ -576,16 +633,18 @@ export function SettingsView({
 }
 
 function Section({
+  activeTab,
   title,
   hint,
   children,
 }: {
+  readonly activeTab: string;
   readonly title: string;
   readonly hint: string;
   readonly children: ReactNode;
 }): React.JSX.Element {
   return (
-    <section className="settings-section">
+    <section className="settings-section" role="tabpanel" aria-label={title} hidden={activeTab !== title}>
       <header>
         <h3>{title}</h3>
         <p>{hint}</p>
@@ -606,13 +665,17 @@ function Field({
   readonly align?: "row" | "stack";
   readonly children: ReactNode;
 }): React.JSX.Element {
+  const id = useId();
+  const control = isValidElement<{ id?: string; "aria-labelledby"?: string }>(children)
+    && typeof children.type === "string" && ["input", "select", "textarea", "button"].includes(children.type)
+      ? cloneElement(children, { id, "aria-labelledby": `${id}-label` }) : children;
   return (
     <div className="settings-field" data-align={align}>
       <div className="settings-field__label">
-        <strong>{label}</strong>
+        <label id={`${id}-label`} htmlFor={id}>{label}</label>
         {hint ? <small>{hint}</small> : null}
       </div>
-      <div className="settings-field__control">{children}</div>
+      <div className="settings-field__control" role="group" aria-labelledby={`${id}-label`}>{control}</div>
     </div>
   );
 }

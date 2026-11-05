@@ -1,11 +1,11 @@
 {
   "meta": {
     "schemaVersion": 1,
-    "minecraftVersion": "1.21.11",
+    "minecraftVersion": "1.20.1",
     "source": "https://github.com/misode/mcmeta.git",
-    "sourceTag": "1.21.11-data-json",
-    "dataVersion": 4671,
-    "generatedFrom": "2025-12-09T12:20:42+00:00"
+    "sourceTag": "1.20.1-data-json",
+    "dataVersion": 3465,
+    "generatedFrom": "2023-06-12T13:23:26+00:00"
   },
   "recipes": [
     {
@@ -139,8 +139,6 @@
           "minecraft:mangrove_wood",
           "minecraft:oak_log",
           "minecraft:oak_wood",
-          "minecraft:pale_oak_log",
-          "minecraft:pale_oak_wood",
           "minecraft:spruce_log",
           "minecraft:spruce_wood",
           "minecraft:stripped_acacia_log",
@@ -157,12 +155,10 @@
           "minecraft:stripped_mangrove_wood",
           "minecraft:stripped_oak_log",
           "minecraft:stripped_oak_wood",
-          "minecraft:stripped_pale_oak_log",
-          "minecraft:stripped_pale_oak_wood",
           "minecraft:stripped_spruce_log",
           "minecraft:stripped_spruce_wood"
         ],
-        "tag": "#minecraft:logs_that_burn",
+        "tag": "minecraft:logs_that_burn",
         "count": 1
       },
       "output": {
@@ -669,60 +665,6 @@
       "experience": 0.7
     },
     {
-      "id": "minecraft:copper_nugget_from_blasting",
-      "station": "blast_furnace",
-      "input": {
-        "choices": [
-          "minecraft:copper_axe",
-          "minecraft:copper_boots",
-          "minecraft:copper_chestplate",
-          "minecraft:copper_helmet",
-          "minecraft:copper_hoe",
-          "minecraft:copper_horse_armor",
-          "minecraft:copper_leggings",
-          "minecraft:copper_nautilus_armor",
-          "minecraft:copper_pickaxe",
-          "minecraft:copper_shovel",
-          "minecraft:copper_spear",
-          "minecraft:copper_sword"
-        ],
-        "count": 1
-      },
-      "output": {
-        "item": "minecraft:copper_nugget",
-        "count": 1
-      },
-      "cookingTimeTicks": 100,
-      "experience": 0.1
-    },
-    {
-      "id": "minecraft:copper_nugget_from_smelting",
-      "station": "furnace",
-      "input": {
-        "choices": [
-          "minecraft:copper_axe",
-          "minecraft:copper_boots",
-          "minecraft:copper_chestplate",
-          "minecraft:copper_helmet",
-          "minecraft:copper_hoe",
-          "minecraft:copper_horse_armor",
-          "minecraft:copper_leggings",
-          "minecraft:copper_nautilus_armor",
-          "minecraft:copper_pickaxe",
-          "minecraft:copper_shovel",
-          "minecraft:copper_spear",
-          "minecraft:copper_sword"
-        ],
-        "count": 1
-      },
-      "output": {
-        "item": "minecraft:copper_nugget",
-        "count": 1
-      },
-      "cookingTimeTicks": 200,
-      "experience": 0.1
-    },
-    {
       "id": "minecraft:cracked_deepslate_bricks",
       "station": "furnace",
       "input": {
@@ -1018,7 +960,7 @@
           "minecraft:red_sand",
           "minecraft:sand"
         ],
-        "tag": "#minecraft:smelts_to_glass",
+        "tag": "minecraft:smelts_to_glass",
         "count": 1
       },
       "output": {
@@ -1168,10 +1110,8 @@
           "minecraft:golden_hoe",
           "minecraft:golden_horse_armor",
           "minecraft:golden_leggings",
-          "minecraft:golden_nautilus_armor",
           "minecraft:golden_pickaxe",
           "minecraft:golden_shovel",
-          "minecraft:golden_spear",
           "minecraft:golden_sword"
         ],
         "count": 1
@@ -1195,10 +1135,8 @@
           "minecraft:golden_hoe",
           "minecraft:golden_horse_armor",
           "minecraft:golden_leggings",
-          "minecraft:golden_nautilus_armor",
           "minecraft:golden_pickaxe",
           "minecraft:golden_shovel",
-          "minecraft:golden_spear",
           "minecraft:golden_sword"
         ],
         "count": 1
@@ -1370,10 +1308,8 @@
           "minecraft:iron_hoe",
           "minecraft:iron_horse_armor",
           "minecraft:iron_leggings",
-          "minecraft:iron_nautilus_armor",
           "minecraft:iron_pickaxe",
           "minecraft:iron_shovel",
-          "minecraft:iron_spear",
           "minecraft:iron_sword"
         ],
         "count": 1
@@ -1401,10 +1337,8 @@
           "minecraft:iron_hoe",
           "minecraft:iron_horse_armor",
           "minecraft:iron_leggings",
-          "minecraft:iron_nautilus_armor",
           "minecraft:iron_pickaxe",
           "minecraft:iron_shovel",
-          "minecraft:iron_spear",
           "minecraft:iron_sword"
         ],
         "count": 1
@@ -1479,33 +1413,6 @@
       },
       "cookingTimeTicks": 200,
       "experience": 0.2
-    },
-    {
-      "id": "minecraft:leaf_litter",
-      "station": "furnace",
-      "input": {
-        "choices": [
-          "minecraft:acacia_leaves",
-          "minecraft:azalea_leaves",
-          "minecraft:birch_leaves",
-          "minecraft:cherry_leaves",
-          "minecraft:dark_oak_leaves",
-          "minecraft:flowering_azalea_leaves",
-          "minecraft:jungle_leaves",
-          "minecraft:mangrove_leaves",
-          "minecraft:oak_leaves",
-          "minecraft:pale_oak_leaves",
-          "minecraft:spruce_leaves"
-        ],
-        "tag": "#minecraft:leaves",
-        "count": 1
-      },
-      "output": {
-        "item": "minecraft:leaf_litter",
-        "count": 1
-      },
-      "cookingTimeTicks": 200,
-      "experience": 0.1
     },
     {
       "id": "minecraft:light_blue_glazed_terracotta",
@@ -1810,22 +1717,6 @@
       },
       "cookingTimeTicks": 200,
       "experience": 0.7
-    },
-    {
-      "id": "minecraft:resin_brick",
-      "station": "furnace",
-      "input": {
-        "choices": [
-          "minecraft:resin_clump"
-        ],
-        "count": 1
-      },
-      "output": {
-        "item": "minecraft:resin_brick",
-        "count": 1
-      },
-      "cookingTimeTicks": 200,
-      "experience": 0.1
     },
     {
       "id": "minecraft:smooth_basalt",

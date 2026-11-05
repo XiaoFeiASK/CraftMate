@@ -199,7 +199,7 @@ final class ApproachRoute {
 						+ Math.pow(spot.getY() + 0.5 - (target.getY() + 0.5), 2)
 						+ Math.pow(spot.getZ() + 0.5 - (target.getZ() + 0.5), 2)
 				);
-				if (interactionDistance > client.player.blockInteractionRange() + 0.5) continue;
+				if (interactionDistance > 4.5 + 0.5) continue;
 				cells.add(new BoundedPathfinder.Cell(spot.getX(), spot.getY(), spot.getZ()));
 			}
 		}
@@ -244,7 +244,7 @@ final class ApproachRoute {
 			center.x,
 			center.y,
 			center.z,
-			client.player.blockInteractionRange()
+			4.5
 		);
 	}
 }

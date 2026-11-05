@@ -111,7 +111,7 @@ sticky owner 跨重连保持，防止断线自动夺权；所有权消息携带 
 ## 7. 本地验收
 
 1. 构建 Fabric 工程：`cd mods/craftmate-body && ./gradlew build`。
-2. 将构建产物安装到 Minecraft 1.21.11 / Fabric 0.20.1 实例。
+2. 将构建产物安装到 Minecraft 1.20.1 / Fabric Loader 0.15.11 实例，并安装 Fabric API 0.92.2+1.20.1。
 3. 启动 CraftMate，确认 `/bridge` 显示身体能力。
 4. 通过控制台或测试命令触发一个可观察动作。
 5. 验证进度、终态、断线释放、接管和急停。

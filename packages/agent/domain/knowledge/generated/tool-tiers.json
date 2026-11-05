@@ -1,11 +1,11 @@
 {
   "meta": {
     "schemaVersion": 1,
-    "minecraftVersion": "1.21.11",
+    "minecraftVersion": "1.20.1",
     "source": "https://github.com/misode/mcmeta.git",
-    "sourceTag": "1.21.11-data-json",
-    "dataVersion": 4671,
-    "generatedFrom": "2025-12-09T12:20:42+00:00"
+    "sourceTag": "1.20.1-data-json",
+    "dataVersion": 3465,
+    "generatedFrom": "2023-06-12T13:23:26+00:00"
   },
   "ranks": {
     "hand": 0,
@@ -220,7 +220,7 @@
       "minimumTier": "hand"
     },
     {
-      "block": "minecraft:acacia_shelf",
+      "block": "minecraft:acacia_sapling",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -305,6 +305,21 @@
       "minimumTier": "wood"
     },
     {
+      "block": "minecraft:attached_melon_stem",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:attached_pumpkin_stem",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:azalea",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
       "block": "minecraft:azalea_leaves",
       "tool": "hoe",
       "minimumTier": "hand"
@@ -370,11 +385,6 @@
       "minimumTier": "hand"
     },
     {
-      "block": "minecraft:bamboo_shelf",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
       "block": "minecraft:bamboo_sign",
       "tool": "axe",
       "minimumTier": "hand"
@@ -421,6 +431,11 @@
     },
     {
       "block": "minecraft:beehive",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:beetroots",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -485,7 +500,7 @@
       "minimumTier": "hand"
     },
     {
-      "block": "minecraft:birch_shelf",
+      "block": "minecraft:birch_sapling",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -685,6 +700,11 @@
       "minimumTier": "wood"
     },
     {
+      "block": "minecraft:brown_mushroom",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
       "block": "minecraft:brown_mushroom_block",
       "tool": "axe",
       "minimumTier": "hand"
@@ -730,6 +750,11 @@
       "minimumTier": "hand"
     },
     {
+      "block": "minecraft:carrots",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
       "block": "minecraft:cartography_table",
       "tool": "axe",
       "minimumTier": "hand"
@@ -741,6 +766,21 @@
     },
     {
       "block": "minecraft:cauldron",
+      "tool": "pickaxe",
+      "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:cave_vines",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:cave_vines_plant",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:chain",
       "tool": "pickaxe",
       "minimumTier": "wood"
     },
@@ -790,7 +830,7 @@
       "minimumTier": "hand"
     },
     {
-      "block": "minecraft:cherry_shelf",
+      "block": "minecraft:cherry_sapling",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -845,11 +885,6 @@
       "minimumTier": "hand"
     },
     {
-      "block": "minecraft:chiseled_copper",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
       "block": "minecraft:chiseled_deepslate",
       "tool": "pickaxe",
       "minimumTier": "wood"
@@ -875,27 +910,12 @@
       "minimumTier": "wood"
     },
     {
-      "block": "minecraft:chiseled_resin_bricks",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
       "block": "minecraft:chiseled_sandstone",
       "tool": "pickaxe",
       "minimumTier": "wood"
     },
     {
       "block": "minecraft:chiseled_stone_bricks",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:chiseled_tuff",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:chiseled_tuff_bricks",
       "tool": "pickaxe",
       "minimumTier": "wood"
     },
@@ -985,57 +1005,12 @@
       "minimumTier": "wood"
     },
     {
-      "block": "minecraft:copper_bars",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
       "block": "minecraft:copper_block",
       "tool": "pickaxe",
       "minimumTier": "stone"
     },
     {
-      "block": "minecraft:copper_bulb",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:copper_chain",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:copper_chest",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:copper_door",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:copper_golem_statue",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:copper_grate",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:copper_lantern",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
       "block": "minecraft:copper_ore",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:copper_trapdoor",
       "tool": "pickaxe",
       "minimumTier": "stone"
     },
@@ -1065,17 +1040,7 @@
       "minimumTier": "wood"
     },
     {
-      "block": "minecraft:crafter",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
       "block": "minecraft:crafting_table",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:creaking_heart",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -1096,6 +1061,11 @@
     },
     {
       "block": "minecraft:crimson_fence_gate",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:crimson_fungus",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -1121,11 +1091,6 @@
     },
     {
       "block": "minecraft:crimson_pressure_plate",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:crimson_shelf",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -1290,7 +1255,7 @@
       "minimumTier": "hand"
     },
     {
-      "block": "minecraft:dark_oak_shelf",
+      "block": "minecraft:dark_oak_sapling",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -1388,6 +1353,11 @@
       "block": "minecraft:dead_bubble_coral_wall_fan",
       "tool": "pickaxe",
       "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:dead_bush",
+      "tool": "axe",
+      "minimumTier": "hand"
     },
     {
       "block": "minecraft:dead_fire_coral",
@@ -1645,57 +1615,7 @@
       "minimumTier": "wood"
     },
     {
-      "block": "minecraft:exposed_chiseled_copper",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
       "block": "minecraft:exposed_copper",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:exposed_copper_bars",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:exposed_copper_bulb",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:exposed_copper_chain",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:exposed_copper_chest",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:exposed_copper_door",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:exposed_copper_golem_statue",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:exposed_copper_grate",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:exposed_copper_lantern",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:exposed_copper_trapdoor",
       "tool": "pickaxe",
       "minimumTier": "stone"
     },
@@ -1715,13 +1635,13 @@
       "minimumTier": "stone"
     },
     {
-      "block": "minecraft:exposed_lightning_rod",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
       "block": "minecraft:farmland",
       "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:fern",
+      "tool": "axe",
       "minimumTier": "hand"
     },
     {
@@ -1731,6 +1651,11 @@
     },
     {
       "block": "minecraft:fletching_table",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:flowering_azalea",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -1783,6 +1708,11 @@
       "block": "minecraft:granite_wall",
       "tool": "pickaxe",
       "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:grass",
+      "tool": "axe",
+      "minimumTier": "hand"
     },
     {
       "block": "minecraft:grass_block",
@@ -1870,14 +1800,14 @@
       "minimumTier": "wood"
     },
     {
-      "block": "minecraft:hay_block",
-      "tool": "hoe",
+      "block": "minecraft:hanging_roots",
+      "tool": "axe",
       "minimumTier": "hand"
     },
     {
-      "block": "minecraft:heavy_core",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
+      "block": "minecraft:hay_block",
+      "tool": "hoe",
+      "minimumTier": "hand"
     },
     {
       "block": "minecraft:heavy_weighted_pressure_plate",
@@ -1943,11 +1873,6 @@
       "block": "minecraft:iron_block",
       "tool": "pickaxe",
       "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:iron_chain",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
     },
     {
       "block": "minecraft:iron_door",
@@ -2020,7 +1945,7 @@
       "minimumTier": "hand"
     },
     {
-      "block": "minecraft:jungle_shelf",
+      "block": "minecraft:jungle_sapling",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -2083,6 +2008,11 @@
       "block": "minecraft:large_amethyst_bud",
       "tool": "pickaxe",
       "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:large_fern",
+      "tool": "axe",
+      "minimumTier": "hand"
     },
     {
       "block": "minecraft:lava_cauldron",
@@ -2173,6 +2103,11 @@
       "block": "minecraft:lightning_rod",
       "tool": "pickaxe",
       "minimumTier": "stone"
+    },
+    {
+      "block": "minecraft:lily_pad",
+      "tool": "axe",
+      "minimumTier": "hand"
     },
     {
       "block": "minecraft:lime_banner",
@@ -2305,12 +2240,12 @@
       "minimumTier": "hand"
     },
     {
-      "block": "minecraft:mangrove_roots",
+      "block": "minecraft:mangrove_propagule",
       "tool": "axe",
       "minimumTier": "hand"
     },
     {
-      "block": "minecraft:mangrove_shelf",
+      "block": "minecraft:mangrove_roots",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -2356,6 +2291,11 @@
     },
     {
       "block": "minecraft:melon",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:melon_stem",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -2485,6 +2425,11 @@
       "minimumTier": "wood"
     },
     {
+      "block": "minecraft:nether_wart",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
       "block": "minecraft:nether_wart_block",
       "tool": "hoe",
       "minimumTier": "hand"
@@ -2550,7 +2495,7 @@
       "minimumTier": "hand"
     },
     {
-      "block": "minecraft:oak_shelf",
+      "block": "minecraft:oak_sapling",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -2635,57 +2580,7 @@
       "minimumTier": "hand"
     },
     {
-      "block": "minecraft:oxidized_chiseled_copper",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
       "block": "minecraft:oxidized_copper",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:oxidized_copper_bars",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:oxidized_copper_bulb",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:oxidized_copper_chain",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:oxidized_copper_chest",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:oxidized_copper_door",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:oxidized_copper_golem_statue",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:oxidized_copper_grate",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:oxidized_copper_lantern",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:oxidized_copper_trapdoor",
       "tool": "pickaxe",
       "minimumTier": "stone"
     },
@@ -2705,11 +2600,6 @@
       "minimumTier": "stone"
     },
     {
-      "block": "minecraft:oxidized_lightning_rod",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
       "block": "minecraft:packed_ice",
       "tool": "pickaxe",
       "minimumTier": "wood"
@@ -2718,101 +2608,6 @@
       "block": "minecraft:packed_mud",
       "tool": "pickaxe",
       "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:pale_moss_block",
-      "tool": "hoe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_moss_carpet",
-      "tool": "hoe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_button",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_door",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_fence",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_fence_gate",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_hanging_sign",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_leaves",
-      "tool": "hoe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_log",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_planks",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_pressure_plate",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_shelf",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_sign",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_slab",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_stairs",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_trapdoor",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_wall_hanging_sign",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_wall_sign",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:pale_oak_wood",
-      "tool": "axe",
-      "minimumTier": "hand"
     },
     {
       "block": "minecraft:petrified_oak_slab",
@@ -2838,6 +2633,11 @@
       "block": "minecraft:pink_glazed_terracotta",
       "tool": "pickaxe",
       "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:pink_petals",
+      "tool": "hoe",
+      "minimumTier": "hand"
     },
     {
       "block": "minecraft:pink_shulker_box",
@@ -2995,24 +2795,9 @@
       "minimumTier": "wood"
     },
     {
-      "block": "minecraft:polished_tuff",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:polished_tuff_slab",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:polished_tuff_stairs",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:polished_tuff_wall",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
+      "block": "minecraft:potatoes",
+      "tool": "axe",
+      "minimumTier": "hand"
     },
     {
       "block": "minecraft:powder_snow_cauldron",
@@ -3061,6 +2846,11 @@
     },
     {
       "block": "minecraft:pumpkin",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:pumpkin_stem",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -3185,6 +2975,11 @@
       "minimumTier": "wood"
     },
     {
+      "block": "minecraft:red_mushroom",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
       "block": "minecraft:red_mushroom_block",
       "tool": "axe",
       "minimumTier": "hand"
@@ -3260,26 +3055,6 @@
       "minimumTier": "iron"
     },
     {
-      "block": "minecraft:resin_brick_slab",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:resin_brick_stairs",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:resin_brick_wall",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:resin_bricks",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
       "block": "minecraft:respawn_anchor",
       "tool": "pickaxe",
       "minimumTier": "diamond"
@@ -3313,6 +3088,11 @@
       "block": "minecraft:sandstone_wall",
       "tool": "pickaxe",
       "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:scaffolding",
+      "tool": "axe",
+      "minimumTier": "hand"
     },
     {
       "block": "minecraft:sculk",
@@ -3353,6 +3133,11 @@
       "block": "minecraft:small_amethyst_bud",
       "tool": "pickaxe",
       "minimumTier": "wood"
+    },
+    {
+      "block": "minecraft:small_dripleaf",
+      "tool": "axe",
+      "minimumTier": "hand"
     },
     {
       "block": "minecraft:smithing_table",
@@ -3465,6 +3250,11 @@
       "minimumTier": "hand"
     },
     {
+      "block": "minecraft:spore_blossom",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
       "block": "minecraft:spruce_button",
       "tool": "axe",
       "minimumTier": "hand"
@@ -3510,7 +3300,7 @@
       "minimumTier": "hand"
     },
     {
-      "block": "minecraft:spruce_shelf",
+      "block": "minecraft:spruce_sapling",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -3690,16 +3480,6 @@
       "minimumTier": "hand"
     },
     {
-      "block": "minecraft:stripped_pale_oak_log",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:stripped_pale_oak_wood",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
       "block": "minecraft:stripped_spruce_log",
       "tool": "axe",
       "minimumTier": "hand"
@@ -3720,6 +3500,11 @@
       "minimumTier": "hand"
     },
     {
+      "block": "minecraft:sugar_cane",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
       "block": "minecraft:suspicious_gravel",
       "tool": "shovel",
       "minimumTier": "hand"
@@ -3727,6 +3512,16 @@
     {
       "block": "minecraft:suspicious_sand",
       "tool": "shovel",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:sweet_berry_bush",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:tall_grass",
+      "tool": "axe",
       "minimumTier": "hand"
     },
     {
@@ -3755,39 +3550,14 @@
       "minimumTier": "wood"
     },
     {
-      "block": "minecraft:tuff_brick_slab",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
+      "block": "minecraft:twisting_vines",
+      "tool": "axe",
+      "minimumTier": "hand"
     },
     {
-      "block": "minecraft:tuff_brick_stairs",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:tuff_brick_wall",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:tuff_bricks",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:tuff_slab",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:tuff_stairs",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:tuff_wall",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
+      "block": "minecraft:twisting_vines_plant",
+      "tool": "axe",
+      "minimumTier": "hand"
     },
     {
       "block": "minecraft:vine",
@@ -3815,6 +3585,11 @@
       "minimumTier": "hand"
     },
     {
+      "block": "minecraft:warped_fungus",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
       "block": "minecraft:warped_hanging_sign",
       "tool": "axe",
       "minimumTier": "hand"
@@ -3836,11 +3611,6 @@
     },
     {
       "block": "minecraft:warped_pressure_plate",
-      "tool": "axe",
-      "minimumTier": "hand"
-    },
-    {
-      "block": "minecraft:warped_shelf",
       "tool": "axe",
       "minimumTier": "hand"
     },
@@ -3890,57 +3660,7 @@
       "minimumTier": "wood"
     },
     {
-      "block": "minecraft:waxed_chiseled_copper",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_copper_bars",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
       "block": "minecraft:waxed_copper_block",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_copper_bulb",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_copper_chain",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_copper_chest",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_copper_door",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_copper_golem_statue",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_copper_grate",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_copper_lantern",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_copper_trapdoor",
       "tool": "pickaxe",
       "minimumTier": "stone"
     },
@@ -3960,57 +3680,7 @@
       "minimumTier": "stone"
     },
     {
-      "block": "minecraft:waxed_exposed_chiseled_copper",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
       "block": "minecraft:waxed_exposed_copper",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_bars",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_bulb",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_chain",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_chest",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_door",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_golem_statue",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_grate",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_lantern",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_trapdoor",
       "tool": "pickaxe",
       "minimumTier": "stone"
     },
@@ -4030,67 +3700,7 @@
       "minimumTier": "stone"
     },
     {
-      "block": "minecraft:waxed_exposed_lightning_rod",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_lightning_rod",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_oxidized_chiseled_copper",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
       "block": "minecraft:waxed_oxidized_copper",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_bars",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_bulb",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_chain",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_chest",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_door",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_golem_statue",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_grate",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_lantern",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_trapdoor",
       "tool": "pickaxe",
       "minimumTier": "stone"
     },
@@ -4110,62 +3720,7 @@
       "minimumTier": "stone"
     },
     {
-      "block": "minecraft:waxed_oxidized_lightning_rod",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_weathered_chiseled_copper",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
       "block": "minecraft:waxed_weathered_copper",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_bars",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_bulb",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_chain",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_chest",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_door",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_golem_statue",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_grate",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_lantern",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_trapdoor",
       "tool": "pickaxe",
       "minimumTier": "stone"
     },
@@ -4185,62 +3740,7 @@
       "minimumTier": "stone"
     },
     {
-      "block": "minecraft:waxed_weathered_lightning_rod",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:weathered_chiseled_copper",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
       "block": "minecraft:weathered_copper",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:weathered_copper_bars",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:weathered_copper_bulb",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:weathered_copper_chain",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:weathered_copper_chest",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:weathered_copper_door",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:weathered_copper_golem_statue",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:weathered_copper_grate",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
-    },
-    {
-      "block": "minecraft:weathered_copper_lantern",
-      "tool": "pickaxe",
-      "minimumTier": "wood"
-    },
-    {
-      "block": "minecraft:weathered_copper_trapdoor",
       "tool": "pickaxe",
       "minimumTier": "stone"
     },
@@ -4260,13 +3760,23 @@
       "minimumTier": "stone"
     },
     {
-      "block": "minecraft:weathered_lightning_rod",
-      "tool": "pickaxe",
-      "minimumTier": "stone"
+      "block": "minecraft:weeping_vines",
+      "tool": "axe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:weeping_vines_plant",
+      "tool": "axe",
+      "minimumTier": "hand"
     },
     {
       "block": "minecraft:wet_sponge",
       "tool": "hoe",
+      "minimumTier": "hand"
+    },
+    {
+      "block": "minecraft:wheat",
+      "tool": "axe",
       "minimumTier": "hand"
     },
     {

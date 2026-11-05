@@ -527,6 +527,16 @@ export class DecisionStore {
       );
   }
 
+  /** Evidence for durable obligations, including decisions outside the UI window. */
+  commitmentEvidence(decisionId: string): Pick<Decision, "skill" | "outcome"> | null {
+    const row = this.db.prepare("SELECT skill_json, outcome_json FROM decision_log WHERE id = ?")
+      .get(decisionId) as { skill_json: string | null; outcome_json: string | null } | undefined;
+    if (!row) return null;
+    const skill = row.skill_json === null ? null : skillCallSchema.parse(JSON.parse(row.skill_json));
+    const outcome = row.outcome_json === null ? null : decisionOutcomeSchema.parse(JSON.parse(row.outcome_json));
+    return { skill, outcome };
+  }
+
   recent(sessionId: string, limit: number): Decision[] {
     const rows = this.db
       .prepare(
@@ -600,7 +610,7 @@ export class DecisionStore {
    * Totals for a session. The in-memory counters reset on restart, so the
    * console must be seeded from the database or it shows "received N, decided 0".
    */
-  counts(sessionId: string): {
+  counts(sessionId: string, since = 0): {
     received: number;
     decided: number;
     executed: number;
@@ -610,14 +620,20 @@ export class DecisionStore {
     const row = this.db
       .prepare(
         `SELECT
-           count(*) AS received,
-           count(*) AS decided,
-           sum(CASE WHEN decision = 'EXECUTE' THEN 1 ELSE 0 END) AS executed,
-           sum(CASE WHEN decision = 'REFUSE' THEN 1 ELSE 0 END) AS refused,
-           sum(CASE WHEN decision = 'OBSERVE' THEN 1 ELSE 0 END) AS observed
-         FROM decision_log WHERE session_id = ?`,
+           (SELECT count(*) FROM source audience
+            WHERE audience.session_id = ? AND audience.received_at_ms >= ?
+              AND audience.kind IN ('comment', 'gift', 'like', 'enter', 'viewer_count')
+              AND audience.external_event_id NOT LIKE 'autonomous-%') AS received,
+           count(d.id) AS decided,
+           sum(CASE WHEN d.decision = 'EXECUTE' THEN 1 ELSE 0 END) AS executed,
+           sum(CASE WHEN d.decision = 'REFUSE' THEN 1 ELSE 0 END) AS refused,
+           sum(CASE WHEN d.decision = 'OBSERVE' THEN 1 ELSE 0 END) AS observed
+         FROM decision_log d JOIN source s ON s.id = d.source_id
+         WHERE d.session_id = ? AND d.created_at_ms >= ?
+           AND s.kind IN ('comment', 'gift', 'like', 'enter', 'viewer_count')
+           AND s.external_event_id NOT LIKE 'autonomous-%'`,
       )
-      .get(sessionId) as {
+      .get(sessionId, since, sessionId, since) as {
       received: number | null;
       decided: number | null;
       executed: number | null;

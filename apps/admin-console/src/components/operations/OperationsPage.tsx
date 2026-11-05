@@ -22,6 +22,7 @@ import { ReplayView } from "../ops/ReplayView.tsx";
 import type { WireState } from "../../lib/connection.ts";
 import type { Preferences } from "../../lib/preferences.ts";
 import { clock } from "../../lib/format.ts";
+import mascot from "../../assets/dafeiyu.png";
 
 export type WorkspaceView =
   | "decisions"
@@ -42,6 +43,7 @@ interface OperationsPageProps {
   readonly subtitles: readonly VoiceSubtitle[];
   readonly settings: ShowSettings | null;
   readonly integrations: IntegrationSettingsView | null;
+  readonly integrationRevision: number;
   readonly preferences: Preferences;
   readonly onComment: (nickname: string, text: string) => void;
   readonly onOperator: (kind: OperatorKind, text?: string) => void;
@@ -92,6 +94,7 @@ export function OperationsPage({
   subtitles,
   settings,
   integrations,
+  integrationRevision,
   preferences,
   onComment,
   onOperator,
@@ -120,9 +123,14 @@ export function OperationsPage({
     <main className="operations-page" aria-labelledby="operations-title">
         <header className="drawer__head">
           <div>
+            <span className="drawer__kicker">CRAFTMATE / FIELD CONSOLE</span>
             <h1 id="operations-title">{title.title}</h1>
             <p>{title.detail}</p>
           </div>
+          <span className="drawer__status" data-state={state}>
+            <span aria-hidden="true" />
+            {state === "open" ? modeLabel(showMode) : state === "connecting" ? "连接中" : "离线"}
+          </span>
         </header>
 
         <div className="drawer__body">
@@ -174,6 +182,9 @@ export function OperationsPage({
               onResetPreferences={onResetPreferences}
               onSave={onSaveSettings}
               integrations={integrations}
+              integrationRevision={integrationRevision}
+              lastError={lastError}
+              model={snapshot.model}
               onSaveIntegrations={onSaveIntegrationSettings}
               goal={snapshot.goal}
               onSetGoal={onSetGoal}
@@ -232,13 +243,15 @@ function PersonaView({
 
   return (
     <div className="persona-view">
-      <div className="persona-view__portrait" aria-hidden="true">
-        <span>鱼</span>
-      </div>
-      <div>
-        <span className="eyebrow">当前人格</span>
-        <h3>{personaName}</h3>
-        <p>{persona?.identity ?? "正在读取人格设定…"}</p>
+      <div className="persona-view__intro">
+        <div className="persona-view__portrait" aria-hidden="true">
+          <img src={mascot} alt="" />
+        </div>
+        <div>
+          <span className="eyebrow">当前人格</span>
+          <h3>{personaName}</h3>
+          <p>{persona?.identity ?? "正在读取人格设定…"}</p>
+        </div>
       </div>
       <dl className="persona-view__facts">
         <div><dt>语气</dt><dd>{persona?.tone ?? "—"}</dd></div>

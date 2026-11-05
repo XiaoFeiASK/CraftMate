@@ -68,7 +68,7 @@ describe("control protocol", () => {
             goalDescription: "盖一间房子",
             goalMode: false,
             worldName: "本地世界",
-            gameVersion: "1.21.11",
+            gameVersion: "1.20.1",
             accountLabel: "直播号",
             integrations: { douyinRoomId: "", deepseekModel: "" },
             persona: {
@@ -157,7 +157,7 @@ describe("control protocol", () => {
       goalDescription: "盖一间房子",
       goalMode: false,
       worldName: "本地世界",
-      gameVersion: "1.21.11",
+      gameVersion: "1.20.1",
       accountLabel: "直播号",
       integrations: { douyinRoomId: "", deepseekModel: "" },
       persona: {

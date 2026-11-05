@@ -669,7 +669,7 @@ describe("operator control to the game body", () => {
     options: {
       readonly show?: Show;
       readonly dispatchSkill?: (decision: Decision) => void;
-      readonly speech?: { speak(input: { commitmentId: string }): void };
+      readonly speech?: { speak(input: { commitmentId: string | null }): void };
       readonly voice?: { speak(): void; stop(reason?: string): void };
     } = {},
   ): Promise<void> {
@@ -789,7 +789,7 @@ describe("operator control to the game body", () => {
       planner: new Planner({ provider, deadlineMs: 2_000 }),
     });
     const dispatched: string[] = [];
-    const spoken: string[] = [];
+    const spoken: Array<string | null> = [];
 
     await withBridge(
       async ({ control }) => {

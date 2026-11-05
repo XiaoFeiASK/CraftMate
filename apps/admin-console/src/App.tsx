@@ -14,6 +14,8 @@ export function App(): React.JSX.Element {
     personaName,
     settings,
     integrations,
+    integrationRevision,
+    resetActivity,
     lastError,
     subtitles,
     ops,
@@ -62,6 +64,7 @@ export function App(): React.JSX.Element {
           voiceStatus={snapshot.voiceStatus}
           goal={snapshot.goal}
           onSelect={setView}
+          onResetActivity={resetActivity}
         />
         {view === null ? (
           <AgentWorkbench
@@ -85,6 +88,7 @@ export function App(): React.JSX.Element {
             subtitles={subtitles}
             settings={settings}
             integrations={integrations}
+            integrationRevision={integrationRevision}
             preferences={preferences}
             onComment={sendComment}
             onOperator={sendOperator}

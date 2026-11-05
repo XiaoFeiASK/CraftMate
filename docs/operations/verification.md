@@ -20,7 +20,7 @@ npm run db:check:file
 2026-11-05 Issue #55 分支的最新自动化结果为：
 
 - `npm run typecheck`：通过；
-- `npm test`：328 个测试、62 个 suite 全部通过；
+- `npm test`：349 个测试、63 个 suite 全部通过；
 - `npm run db:check`：31 个对象、29 个索引，约束/视图/FTS 通过；
 - `npm run build`：Admin Console 生产构建通过；
 - `node tools/check-schema.mjs <新建临时目录>`：真实 WAL 文件库 31 个对象、
@@ -37,6 +37,10 @@ npm run db:check:file
 cd mods/craftmate-body
 ./gradlew build
 ```
+
+2026-11-05 版本迁移到 Minecraft 1.20.1 后，`./gradlew build`、`npm run typecheck`、
+`npm test`、`npm run build` 和知识数据校验均通过。真实 HMCL 启动及游戏内 Bridge 动作
+尚未在 1.20.1 实例复验；下方 2026-11-04 的实机链路记录对应迁移前的 1.21.11 构建。
 
 真实身体通道验收（需要 Minecraft 客户端已连接到运行中的 CraftMate）：
 
@@ -158,7 +162,7 @@ CI 不包含真实直播间、真实模型计费、真实音频硬件、Minecraf
   （`attempts`）；`decision_log.outcome_json` 持久化，重启后控制台仍能看到。
 - 身体事件写入 `world_event` 并按 session 递增 `seq`；控制台「评论与决策」顶部
   显示最近 6 条，反射原因与生命值同屏。
-- `mods/craftmate-body` 支持 Minecraft 1.21.11 / Fabric Loader 0.20.1。
+- `mods/craftmate-body` 面向 Minecraft 1.20.1 / Fabric Loader 0.15.11 / Fabric API 0.92.2+1.20.1，Gradle 构建通过。
 - HMCL 开发实例进入真实单人世界，连接 Bridge，上报世界快照。
 - `mine_block` 命令进入真实 Mod 执行状态机并被接受；完成结果包含同一目标位置
   和开始破坏时的方块 ID。
@@ -214,7 +218,7 @@ CI 不包含真实直播间、真实模型计费、真实音频硬件、Minecraf
   潜影盒及熔炉等），不含末影箱、讲台、信标等其它界面。Fabric 技能目录
   从 11 项增加到 13 项。
 - 新增 `craft`：优先接近 16 格内最近的工作台，否则使用背包 2×2 网格；
-  通过原版配方书提交 `RecipeDisplayId` 由服务端放置单批材料，再取走结果槽。
+  通过原版配方书提交配方，由服务端放置单批材料，再取走结果槽。
   仅当取走前结果槽确有目标物品、且稳定后主背包按物品增加了该批数量时才
   确认；配方书预览、结果槽出现但未取走都不算完成。`count` 大于单批产量时
   逐批重新提交配方；实际产量可能因配方一次产出多件而略高于请求数。无工作台
@@ -225,7 +229,7 @@ CI 不包含真实直播间、真实模型计费、真实音频硬件、Minecraf
 
 - GoalRuntime 已接 #42 的 `planSurvival` / `recover` / `evaluateProposal`；
   长时观感、真实地形上的失败恢复与完整生存链仍未用真实存档验收。
-- 1.21.11 真机逐帧相机效果、第三人称/HUD/手部一致性，以及 `CameraMixin`
+- 1.20.1 真机逐帧相机效果、第三人称/HUD/手部一致性，以及 `CameraMixin`
   在真实渲染管线中的稳定性。
 - 镜头偏开 30°/60°/90° 的离轴挖掘原型：当前实现保持展示镜头稳定，实际挖
   方块仍需要玩家真实视线；尚不能宣称所有交互都可离轴完成。

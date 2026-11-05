@@ -23,7 +23,7 @@
 
 | 项 | 当前选择 |
 | --- | --- |
-| 游戏 | 《我的世界》Java 版 1.21.11 + Fabric Loader 0.20.1 |
+| 游戏 | 《我的世界》Java 版 1.20.1 + Fabric Loader 0.15.11 + Fabric API 0.92.2 |
 | 世界 | 本地单人世界，直播使用专用存档 |
 | 直播 | 抖音，通过本机 dyhub sidecar 接入评论 |
 | 模型 | DeepSeek / OpenAI 兼容接口 |
@@ -85,7 +85,7 @@
 - SQLite 持久化、重启恢复、决策回放、保留清理、模型成本预算。
 - dyhub 评论接入、归一化、去重、背压与健康上报。
 - 豆包 Seeduplex 实时语音、字幕、抢占和失败上报。
-- Bridge 协议、队列、幂等、控制权、看门狗，以及真实 Fabric 1.21.11 身体的开发实例连接。
+- Bridge 协议、队列、幂等、控制权、看门狗，以及真实 Fabric 1.20.1 身体的开发实例连接。
 
 **还没有闭环**
 
@@ -156,7 +156,7 @@ craftmate/
 │  ├─ local-auth/         本机共享 token 与 loopback 校验
 │  └─ local-config/       本机凭据配置
 ├─ db/                    schema 与迁移
-├─ mods/craftmate-body/   Fabric 1.21.11 客户端 Mod
+├─ mods/craftmate-body/   Fabric 1.20.1 客户端 Mod
 ├─ tools/                 开发、环境加载与 schema 校验脚本
 ├─ docs/                  按功能分类的架构、运行、集成与验收文档
 ├─ licenses/              MIT 与 Apache-2.0 全文

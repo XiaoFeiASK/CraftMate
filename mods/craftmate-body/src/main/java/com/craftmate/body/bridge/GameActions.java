@@ -25,39 +25,29 @@ import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
 import net.minecraft.network.protocol.game.ServerboundClientCommandPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.attribute.BedRule;
-import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.entity.player.StackedItemContents;
+import net.minecraft.world.entity.player.StackedContents;
 import net.minecraft.world.item.BedItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.inventory.AbstractContainerMenu;
-import net.minecraft.world.inventory.AbstractCraftingMenu;
 import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.inventory.RecipeBookMenu;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.crafting.CraftingRecipe;
-import net.minecraft.world.item.crafting.PlacementInfo;
-import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeManager;
 import net.minecraft.world.item.crafting.ShapedRecipe;
-import net.minecraft.world.item.crafting.display.RecipeDisplay;
-import net.minecraft.world.item.crafting.display.RecipeDisplayEntry;
-import net.minecraft.world.item.crafting.display.RecipeDisplayId;
-import net.minecraft.world.item.crafting.display.ShapedCraftingRecipeDisplay;
-import net.minecraft.world.item.crafting.display.ShapelessCraftingRecipeDisplay;
-import net.minecraft.world.item.crafting.display.SlotDisplay;
-import net.minecraft.world.item.crafting.display.SlotDisplayContext;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.BedBlock;
@@ -191,7 +181,7 @@ public final class GameActions {
 			craftingTablePlaced = false;
 			return world;
 		}
-		world.addProperty("world", client.level.dimension().identifier().toString());
+		world.addProperty("world", client.level.dimension().location().toString());
 		JsonObject position = new JsonObject();
 		position.addProperty("x", round(player.getX()));
 		position.addProperty("y", round(player.getY()));
@@ -235,13 +225,13 @@ public final class GameActions {
 			"floor",
 			floor.isAir() ? null : BuiltInRegistries.BLOCK.getKey(floor.getBlock()).toString()
 		);
-		BlockPos spawn = client.level.getRespawnData().pos();
+		BlockPos spawn = client.level.getSharedSpawnPos();
 		JsonObject spawnPoint = new JsonObject();
 		spawnPoint.addProperty("x", spawn.getX() + 0.5);
 		spawnPoint.addProperty("y", spawn.getY());
 		spawnPoint.addProperty("z", spawn.getZ() + 0.5);
 		world.add("spawn", spawnPoint);
-		ItemStack selected = player.getInventory().getSelectedItem();
+		ItemStack selected = player.getInventory().getSelected();
 		world.addProperty(
 			"selectedItem",
 			selected.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(selected.getItem()).toString()
@@ -283,7 +273,7 @@ public final class GameActions {
 	 * "nothing reachable", not a reason to invent a target.
 	 */
 	private static JsonObject reachableBlock(Minecraft client, LocalPlayer player) {
-		HitResult raw = player.raycastHitResult(1.0f, player);
+		HitResult raw = player.pick(client.gameMode.getPickRange(), 1.0f, false);
 		BlockHitResult hit = raw.getType() == HitResult.Type.BLOCK && raw instanceof BlockHitResult blockHit
 			? blockHit
 			: null;
@@ -291,7 +281,7 @@ public final class GameActions {
 		BlockPos pos = hit.getBlockPos();
 		BlockState state = client.level.getBlockState(pos);
 		if (state.isAir()) return null;
-		if (!player.isWithinBlockInteractionRange(pos, 0.0)) return null;
+		if (!withinInteractionRange(player, pos)) return null;
 		JsonObject entry = new JsonObject();
 		entry.addProperty("id", BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
 		entry.addProperty("x", pos.getX());
@@ -333,7 +323,7 @@ public final class GameActions {
 	private static boolean hasFood(LocalPlayer player) {
 		for (int slot = 0; slot < Inventory.INVENTORY_SIZE; slot++) {
 			ItemStack stack = player.getInventory().getItem(slot);
-			if (!stack.isEmpty() && stack.get(DataComponents.FOOD) != null) return true;
+			if (!stack.isEmpty() && stack.getItem().isEdible()) return true;
 		}
 		return false;
 	}
@@ -468,7 +458,7 @@ public final class GameActions {
 
 	static void stopLocally(Minecraft client) {
 		LocalPlayer player = client.player;
-		if (player != null && player.input != null) player.input.tick();
+		if (player != null && player.input != null) player.input.tick(false, 1.0f);
 		releaseInputs(client);
 		MultiPlayerGameMode mode = client.gameMode;
 		if (mode != null && mode.isDestroying()) {
@@ -846,7 +836,7 @@ public final class GameActions {
 					hit.getBlockPos().equals(wall)
 				)) continue;
 				escapeWall = wall;
-				player.getInventory().setSelectedSlot(pickaxeSlot);
+				player.getInventory().selected = pickaxeSlot;
 				client.gameMode.startDestroyBlock(wall, hit.getDirection());
 				if (player.onGround()) player.jumpFromGround();
 				return true;
@@ -1253,7 +1243,7 @@ public final class GameActions {
 		boolean validate(Minecraft client) {
 			if (!super.validate(client)) return false;
 			if (anyLog) return true;
-			Identifier id = Identifier.tryParse(blockId);
+            ResourceLocation id = ResourceLocation.tryParse(blockId);
 			if (id == null || !BuiltInRegistries.BLOCK.containsKey(id)) {
 				validationError = "unknown block " + blockId;
 				return false;
@@ -1299,7 +1289,7 @@ public final class GameActions {
 			LocalPlayer player = client.player;
 			Block requested = anyLog
 				? null
-				: BuiltInRegistries.BLOCK.getValue(Identifier.parse(blockId));
+				: BuiltInRegistries.BLOCK.get(ResourceLocation.tryParse(blockId));
 			BlockState sample = requested == null
 				? null
 				: requested.defaultBlockState();
@@ -1319,11 +1309,11 @@ public final class GameActions {
 				slots,
 				usable,
 				needsTool,
-				inventory.getSelectedSlot(),
-				inventory.getSelectedSlot()
+				inventory.selected,
+				inventory.selected
 			);
 			if (chosen < 0) return false;
-			inventory.setSelectedSlot(chosen);
+			inventory.selected = chosen;
 			return true;
 		}
 
@@ -1859,7 +1849,7 @@ public final class GameActions {
 		private JsonObject miningResult(LocalPlayer player, BlockPos position, BlockState state) {
 			JsonObject evidence = new JsonObject();
 			evidence.addProperty("block", BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
-			ItemStack tool = player.getInventory().getSelectedItem();
+			ItemStack tool = player.getInventory().getSelected();
 			if (!tool.isEmpty()) {
 				evidence.addProperty(
 					"tool",
@@ -1879,7 +1869,7 @@ public final class GameActions {
 
 		private BlockPos findTarget(Minecraft client) {
 			if (anyLog) return findReachableLogFace(client);
-			Block block = BuiltInRegistries.BLOCK.getValue(Identifier.parse(blockId));
+			Block block = BuiltInRegistries.BLOCK.get(ResourceLocation.tryParse(blockId));
 			return findBlock(client, state -> state.is(block));
 		}
 
@@ -1981,7 +1971,7 @@ public final class GameActions {
 					trunk.getY(),
 					trunk.getZ(),
 					trunk.distSqr(candidate),
-					client.player.blockInteractionRange()
+					4.5
 				)) continue;
 				if (!canSee(client, client.player, candidate)) continue;
 				double distance = origin.distSqr(candidate);
@@ -2005,7 +1995,7 @@ public final class GameActions {
 					trunk.getY(),
 					trunk.getZ(),
 					trunk.distSqr(candidate),
-					client.player.blockInteractionRange()
+					4.5
 				)) continue;
 				double distance = origin.distSqr(candidate);
 				if (distance < bestDistance) {
@@ -2204,7 +2194,7 @@ public final class GameActions {
 		 */
 		private boolean canMineCoverFor(Minecraft client, BlockPos cover) {
 			BlockState state = client.level.getBlockState(cover);
-			ItemStack tool = client.player.getInventory().getSelectedItem();
+			ItemStack tool = client.player.getInventory().getSelected();
 			return state.is(BlockTags.DIRT)
 				|| state.is(BlockTags.SAND)
 				|| state.is(BlockTags.SNOW)
@@ -2225,7 +2215,7 @@ public final class GameActions {
 
 		private boolean matchesTarget(BlockState state) {
 			if (anyLog) return state.is(BlockTags.LOGS);
-			return state.is(BuiltInRegistries.BLOCK.getValue(Identifier.parse(blockId)));
+			return state.is(BuiltInRegistries.BLOCK.get(ResourceLocation.tryParse(blockId)));
 		}
 
 		/**
@@ -2272,7 +2262,7 @@ public final class GameActions {
 				"playerCellStandable",
 				standingY(client, origin) == origin.getY()
 			);
-			evidence.addProperty("blockInteractionRange", client.player.blockInteractionRange());
+			evidence.addProperty("blockInteractionRange", 4.5);
 			// Visibility is a property of the player, not of each candidate.
 			// This used to run a full 48-block scan for every log, which could
 			// freeze the render thread for minutes inside a canopy.
@@ -2351,11 +2341,11 @@ public final class GameActions {
 			// Use the client's own block interaction range. Eye-to-center
 			// rejects a log at the player's feet and leaves the walk loop
 			// pushing forever instead of starting to destroy it.
-			return player.isWithinBlockInteractionRange(target, 0.0);
+			return withinInteractionRange(player, target);
 		}
 
 		private static boolean canSee(Minecraft client, LocalPlayer player, BlockPos target) {
-			return player.isWithinBlockInteractionRange(target, 0.0);
+			return withinInteractionRange(player, target);
 		}
 
 		static BlockHitResult clip(Minecraft client, LocalPlayer player, Vec3 center) {
@@ -2415,7 +2405,7 @@ public final class GameActions {
 		@Override
 		boolean validate(Minecraft client) {
 			if (!super.validate(client)) return false;
-			if (itemId != null && Identifier.tryParse(itemId) == null) {
+			if (itemId != null && ResourceLocation.tryParse(itemId) == null) {
 				validationError = "invalid item " + itemId;
 				return false;
 			}
@@ -2559,7 +2549,7 @@ public final class GameActions {
 		}
 
 		private int countInInventory(LocalPlayer player) {
-			Item item = itemId == null ? null : BuiltInRegistries.ITEM.getValue(Identifier.parse(itemId));
+			Item item = itemId == null ? null : BuiltInRegistries.ITEM.get(ResourceLocation.tryParse(itemId));
 			int total = 0;
 			for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
 				ItemStack stack = player.getInventory().getItem(slot);
@@ -2623,7 +2613,7 @@ public final class GameActions {
 		private Item item;
 		private boolean table;
 		private BlockPos tablePos;
-		private AbstractCraftingMenu menu;
+		private RecipeBookMenu<?> menu;
 		private boolean openedByTask;
 		private boolean walking;
 		private int walkingAge;
@@ -2645,7 +2635,7 @@ public final class GameActions {
 		private int made;
 		private Map<String, Integer> inventoryAtTake;
 		private int resultAtTake;
-		private PlacementInfo manualPlacement;
+		private ManualPlacement manualPlacement;
 		private int manualSlot;
 		private int manualPhase;
 		private int manualSourceIndex = -1;
@@ -2665,12 +2655,12 @@ public final class GameActions {
 				validationError = "count must be positive";
 				return false;
 			}
-			Identifier id = Identifier.tryParse(itemId);
+			ResourceLocation id = ResourceLocation.tryParse(itemId);
 			if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
 				validationError = "unknown item " + itemId;
 				return false;
 			}
-			item = BuiltInRegistries.ITEM.getValue(id);
+			item = BuiltInRegistries.ITEM.get(id);
 			return true;
 		}
 
@@ -2857,8 +2847,8 @@ public final class GameActions {
 				}
 			}
 			if (menuSubmittedAt >= 0 || inventorySubmittedAt >= 0) {
-				AbstractCraftingMenu opened = client.screen instanceof AbstractContainerScreen<?> screen
-					&& screen.getMenu() instanceof AbstractCraftingMenu craftMenu
+				RecipeBookMenu<?> opened = client.screen instanceof AbstractContainerScreen<?> screen
+					&& screen.getMenu() instanceof RecipeBookMenu<?> craftMenu
 					? craftMenu
 					: null;
 				if (opened == null) {
@@ -2931,8 +2921,8 @@ public final class GameActions {
 				finish(id, "failed", "E_PRECONDITION", "crafting menu was not opened by this task", evidence("unowned menu"));
 				return;
 			}
-			AbstractCraftingMenu current = client.screen instanceof AbstractContainerScreen<?> screen
-				&& screen.getMenu() instanceof AbstractCraftingMenu value
+			RecipeBookMenu<?> current = client.screen instanceof AbstractContainerScreen<?> screen
+				&& screen.getMenu() instanceof RecipeBookMenu<?> value
 				? value
 				: null;
 			if (current == null) {
@@ -2969,7 +2959,7 @@ public final class GameActions {
 				// recipe book to refill the output slot immediately. Take
 				// that natural next batch before asking the server to place
 				// the recipe again.
-				Slot existing = current.getResultSlot();
+				Slot existing = resultSlot(current);
 				if (
 					existing != null
 						&& !existing.getItem().isEmpty()
@@ -3027,7 +3017,7 @@ public final class GameActions {
 			}
 			if (gridSubmitAt >= 0) {
 				Map<String, Integer> inputs = gridCounts(current);
-				Slot result = current.getResultSlot();
+				Slot result = resultSlot(current);
 				boolean resultReady = result != null
 					&& !result.getItem().isEmpty()
 					&& result.getItem().getItem() == item;
@@ -3049,7 +3039,7 @@ public final class GameActions {
 				if (gridSubmitAt >= 0) return;
 			}
 			if (gridReadyAt >= 0) {
-				Slot result = current.getResultSlot();
+				Slot result = resultSlot(current);
 				if (result == null || result.getItem().isEmpty() || result.getItem().getItem() != item) {
 					if (age - gridReadyAt > CRAFT_RESULT_TIMEOUT) {
 						finish(
@@ -3118,7 +3108,7 @@ public final class GameActions {
 				closeOwnMenu(client);
 				return;
 			}
-			if (choice.placement() != null && !recipeBookContains(client, choice.id())) {
+			if (!recipeBookContains(client, choice.recipe())) {
 				// The vanilla server still rejects a placement packet for a
 				// recipe that is not in the player's recipe book, even if the
 				// ingredients are present. A fresh world has not unlocked the
@@ -3195,31 +3185,40 @@ public final class GameActions {
 				closeOwnMenu(client);
 				return;
 			}
-			client.gameMode.handlePlaceRecipe(current.containerId, choice.id(), false);
+			client.gameMode.handlePlaceRecipe(current.containerId, choice.recipe(), false);
 			send.accept(progress(id, "placing_ingredients", made, requested));
 		}
 
-		private boolean startManualPlacement(AbstractCraftingMenu current, RecipeChoice choice) {
-			PlacementInfo placement = choice.placement();
-			if (placement == null || placement.isImpossibleToPlace()) return false;
-			List<Slot> grid = current.getInputGridSlots();
-			if (grid.size() < placement.slotsToIngredientIndex().size()) return false;
-			manualTargets = CraftGridLayout.centeredTargets(
-				placement.slotsToIngredientIndex().size(),
-				choice.width(),
-				choice.height(),
-				current.getGridWidth(),
-				current.getGridHeight()
-			);
-			if (manualTargets.size() != placement.slotsToIngredientIndex().size()) return false;
+		private boolean startManualPlacement(RecipeBookMenu<?> current, RecipeChoice choice) {
+			List<Ingredient> recipeIngredients = choice.recipe().getIngredients();
+			List<Slot> grid = inputGridSlots(current);
+			List<Integer> targetCells;
+			if (choice.recipe() instanceof ShapedRecipe) {
+				List<Integer> allCells = CraftGridLayout.centeredTargets(
+					recipeIngredients.size(), choice.width(), choice.height(),
+					current.getGridWidth(), current.getGridHeight()
+				);
+				if (allCells.size() != recipeIngredients.size()) return false;
+				targetCells = new ArrayList<>();
+				List<Ingredient> activeIngredients = new ArrayList<>();
+				for (int index = 0; index < recipeIngredients.size(); index++) {
+					Ingredient ingredient = recipeIngredients.get(index);
+					if (ingredient.isEmpty()) continue;
+					activeIngredients.add(ingredient);
+					targetCells.add(allCells.get(index));
+				}
+				recipeIngredients = activeIngredients;
+			} else {
+				targetCells = new ArrayList<>();
+				for (int index = 0; index < recipeIngredients.size(); index++) targetCells.add(index);
+			}
+			if (recipeIngredients.isEmpty() || targetCells.size() != recipeIngredients.size()) return false;
+			manualTargets = targetCells;
 			// Refuse to start unless every demanded cell has a matching stack
 			// somewhere in the player's inventory. This keeps a half-placed
 			// grid from looking like a server rejection.
-			for (int index = 0; index < placement.slotsToIngredientIndex().size(); index++) {
-				int ingredientIndex = placement.slotsToIngredientIndex().getInt(index);
-				if (ingredientIndex < 0) continue;
-				if (ingredientIndex >= placement.ingredients().size()) return false;
-				var ingredient = placement.ingredients().get(ingredientIndex);
+			for (int index = 0; index < recipeIngredients.size(); index++) {
+				Ingredient ingredient = recipeIngredients.get(index);
 				int gridIndex = manualTargets.get(index);
 				if (gridIndex < 0 || gridIndex >= grid.size()) return false;
 				final Slot gridSlot = grid.get(gridIndex);
@@ -3230,7 +3229,7 @@ public final class GameActions {
 				);
 				if (!available) return false;
 			}
-			manualPlacement = placement;
+			manualPlacement = new ManualPlacement(List.copyOf(recipeIngredients));
 			manualSlot = 0;
 			manualPhase = 0;
 			manualSourceIndex = -1;
@@ -3242,26 +3241,15 @@ public final class GameActions {
 			return true;
 		}
 
-		private void manualPlace(Minecraft client, AbstractCraftingMenu current) {
-			List<Slot> grid = current.getInputGridSlots();
-			while (
-				manualSlot < manualPlacement.slotsToIngredientIndex().size()
-					&& manualPlacement.slotsToIngredientIndex().getInt(manualSlot) < 0
-			) {
-				manualSlot++;
-			}
-			if (manualSlot >= manualPlacement.slotsToIngredientIndex().size()) {
+		private void manualPlace(Minecraft client, RecipeBookMenu<?> current) {
+			List<Slot> grid = inputGridSlots(current);
+			if (manualSlot >= manualPlacement.ingredients().size()) {
 				manualPlacement = null;
 				gridReadyAt = age;
 				send.accept(progress(id, "crafting", made, requested));
 				return;
 			}
-			int ingredientIndex = manualPlacement.slotsToIngredientIndex().getInt(manualSlot);
-			if (ingredientIndex < 0 || ingredientIndex >= manualPlacement.ingredients().size()) {
-				failManualPlacement(client, "the recipe layout references an unknown ingredient");
-				return;
-			}
-			var ingredient = manualPlacement.ingredients().get(ingredientIndex);
+			Ingredient ingredient = manualPlacement.ingredients().get(manualSlot);
 			int targetIndex = manualTargetIndex;
 			if (targetIndex < 0) {
 				int gridIndex = manualTargets.get(manualSlot);
@@ -3278,6 +3266,10 @@ public final class GameActions {
 			Slot target = current.getSlot(targetIndex);
 			if (manualPhase == 0) {
 				if (!target.getItem().isEmpty()) {
+					if (!ingredient.test(target.getItem())) {
+						failManualPlacement(client, "the crafting grid contains an incompatible ingredient");
+						return;
+					}
 					manualTargetIndex = -1;
 					manualSlot++;
 					manualSourceIndex = -1;
@@ -3320,7 +3312,7 @@ public final class GameActions {
 				manualSlot,
 				gridCounts(current),
 				current.getCarried(),
-				current.getResultSlot().getItem()
+				resultSlot(current).getItem()
 			);
 			if (!current.getCarried().isEmpty() && manualSourceIndex >= 0) {
 				client.gameMode.handleInventoryMouseClick(
@@ -3342,30 +3334,25 @@ public final class GameActions {
 			closeOwnMenu(client);
 		}
 
-		private int findIngredientSlot(AbstractCraftingMenu current, net.minecraft.world.item.crafting.Ingredient ingredient, Slot target) {
+		private int findIngredientSlot(RecipeBookMenu<?> current, Ingredient ingredient, Slot target) {
 			for (int index = 0; index < current.slots.size(); index++) {
 				Slot slot = current.getSlot(index);
-				if (slot == target || slot == current.getResultSlot()) continue;
-				if (current.getInputGridSlots().contains(slot)) continue;
+				if (slot == target || slot == resultSlot(current)) continue;
+				if (inputGridSlots(current).contains(slot)) continue;
 				if (!slot.getItem().isEmpty() && ingredient.test(slot.getItem())) return index;
 			}
 			return -1;
 		}
 
-		private int slotIndex(AbstractCraftingMenu current, Slot slot) {
+		private int slotIndex(RecipeBookMenu<?> current, Slot slot) {
 			for (int index = 0; index < current.slots.size(); index++) {
 				if (current.getSlot(index) == slot) return index;
 			}
 			return -1;
 		}
 
-		private boolean recipeBookContains(Minecraft client, RecipeDisplayId id) {
-			for (RecipeCollection collection : client.player.getRecipeBook().getCollections()) {
-				for (RecipeDisplayEntry entry : collection.getRecipes()) {
-					if (entry.id().equals(id)) return true;
-				}
-			}
-			return false;
+		private boolean recipeBookContains(Minecraft client, Recipe<?> recipe) {
+			return client.player.getRecipeBook().contains(recipe);
 		}
 
 		private boolean hasRoomFor(Minecraft client, ItemStack result) {
@@ -3378,7 +3365,7 @@ public final class GameActions {
 					emptySlots++;
 					continue;
 				}
-				if (ItemStack.isSameItemSameComponents(stack, result)) {
+				if (ItemStack.isSameItemSameTags(stack, result)) {
 					matchingFree += Math.min(stack.getMaxStackSize(), result.getMaxStackSize()) - stack.getCount();
 				}
 			}
@@ -3393,51 +3380,23 @@ public final class GameActions {
 		private RecipeChoice findRecipe(Minecraft client) {
 			int width = menu.getGridWidth();
 			int height = menu.getGridHeight();
-			StackedItemContents contents = new StackedItemContents();
+			StackedContents contents = new StackedContents();
 			client.player.getInventory().fillStackedContents(contents);
 			RecipeChoice fallback = null;
-			int collections = 0;
-			int entries = 0;
-			int matching = 0;
-			int craftableMatching = 0;
 			for (RecipeCollection collection : client.player.getRecipeBook().getCollections()) {
-				collections++;
-				for (RecipeDisplayEntry entry : collection.getRecipes()) {
-					entries++;
-					RecipeDisplay display = entry.display();
-					CraftMateBodyClient.LOGGER.info(
-						"craft book entry id={} grid={}x{} results={}",
-						entry.id(),
-						display instanceof ShapedCraftingRecipeDisplay shaped0 ? shaped0.width() : -1,
-						display instanceof ShapedCraftingRecipeDisplay shaped1 ? shaped1.height() : -1,
-						display.result().resolveForStacks(SlotDisplayContext.fromLevel(client.level))
-							.stream()
-							.filter(stack -> !stack.isEmpty())
-							.map(stack -> BuiltInRegistries.ITEM.getKey(stack.getItem()) + "x" + stack.getCount())
-							.toList()
-					);
-					if (!produces(display, client)) continue;
-					matching++;
-					if (!fits(display, width, height)) continue;
-					int output = outputCount(display, client);
+				for (Recipe<?> recipe : collection.getRecipes()) {
+					if (!(recipe instanceof CraftingRecipe craftingRecipe) || !produces(recipe, client)) continue;
+					if (!fits(craftingRecipe, width, height)) continue;
+					int output = outputCount(recipe, client);
 					if (output <= 0) continue;
-					boolean craftable = entry.canCraft(contents);
-					if (craftable) craftableMatching++;
-					RecipeChoice choice = new RecipeChoice(entry.id(), output, craftable, null, 0, 0);
+					boolean craftable = contents.canCraft(recipe, new it.unimi.dsi.fastutil.ints.IntArrayList());
+					RecipeChoice choice = recipeChoice(craftingRecipe, output, craftable, width, height);
 					if (craftable && made + output >= requested) {
-						CraftMateBodyClient.LOGGER.info(
-							"craft recipe item={} collections={} entries={} matching={} craftable={} chosen={}",
-							itemId, collections, entries, matching, craftableMatching, entry.id()
-						);
 						return choice;
 					}
 					if (fallback == null || (craftable && !fallback.craftable())) fallback = choice;
 				}
 			}
-			CraftMateBodyClient.LOGGER.info(
-				"craft recipe item={} collections={} entries={} matching={} craftable={} fallback={}",
-				itemId, collections, entries, matching, craftableMatching, fallback != null
-			);
 			if (fallback != null) return fallback;
 			// The recipe book only carries recipes this player has unlocked.
 			// A fresh world has no plank recipe until the player has crafted
@@ -3451,101 +3410,70 @@ public final class GameActions {
 
 		private RecipeChoice findServerRecipe(
 			Minecraft client,
-			StackedItemContents contents,
+			StackedContents contents,
 			int width,
 			int height
 		) {
 			MinecraftServer server = client.getSingleplayerServer();
 			if (server == null) return null;
 			RecipeManager manager = server.getRecipeManager();
-			int recipes = 0;
-			int displays = 0;
-			int matching = 0;
 			RecipeChoice fallback = null;
-			for (RecipeHolder<?> holder : manager.getRecipes()) {
-				if (!(holder.value() instanceof CraftingRecipe)) continue;
-				recipes++;
-				List<RecipeChoice> found = new ArrayList<>();
-				manager.listDisplaysForRecipe(holder.id(), entry -> {
-					RecipeDisplay display = entry.display();
-					if (!produces(display, client)) return;
-					if (!fits(display, width, height)) return;
-					int output = outputCount(display, client);
-					if (output <= 0) return;
-					found.add(new RecipeChoice(
-						entry.id(),
-						output,
-						entry.canCraft(contents),
-						holder.value().placementInfo(),
-						holder.value() instanceof ShapedRecipe shaped
-							? shaped.getWidth()
-							: menu.getGridWidth(),
-						holder.value() instanceof ShapedRecipe shaped
-							? shaped.getHeight()
-							: menu.getGridHeight()
-					));
-				});
-				displays += found.size();
-				for (RecipeChoice choice : found) {
-					matching++;
-					if (choice.craftable() && made + choice.output() >= requested) {
-						CraftMateBodyClient.LOGGER.info(
-							"craft server recipe item={} recipes={} displays={} matching={} chosen={}",
-							itemId, recipes, displays, matching, choice.id()
-						);
-						return choice;
-					}
-					if (fallback == null || (choice.craftable() && !fallback.craftable())) {
-						fallback = choice;
-					}
-				}
+			for (Recipe<?> recipe : manager.getRecipes()) {
+				if (!(recipe instanceof CraftingRecipe craftingRecipe) || !produces(recipe, client)) continue;
+				if (!fits(craftingRecipe, width, height)) continue;
+				int output = outputCount(recipe, client);
+				if (output <= 0) continue;
+				boolean craftable = contents.canCraft(recipe, new it.unimi.dsi.fastutil.ints.IntArrayList());
+				RecipeChoice choice = recipeChoice(craftingRecipe, output, craftable, width, height);
+				if (choice.craftable() && made + choice.output() >= requested) return choice;
+				if (fallback == null || (choice.craftable() && !fallback.craftable())) fallback = choice;
 			}
-			CraftMateBodyClient.LOGGER.info(
-				"craft server recipe item={} recipes={} displays={} matching={} fallback={}",
-				itemId, recipes, displays, matching, fallback != null
-			);
 			return fallback;
 		}
 
 		private boolean hasInventoryRecipe(Minecraft client) {
 			for (RecipeCollection collection : client.player.getRecipeBook().getCollections()) {
-				for (RecipeDisplayEntry entry : collection.getRecipes()) {
-					RecipeDisplay display = entry.display();
-					if (fits(display, 2, 2) && produces(display, client)) return true;
+				for (Recipe<?> recipe : collection.getRecipes()) {
+					if (recipe instanceof CraftingRecipe craftingRecipe && fits(craftingRecipe, 2, 2) && produces(recipe, client)) return true;
 				}
 			}
 			return false;
 		}
 
-		private boolean fits(RecipeDisplay display, int width, int height) {
-			if (display instanceof ShapedCraftingRecipeDisplay shaped) {
-				return shaped.width() <= width && shaped.height() <= height;
-			}
-			if (display instanceof ShapelessCraftingRecipeDisplay shapeless) {
-				return shapeless.ingredients().size() <= width * height;
-			}
-			return false;
+		private boolean fits(CraftingRecipe recipe, int width, int height) {
+			return recipe.canCraftInDimensions(width, height);
 		}
 
-		private boolean produces(RecipeDisplay display, Minecraft client) {
-			SlotDisplay result = display.result();
-			var context = SlotDisplayContext.fromLevel(client.level);
-			return result.resolveForStacks(context).stream().anyMatch(stack -> !stack.isEmpty() && stack.getItem() == item);
+		private boolean produces(Recipe<?> recipe, Minecraft client) {
+			ItemStack result = recipe.getResultItem(client.level.registryAccess());
+			return !result.isEmpty() && result.getItem() == item;
 		}
 
-		private int outputCount(RecipeDisplay display, Minecraft client) {
-			SlotDisplay result = display.result();
-			var context = SlotDisplayContext.fromLevel(client.level);
-			return result.resolveForStacks(context).stream()
-				.filter(stack -> !stack.isEmpty() && stack.getItem() == item)
-				.mapToInt(ItemStack::getCount)
-				.max()
-				.orElse(0);
+		private int outputCount(Recipe<?> recipe, Minecraft client) {
+			ItemStack result = recipe.getResultItem(client.level.registryAccess());
+			return !result.isEmpty() && result.getItem() == item ? result.getCount() : 0;
 		}
 
-		private Map<String, Integer> gridCounts(AbstractCraftingMenu current) {
+		private RecipeChoice recipeChoice(CraftingRecipe recipe, int output, boolean craftable, int gridWidth, int gridHeight) {
+			int width = recipe instanceof ShapedRecipe shaped ? shaped.getWidth() : Math.min(gridWidth, Math.max(1, recipe.getIngredients().size()));
+			int height = recipe instanceof ShapedRecipe shaped ? shaped.getHeight() : Math.max(1, (recipe.getIngredients().size() + width - 1) / width);
+			return new RecipeChoice(recipe, output, craftable, width, height);
+		}
+
+		private Slot resultSlot(RecipeBookMenu<?> current) {
+			return current.getSlot(current.getResultSlotIndex());
+		}
+
+		private List<Slot> inputGridSlots(RecipeBookMenu<?> current) {
+			int count = current.getGridWidth() * current.getGridHeight();
+			List<Slot> grid = new ArrayList<>(count);
+			for (int index = 1; index <= count; index++) grid.add(current.getSlot(index));
+			return grid;
+		}
+
+		private Map<String, Integer> gridCounts(RecipeBookMenu<?> current) {
 			Map<String, Integer> counts = new LinkedHashMap<>();
-			for (Slot slot : current.getInputGridSlots()) {
+			for (Slot slot : inputGridSlots(current)) {
 				ItemStack stack = slot.getItem();
 				if (stack.isEmpty()) continue;
 				String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
@@ -3554,11 +3482,8 @@ public final class GameActions {
 			return counts;
 		}
 
-		private int resultSlotIndex(AbstractCraftingMenu current, Slot result) {
-			for (int index = 0; index < current.slots.size(); index++) {
-				if (current.getSlot(index) == result) return index;
-			}
-			return -1;
+		private int resultSlotIndex(RecipeBookMenu<?> current, Slot result) {
+			return result == resultSlot(current) ? current.getResultSlotIndex() : -1;
 		}
 
 		private Map<String, Integer> inventoryCounts(LocalPlayer player) {
@@ -3614,7 +3539,7 @@ public final class GameActions {
 		}
 
 		private boolean canInteract(Minecraft client, LocalPlayer player, BlockPos target) {
-			return player.isWithinBlockInteractionRange(target, 0.0)
+			return withinInteractionRange(player, target)
 				&& MineTask.clip(client, player, Vec3.atCenterOf(target)).getBlockPos().equals(target);
 		}
 
@@ -3663,14 +3588,10 @@ public final class GameActions {
 			closeOwnMenu(client);
 		}
 
-		private record RecipeChoice(
-			RecipeDisplayId id,
-			int output,
-			boolean craftable,
-			PlacementInfo placement,
-			int width,
-			int height
-		) {
+		private record RecipeChoice(CraftingRecipe recipe, int output, boolean craftable, int width, int height) {
+		}
+
+		private record ManualPlacement(List<Ingredient> ingredients) {
 		}
 	}
 
@@ -3714,7 +3635,7 @@ public final class GameActions {
 		boolean validate(Minecraft client) {
 			if (!super.validate(client)) return false;
 			if (itemId != null) {
-				Identifier id = Identifier.tryParse(itemId);
+				ResourceLocation id = ResourceLocation.tryParse(itemId);
 				if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
 					validationError = "unknown item " + itemId;
 					return false;
@@ -4119,7 +4040,7 @@ public final class GameActions {
 				if (slot.getContainerSlot() >= Inventory.INVENTORY_SIZE) continue;
 				ItemStack stack = slot.getItem();
 				if (!eligible(stack)) continue;
-				if (slot.isFake() || !slot.mayPickup(player)) continue;
+				if (!slot.mayPickup(player)) continue;
 				if (!hasRoom(current, slot.getItem())) continue;
 				return index;
 			}
@@ -4134,7 +4055,7 @@ public final class GameActions {
 				ItemStack existing = slot.getItem();
 				if (existing.isEmpty()) return true;
 				if (
-					ItemStack.isSameItemSameComponents(existing, stack)
+					ItemStack.isSameItemSameTags(existing, stack)
 						&& existing.getCount() < Math.min(existing.getMaxStackSize(), slot.getMaxStackSize(stack))
 				) {
 					return true;
@@ -4232,7 +4153,7 @@ public final class GameActions {
 		}
 
 		private boolean reachesContainer(LocalPlayer player, BlockPos target) {
-			return player.isWithinBlockInteractionRange(target, 0.0);
+			return withinInteractionRange(player, target);
 		}
 
 		private boolean canInteract(Minecraft client, LocalPlayer player, BlockPos target) {
@@ -4789,8 +4710,8 @@ public final class GameActions {
 				finish(id, "failed", "E_PRECONDITION", "item is not in hotbar");
 				return;
 			}
-			client.player.getInventory().setSelectedSlot(slot);
-			ItemStack selected = client.player.getInventory().getSelectedItem();
+			client.player.getInventory().selected = slot;
+			ItemStack selected = client.player.getInventory().getSelected();
 			if (!matches(selected, itemId)) {
 				finish(id, "failed", "E_PRECONDITION", "selected slot does not hold " + itemId);
 				return;
@@ -4866,14 +4787,13 @@ public final class GameActions {
 				);
 				return;
 			}
-			BedRule rule = client.level.environmentAttributes()
-				.getValue(EnvironmentAttributes.BED_RULE, bedHead);
+			boolean bedWorks = client.level.dimensionType().bedWorks();
 			String blocked = SleepEvidence.blockedReason(
 				false,
 				true,
 				occupied(client, bedHead),
-				rule.explodes(),
-				rule.canSleep(client.level)
+				!bedWorks,
+				canSleepNow(client)
 			);
 			if (blocked != null) {
 				finish(id, "failed", "E_PRECONDITION", blocked, evidence(client, blocked));
@@ -5076,7 +4996,7 @@ public final class GameActions {
 			LocalPlayer player = client.player;
 			for (BlockPos candidate : bedParts(client, bedHead)) {
 				if (
-					player.isWithinBlockInteractionRange(candidate, 0.0)
+					withinInteractionRange(player, candidate)
 						&& MineTask.clip(client, player, Vec3.atCenterOf(candidate)).getBlockPos().equals(candidate)
 				) {
 					return candidate;
@@ -5128,9 +5048,7 @@ public final class GameActions {
 				// Prefer a usable bed, but keep the nearest head so a start
 				// failure can name the real reason instead of claiming that
 				// the player owns no bed at all.
-				BedRule rule = client.level.environmentAttributes()
-					.getValue(EnvironmentAttributes.BED_RULE, head);
-				if (rule.explodes() || occupied(client, head)) continue;
+				if (!client.level.dimensionType().bedWorks() || occupied(client, head)) continue;
 				return head;
 			}
 			return nearestHead;
@@ -5139,6 +5057,11 @@ public final class GameActions {
 		private static boolean occupied(Minecraft client, BlockPos head) {
 			BlockState state = client.level.getBlockState(head);
 			return state.getBlock() instanceof BedBlock && state.getValue(BedBlock.OCCUPIED);
+		}
+
+		private static boolean canSleepNow(Minecraft client) {
+			long time = timeOfDay(client);
+			return client.level.getLevelData().isThundering() || time >= 12_542 && time < 23_460;
 		}
 
 		private static int day(Minecraft client) {
@@ -5226,16 +5149,16 @@ public final class GameActions {
 		@Override
 		void start(Minecraft client) {
 			LocalPlayer player = client.player;
-			ItemStack stack = player.getInventory().getSelectedItem();
+			ItemStack stack = player.getInventory().getSelected();
 			if (stack.isEmpty() || (itemId != null && !matches(stack, itemId))) {
 				int slot = itemId == null ? -1 : findHotbar(player, itemId);
 				if (slot < 0) {
 					finish(id, "failed", "E_PRECONDITION", "food is not in hotbar");
 					return;
 				}
-				player.getInventory().setSelectedSlot(slot);
+				player.getInventory().selected = slot;
 			}
-			ItemStack eating = player.getInventory().getSelectedItem();
+			ItemStack eating = player.getInventory().getSelected();
 			if (eating.isEmpty()) {
 				finish(id, "failed", "E_PRECONDITION", "no food in the selected slot");
 				return;
@@ -5251,7 +5174,7 @@ public final class GameActions {
 		void tick(Minecraft client) {
 			ticks++;
 			int foodAfter = client.player.getFoodData().getFoodLevel();
-			ItemStack stack = client.player.getInventory().getSelectedItem();
+			ItemStack stack = client.player.getInventory().getSelected();
 			String itemAfter = stack.isEmpty()
 				? null
 				: BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
@@ -5346,7 +5269,7 @@ public final class GameActions {
 
 		@Override
 		void start(Minecraft client) {
-			HitResult raw = client.player.raycastHitResult(1.0f, client.player);
+			HitResult raw = client.player.pick(client.gameMode.getPickRange(), 1.0f, false);
 			BlockHitResult hit = raw.getType() == HitResult.Type.BLOCK && raw instanceof BlockHitResult blockHit
 				? blockHit
 				: null;
@@ -5414,19 +5337,19 @@ public final class GameActions {
 		}
 
 		private void rememberHand(Minecraft client) {
-			ItemStack stack = client.player.getInventory().getSelectedItem();
+			ItemStack stack = client.player.getInventory().getSelected();
 			beforeItem = stack.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
 			beforeCount = stack.getCount();
 		}
 
 		private boolean itemChanged(Minecraft client) {
-			ItemStack stack = client.player.getInventory().getSelectedItem();
+			ItemStack stack = client.player.getInventory().getSelected();
 			String after = stack.isEmpty() ? null : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
 			return InteractionEvidence.itemChanged(beforeItem, beforeCount, after, stack.getCount());
 		}
 
 		private int handCount(Minecraft client) {
-			return client.player.getInventory().getSelectedItem().getCount();
+			return client.player.getInventory().getSelected().getCount();
 		}
 
 		private JsonObject useEvidence(String summary, String problem) {
@@ -5481,7 +5404,7 @@ public final class GameActions {
 		PlaceTask(String id, String blockId, int count) {
 			super(id);
 			this.blockId = blockId;
-			Identifier parsed = Identifier.tryParse(blockId);
+			ResourceLocation parsed = ResourceLocation.tryParse(blockId);
 			this.expectedBlock = parsed == null ? blockId : parsed.toString();
 			this.count = count;
 		}
@@ -5489,7 +5412,7 @@ public final class GameActions {
 		@Override
 		boolean validate(Minecraft client) {
 			if (!super.validate(client)) return false;
-			if (Identifier.tryParse(blockId) == null) {
+			if (ResourceLocation.tryParse(blockId) == null) {
 				validationError = "invalid block " + blockId;
 				return false;
 			}
@@ -5515,8 +5438,8 @@ public final class GameActions {
 				);
 				return;
 			}
-			client.player.getInventory().setSelectedSlot(slot);
-			HitResult raw = client.player.raycastHitResult(1.0f, client.player);
+			client.player.getInventory().selected = slot;
+			HitResult raw = client.player.pick(client.gameMode.getPickRange(), 1.0f, false);
 			BlockHitResult hit = raw.getType() == HitResult.Type.BLOCK && raw instanceof BlockHitResult blockHit
 				? blockHit
 				: null;
@@ -5542,7 +5465,7 @@ public final class GameActions {
 			}
 			targetPos = hit.getBlockPos().relative(hit.getDirection());
 			beforeBlock = blockSnapshot(client, targetPos);
-			beforeCount = client.player.getInventory().getSelectedItem().getCount();
+			beforeCount = client.player.getInventory().getSelected().getCount();
 			if (beforeBlock != null && !beforeBlock.replaceable()) {
 				finish(
 					id,
@@ -5594,7 +5517,7 @@ public final class GameActions {
 			)) {
 				BlockPos support = pos.immutable();
 				BlockState state = client.level.getBlockState(support);
-				if (state.isAir() || !state.isSolidRender()) continue;
+				if (state.isAir() || !state.isSolidRender(client.level, support)) continue;
 				for (Direction face : Direction.values()) {
 					BlockPos destination = support.relative(face);
 					if (!client.level.getBlockState(destination).canBeReplaced()) continue;
@@ -5611,7 +5534,7 @@ public final class GameActions {
 
 		private static boolean surfaceAccepts(Minecraft client, BlockHitResult hit) {
 			BlockState state = client.level.getBlockState(hit.getBlockPos());
-			if (state.isAir() || !state.isSolidRender()) return false;
+			if (state.isAir() || !state.isSolidRender(client.level, hit.getBlockPos())) return false;
 			return client.level.getBlockState(hit.getBlockPos().relative(hit.getDirection())).canBeReplaced();
 		}
 
@@ -5619,8 +5542,8 @@ public final class GameActions {
 			implements PlacementTarget.Surface {}
 
 		private static boolean isBedItem(String itemId) {
-			Identifier id = Identifier.tryParse(itemId);
-			return id != null && BuiltInRegistries.ITEM.getValue(id) instanceof BedItem;
+			ResourceLocation id = ResourceLocation.tryParse(itemId);
+			return id != null && BuiltInRegistries.ITEM.get(id) instanceof BedItem;
 		}
 
 		private enum BedRoom {
@@ -5644,7 +5567,7 @@ public final class GameActions {
 			for (Direction candidate : Direction.Plane.HORIZONTAL) {
 				if (candidate == start) continue;
 				if (!cellFree(client, foot.relative(candidate))) continue;
-				client.player.setYRot(Direction.getYRot(candidate));
+				client.player.setYRot(candidate.toYRot());
 				awaitingRotation = true;
 				return BedRoom.TURNED;
 			}
@@ -5685,7 +5608,7 @@ public final class GameActions {
 				}
 				targetPos = hit.getBlockPos().relative(hit.getDirection());
 				beforeBlock = blockSnapshot(client, targetPos);
-				beforeCount = client.player.getInventory().getSelectedItem().getCount();
+				beforeCount = client.player.getInventory().getSelected().getCount();
 				if (beforeBlock != null && !beforeBlock.replaceable()) {
 					beginPlacement(client);
 					return;
@@ -5696,7 +5619,7 @@ public final class GameActions {
 				return;
 			}
 			if (submittedAt < 0) return;
-			int afterCount = client.player.getInventory().getSelectedItem().getCount();
+			int afterCount = client.player.getInventory().getSelected().getCount();
 			if (
 				InteractionEvidence.placementConfirmed(
 					expectedBlock,
@@ -5782,9 +5705,9 @@ public final class GameActions {
 
 	/**
 	 * Movement has to go through the same key state the human client reads.
-	 * `ClientInput` in this version is only a holder: `KeyboardInput.tick`
-	 * derives the actual move vector from these `KeyMapping`s. Assigning
-	 * `keyPresses` directly leaves the player standing still.
+	 * The `Input` object is only a holder: `KeyboardInput.tick` derives the
+	 * actual move vector from these `KeyMapping`s. Setting the fields directly
+	 * without updating the key mappings leaves vanilla movement active.
 	 */
 	private static void setWalkInput(Minecraft client, boolean forward) {
 		client.options.keyUp.setDown(forward);
@@ -5794,11 +5717,9 @@ public final class GameActions {
 		client.options.keyJump.setDown(false);
 		client.options.keyShift.setDown(false);
 		client.options.keySprint.setDown(false);
-		// `KeyboardInput.tick` is a one-way state update in 1.21.11. Ask the
-		// vanilla input object to derive the new move vector immediately;
-		// setting `keyPresses` directly does not update `ClientInput`.
+		// Ask vanilla to derive the new move vector immediately from the keys.
 		if (client.player != null && client.player.input instanceof KeyboardInput keyboard) {
-			keyboard.tick();
+			keyboard.tick(false, 1.0f);
 		}
 	}
 
@@ -6050,23 +5971,31 @@ public final class GameActions {
 		return Math.round(value * 100.0) / 100.0;
 	}
 
+	static boolean withinInteractionRange(LocalPlayer player, BlockPos target) {
+		Vec3 center = Vec3.atCenterOf(target);
+		return InteractionReach.withinReach(
+			player.getX(), player.getY(), player.getZ(), player.getEyeHeight(),
+			center.x, center.y, center.z, 4.5
+		);
+	}
+
 	private static int findHotbar(LocalPlayer player, String itemId) {
-		Identifier id = Identifier.tryParse(itemId);
+		ResourceLocation id = ResourceLocation.tryParse(itemId);
 		for (int slot = 0; slot < 9; slot++) {
 			ItemStack stack = player.getInventory().getItem(slot);
-			if (!stack.isEmpty() && (stack.getItem() == BuiltInRegistries.ITEM.getValue(id))) return slot;
+			if (!stack.isEmpty() && (stack.getItem() == BuiltInRegistries.ITEM.get(id))) return slot;
 		}
 		return -1;
 	}
 
 	private static boolean matches(ItemStack stack, String itemId) {
-		Identifier id = Identifier.tryParse(itemId);
-		return id != null && stack.getItem() == BuiltInRegistries.ITEM.getValue(id);
+		ResourceLocation id = ResourceLocation.tryParse(itemId);
+		return id != null && stack.getItem() == BuiltInRegistries.ITEM.get(id);
 	}
 
 	private static boolean blockMatches(ClientLevel level, BlockPos pos, String blockId) {
-		Identifier id = Identifier.tryParse(blockId);
-		return id != null && level.getBlockState(pos).getBlock() == BuiltInRegistries.BLOCK.getValue(id);
+		ResourceLocation id = ResourceLocation.tryParse(blockId);
+		return id != null && level.getBlockState(pos).getBlock() == BuiltInRegistries.BLOCK.get(id);
 	}
 
 	/**

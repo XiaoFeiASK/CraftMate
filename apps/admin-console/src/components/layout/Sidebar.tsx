@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { WorkspaceView } from "../operations/OperationsPage.tsx";
 import type {
   GoalProgress,
@@ -9,6 +10,7 @@ import type {
 } from "@craftmate/contracts";
 import type { WireState } from "../../lib/connection.ts";
 import mascot from "../../assets/dafeiyu.png";
+import { clock } from "../../lib/format.ts";
 
 interface SidebarProps {
   readonly view: WorkspaceView | null;
@@ -20,6 +22,7 @@ interface SidebarProps {
   readonly stats: ShowStats;
   readonly voiceStatus: VoiceStatus | null;
   readonly goal: GoalProgress | null;
+  readonly onResetActivity: () => void;
   readonly onSelect: (view: WorkspaceView | null) => void;
 }
 
@@ -141,11 +144,21 @@ export function Sidebar({
   voiceStatus,
   goal,
   onSelect,
+  onResetActivity,
 }: SidebarProps): React.JSX.Element {
   const statusLabel = state === "open" ? "内核在线" : state === "connecting" ? "正在连接" : "内核离线";
 
+  useEffect(() => {
+    const selected = document.querySelector<HTMLElement>(".nav-item[data-selected=\"true\"]");
+    selected?.scrollIntoView({ block: "nearest" });
+  }, [view]);
+
   return (
     <aside className="sidebar" aria-label="主导航">
+      <div className="sidebar__masthead">
+        <span>直播控制台</span>
+        <span>LOCAL</span>
+      </div>
       <section className="account" aria-labelledby="account-title">
         <h2 id="account-title" className="sidebar__section-title">账户</h2>
         <div className="account__card">
@@ -214,6 +227,7 @@ export function Sidebar({
         goal={goal}
         online={state === "open"}
         onOpenConsole={() => onSelect("decisions")}
+        onResetActivity={onResetActivity}
       />
 
       <div className="sidebar__footer">
@@ -271,6 +285,7 @@ interface SessionPanelProps {
   readonly goal: GoalProgress | null;
   readonly online: boolean;
   readonly onOpenConsole: () => void;
+  readonly onResetActivity: () => void;
 }
 
 /** Today's goal and counters, docked in the sidebar so the stage stays clear. */
@@ -280,6 +295,7 @@ function SessionPanel({
   goal,
   online,
   onOpenConsole,
+  onResetActivity,
 }: SessionPanelProps): React.JSX.Element {
   const total = goal?.milestones.length ?? 0;
   const completed = goal?.completed ?? 0;
@@ -291,41 +307,24 @@ function SessionPanel({
       </span>
       <h2 className="sidebar__section-title">本场</h2>
       <div className="session-panel__goal">
-        <span>{goal?.status === "unverified" ? "当前阶段 · 未验证" : "当前阶段"}</span>
+        <span>今日主线 · {progress === null ? "待验证" : `${progress}%`}</span>
         <strong id="session-goal">{settings?.goal ?? "正在读取本场目标"}</strong>
-        <small className="session-panel__mode">
-          {goal?.stage.title ?? (settings?.goalMode ? "目标模式开启 · 等待观察" : "目标模式关闭")}
-        </small>
-        {goal ? (
-          <div className="session-panel__goal-detail">
-            <span>{goal.milestone.title}</span>
-            {goal.nextTask ? <span>目标运行时已产出下一任务</span> : null}
-            {goal.lastFailure ? <span data-tone="bad">失败：{goal.lastFailure}</span> : null}
-          </div>
-        ) : null}
         <div className="session-panel__progress">
-          {progress === null ? (
-            <output>里程碑未验证</output>
-          ) : (
-            <>
-              <div
-                role="progressbar"
-                aria-label="里程碑完成度"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={progress}
-              >
-                <span style={{ width: `${progress}%` }} />
-              </div>
-              <output>{completed}/{total} 里程碑</output>
-            </>
-          )}
+          <div
+            role="progressbar"
+            aria-label="今日主线进度"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress ?? 0}
+          >
+            <span style={{ width: `${progress ?? 0}%` }} />
+          </div>
         </div>
       </div>
 
       <dl className="session-panel__stats">
         <div>
-          <dt>本场输入</dt>
+          <dt>已收到</dt>
           <dd>{stats.received}</dd>
         </div>
         <div>
@@ -338,6 +337,11 @@ function SessionPanel({
         </div>
       </dl>
 
+      <div className="session-panel__scope">
+        <span>{stats.since ? `自 ${clock(stats.since)} 起` : "累计统计"}</span>
+        <button type="button" disabled={!online} onClick={onResetActivity}
+          title="重新计数并收起旧决策；不取消任务，历史仍可回放">重置统计</button>
+      </div>
       <button className="session-panel__launch" type="button" onClick={onOpenConsole}>
         <span>{online ? "进入播控台" : "等待内核启动"}</span>
         <svg viewBox="0 0 20 20" aria-hidden="true">

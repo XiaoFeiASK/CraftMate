@@ -1,11 +1,11 @@
 # @craftmate/agent/domain
 
-Minecraft 1.21.11 的结构化生存知识，供纯规划逻辑查询。
+Minecraft 1.20.1 的结构化生存知识，供纯规划逻辑查询。
 
 ## 数据来源
 
 数据由 [misode/mcmeta](https://github.com/misode/mcmeta) 的
-`1.21.11-data-json` 标签生成，该仓库直接导出 Mojang 官方数据包内容。生成器
+`1.20.1-data-json` 标签生成，该仓库直接导出 Mojang 官方数据包内容。生成器
 只做裁剪和规范化，不手写配方或掉落表：
 
 | 文件 | 来源 | 内容 |
@@ -23,7 +23,7 @@ node --experimental-strip-types scripts/generate.ts   # 需要网络；浅克隆
 node --experimental-strip-types scripts/validate.ts   # 校验 schema、版本和关键条目
 ```
 
-生成器固定标签 `1.21.11-data-json`，输出中的 `meta.sourceTag` 与
+生成器固定标签 `1.20.1-data-json`，输出中的 `meta.sourceTag` 与
 `meta.dataVersion` 可用于核对版本。`npm test` 不联网，只读取已提交的数据。
 
 ## 查询接口

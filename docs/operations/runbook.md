@@ -9,7 +9,7 @@
 | Node.js | ≥ 22.5 | 必需 |
 | npm | 随 Node | 必需 |
 | Rust / Cargo | stable | 仅桌面窗口；无 Rust 用 `--web` |
-| Minecraft + Fabric | 1.21.11 / 0.20.1 | 仅游戏动作 |
+| Minecraft + Fabric | 1.20.1 / Loader 0.15.11 / API 0.92.2+1.20.1 | 仅游戏动作 |
 | OBS / BlackHole | — | 仅推流；当前手工配置 |
 
 ```bash

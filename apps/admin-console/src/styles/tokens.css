@@ -1,59 +1,73 @@
 :root {
-  /* Linen desktop, pine actions, cherry-blossom scene. */
-  --canvas: #eeeae3;
-  --linen: #f8f5ef;
-  --linen-deep: #f1ece4;
-  --paper: #fffdf9;
-  --panel: #fdfbf7;
-  --ink: #27241f;
-  --ink-soft: #6b655b;
-  --ink-faint: #9b9488;
-  --rule: rgba(52, 45, 35, 0.1);
-  --rule-strong: rgba(52, 45, 35, 0.18);
-  --action: #315c47;
-  --action-hover: #254a39;
-  --action-ink: #f7fbf7;
-  /* Surfaces are opaque: base (canvas/linen) < panel < raised. No glass. */
-  --surface-raised: #fffefb;
-  --surface-sunken: #f3efe8;
-  --surface-solid: #ffffff;
-  --blossom: #c96f84;
-  --blossom-soft: #f6e3e6;
-  --mint: #4f8d6d;
-  --amber: #b3773b;
-  --coral: #bc5d53;
-  --scrim: rgba(28, 25, 21, 0.32);
-  /* Scene overlays: solid enough to read over any video frame. */
-  --scene-chip: #23302b;
-  --scene-chip-ink: #f4f1ea;
+  /*
+   * Broadcast field log: grey-green paper, dark pine control surfaces and a
+   * single coral signal colour. Orange/blue stay semantic, never decorative.
+   */
+  --canvas: #e5e2da;
+  --linen: #ece9e1;
+  --linen-deep: #e3dfd6;
+  --paper: #f8f7f2;
+  --panel: #f4f2eb;
+  --ink: #1d221e;
+  --ink-soft: #50574f;
+  --ink-faint: #747970;
+  --rule: rgba(29, 34, 30, 0.12);
+  --rule-strong: rgba(29, 34, 30, 0.25);
+  --action: #2b5647;
+  --action-hover: #214337;
+  --action-ink: #f8f5ec;
+  /* Opaque surfaces only. "depth" is the dark broadcast slate. */
+  --surface-raised: #fcfbf7;
+  --surface-sunken: #efede6;
+  --surface-solid: #fffef9;
+  --depth: #1d2b25;
+  --depth-2: #263a31;
+  --depth-ink: #f2efe4;
+  --signal: #cf634a;
+  --blossom: #c2533d;
+  --blossom-soft: #f1ddd6;
+  --mint: #42765b;
+  --amber: #a17232;
+  --coral: #b84736;
+  --sky: #6b879c;
+  --scrim: rgba(19, 24, 20, 0.38);
+  --scene-chip: #1d2b25;
+  --scene-chip-ink: #f2efe4;
   --scene-ink: #ffffff;
 
-  /* Two elevation levels only. The older names alias onto them. */
-  --shadow-1: 0 1px 2px rgba(45, 37, 29, 0.08);
-  --shadow-2: 0 8px 24px rgba(38, 29, 22, 0.16);
+  --shadow-1: 0 1px 0 rgba(45, 37, 29, 0.06);
+  --shadow-2: 0 22px 54px rgba(29, 34, 30, 0.18);
   --shadow-nav: var(--shadow-1);
   --shadow-soft: var(--shadow-1);
   --shadow-lift: var(--shadow-2);
 
-  --font-ui: "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
-  --font-display: "SF Pro Display", "Avenir Next", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  --font-ui: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Helvetica Neue", sans-serif;
+  --font-display: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
   --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, monospace;
 
   --step-0: 12px;
-  --step-1: 13px;
+  --step-1: 13.5px;
   --step-2: 16px;
   --step-3: 20px;
   --step-4: 26px;
   --step-5: 42px;
 
-  --radius-control: 8px;
-  --radius-soft: 10px;
-  --radius-card: 14px;
-  --radius-window: 14px;
+  /* Small radii; the UI is assembled from rules and sheets, not bubbles. */
+  --radius-control: 3px;
+  --radius-soft: 5px;
+  --radius-card: 6px;
+  --radius-md: var(--radius-soft);
+  --radius-window: 8px;
   --radius-pill: 999px;
 
-  --titlebar-height: 52px;
-  --sidebar-width: 292px;
+  /* Legacy semantic aliases used by older panels. */
+  --accent: var(--action);
+  --ok: var(--mint);
+  --warn: var(--amber);
+  --danger: var(--coral);
+
+  --titlebar-height: 50px;
+  --sidebar-width: 264px;
   --ui-scale: 1;
 
   color-scheme: light;
@@ -64,25 +78,31 @@
  * coral, blossom) stay put so decision badges keep their meaning.
  */
 :root[data-theme="dark"] {
-  --canvas: #16181a;
-  --linen: #1c1f22;
-  --linen-deep: #202428;
-  --paper: #212529;
-  --panel: #202428;
-  --ink: #ecebe8;
-  --ink-soft: #b3b0aa;
-  --ink-faint: #85827c;
-  --rule: rgba(255, 255, 255, 0.09);
-  --rule-strong: rgba(255, 255, 255, 0.16);
-  --action-ink: #f4fbf6;
-  --surface-raised: #262a2f;
-  --surface-sunken: #1a1d20;
-  --surface-solid: #2a2f34;
-  --blossom-soft: rgba(201, 111, 132, 0.18);
-  --scrim: rgba(4, 6, 7, 0.55);
-  --scene-chip: #151a18;
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.42);
+  --canvas: #0f1411;
+  --linen: #151b17;
+  --linen-deep: #111713;
+  --paper: #181f1a;
+  --panel: #1b231d;
+  --ink: #edeae0;
+  --ink-soft: #b8b9ae;
+  --ink-faint: #8c9287;
+  --rule: rgba(255, 255, 255, 0.11);
+  --rule-strong: rgba(255, 255, 255, 0.23);
+  --action: #3e7159;
+  --action-hover: #4a8167;
+  --action-ink: #fffdf7;
+  --surface-raised: #202922;
+  --surface-sunken: #141b17;
+  --surface-solid: #242d26;
+  --depth: #0d1511;
+  --depth-2: #17261e;
+  --depth-ink: #f3f0e6;
+  --signal: #e27b60;
+  --blossom-soft: rgba(194, 83, 61, 0.18);
+  --scrim: rgba(4, 6, 7, 0.6);
+  --scene-chip: #0d1511;
+  --shadow-1: 0 1px 0 rgba(0, 0, 0, 0.28);
+  --shadow-2: 0 22px 54px rgba(0, 0, 0, 0.5);
 
   color-scheme: dark;
 }
@@ -103,6 +123,21 @@
 :root[data-accent="plum"] {
   --action: #614574;
   --action-hover: #503760;
+}
+
+:root[data-theme="dark"][data-accent="blossom"] {
+  --action: #9f5366;
+  --action-hover: #b26276;
+}
+
+:root[data-theme="dark"][data-accent="ocean"] {
+  --action: #416f9b;
+  --action-hover: #4e80af;
+}
+
+:root[data-theme="dark"][data-accent="plum"] {
+  --action: #76568a;
+  --action-hover: #86649b;
 }
 
 :root[data-reduce-motion="true"] *,

@@ -26,6 +26,33 @@ const event = (overrides: Partial<AgentEvent> = {}): AgentEvent => ({
 });
 
 describe("workbench telemetry projection", () => {
+  test("a blocked goal is more important than an old chat judgement", () => {
+    const work = currentWork({
+      mode: "agent",
+      stats: { received: 8, decided: 8, executed: 3, refused: 0, observed: 0, openCommitments: 0 },
+      decisions: [],
+      operatorNotice: null,
+      goal: {
+        goalId: "goal-1", goalVersion: 1, status: "blocked",
+        stage: { id: "stone", title: "木镐与石镐" },
+        milestone: { id: "cobble", title: "背包有 3 块圆石" },
+        nextTask: "制作木镐", milestones: [], completed: 0, unverified: 0,
+        lastFailure: "矿石采集超时", consecutiveFailures: 2, retryAt: null, updatedAt: 1000,
+      },
+      proposals: [], sourceHealth: null, voiceStatus: null, bridge: null, model: null,
+    }, {
+      summary: "决定排队，等待当前阶段",
+      intent: "chat",
+      reason: "安全闸门",
+      nextStep: "等待闸门",
+      confidence: "observed",
+    });
+
+    assert.equal(work.label, "目标受阻：木镐与石镐");
+    assert.equal(work.detail, "矿石采集超时");
+    assert.equal(work.tone, "bad");
+  });
+
   test("only reached pipeline stages get a status", () => {
     const [group] = groupByTrace([
       event({ id: "evt-2", at: 1_100, stage: "arbitrated", source: "agent" }),

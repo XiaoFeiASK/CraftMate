@@ -163,7 +163,7 @@ Issue #55 的最终决定是**解除管理端依赖，保留可选录制/调试�
 | 平台来源 | dyhub → `AudienceEvent` | 新增 Source 实现，不改仲裁 |
 | 模型 | OpenAI Compatible Provider | 新增 Provider，不改 Stage A/B |
 | TTS | Volcengine Seeduplex | 新增 Voice Provider，不改决策 |
-| 游戏身体 | Fabric 1.21.11 compat | 版本差异限制在 Mod compat；协议用语义 ID |
+| 游戏身体 | Fabric 1.20.1 compat | 版本差异限制在 Mod compat；协议用语义 ID |
 | 存储 | SQLite | 表视图可演进；迁移只向前追加 |
 
 新增能力必须先通过现有契约、回放和降级测试，再扩大运行面。

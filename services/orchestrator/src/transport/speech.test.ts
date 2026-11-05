@@ -21,7 +21,7 @@ const decision = (overrides: Partial<Decision> = {}): Decision => ({
   reason: "可行",
   score: 0.8,
   stage: "planned",
-  skill: null,
+  skill: { name: "chop_tree", args: {}, idempotencyKey: "speech-test" },
   speech: "好，我去挖铁矿。",
   audienceRef: "viewer:abc",
   trace: null,
@@ -92,7 +92,8 @@ describe("decision to speech", () => {
         { speak: () => undefined },
       );
       assert.notEqual(outcome, null);
-      assert.equal(commitments.open()[0]?.utterance, "大家等一下哦。");
+      assert.equal(outcome?.commitmentId, null);
+      assert.equal(commitments.open().length, 0);
     } finally {
       close();
     }

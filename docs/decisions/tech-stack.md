@@ -20,7 +20,7 @@
 | 桌面宿主 | Tauri 2 | 复用 React，包体和资源占用低于 Electron |
 | 控制面与领域 | Node 22 + TypeScript | 共享契约、模型生态、单人项目维护成本低 |
 | 数据 | SQLite WAL + FTS5 | 单机单写、可备份、无需服务端数据库 |
-| 游戏 | Java 21 + Fabric | 客户端 Mod 和 Mixin 的唯一自然选择 |
+| 游戏 | Java 17 + Fabric | Minecraft 1.20.1 客户端 Mod 和 Mixin 的运行基线 |
 
 ## 为什么 React + Tauri
 

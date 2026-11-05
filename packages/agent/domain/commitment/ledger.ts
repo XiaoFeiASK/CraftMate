@@ -135,11 +135,11 @@ export class CommitmentLedger {
   expireOverdue(now = this.now()): number {
     let expired = 0;
     for (const commitment of this.open()) {
-      if (commitment.status !== "proposed") continue;
+      if (commitment.status !== "proposed" && commitment.deadlineAt === null) continue;
       const deadline =
         commitment.deadlineAt ?? commitment.createdAt + SPEECH_COMMITMENT_RECOVERY_TIMEOUT_MS;
       if (deadline > now) continue;
-      this.transition(commitment.id, "expired", "voice never confirmed playback before the recovery deadline");
+      this.transition(commitment.id, "expired", commitment.status === "proposed" ? "voice never confirmed playback before the recovery deadline" : "action commitment deadline elapsed without completion evidence");
       expired += 1;
     }
     return expired;

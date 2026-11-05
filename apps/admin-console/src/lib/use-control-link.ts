@@ -68,6 +68,8 @@ export interface ControlLink {
   readonly personaName: string;
   readonly settings: ShowSettings | null;
   readonly integrations: IntegrationSettingsView | null;
+  readonly integrationRevision: number;
+  resetActivity(): void;
   readonly lastError: string | null;
   readonly subtitles: readonly VoiceSubtitle[];
   readonly ops: OpsSnapshot | null;
@@ -107,6 +109,7 @@ export function useControlLink(): ControlLink {
   const [personaName, setPersonaName] = useState(EMPTY_PERSONA_NAME);
   const [settings, setSettings] = useState<ShowSettings | null>(null);
   const [integrations, setIntegrations] = useState<IntegrationSettingsView | null>(null);
+  const [integrationRevision, setIntegrationRevision] = useState(0);
   const [lastError, setLastError] = useState<string | null>(null);
   const [subtitles, setSubtitles] = useState<readonly VoiceSubtitle[]>([]);
   const [ops, setOps] = useState<OpsSnapshot | null>(null);
@@ -171,6 +174,7 @@ export function useControlLink(): ControlLink {
           setPersonaName(message.payload.persona.name);
           break;
         case "integrations":
+          setIntegrationRevision((value) => value + 1);
           setIntegrations(message.payload);
           break;
         case "voice":
@@ -302,10 +306,14 @@ export function useControlLink(): ControlLink {
     [send],
   );
   const saveIntegrationSettings = useCallback(
-    (settings: ShowSettings, integrations: IntegrationSettingsUpdate) =>
-      send({ type: "settingsSave", payload: { settings, integrations } }),
+    (settings: ShowSettings, integrations: IntegrationSettingsUpdate) => {
+      setLastError(null);
+      send({ type: "settingsSave", payload: { settings, integrations } });
+    },
     [send],
   );
+
+  const resetActivity = useCallback(() => send({ type: "activityReset" }), [send]);
 
   const speak = useCallback(
     (text: string) => {
@@ -381,6 +389,8 @@ export function useControlLink(): ControlLink {
       personaName,
       settings,
       integrations,
+      integrationRevision,
+      resetActivity,
       lastError,
       subtitles,
       ops,
@@ -414,6 +424,8 @@ export function useControlLink(): ControlLink {
       personaName,
       settings,
       integrations,
+      integrationRevision,
+      resetActivity,
       lastError,
       subtitles,
       ops,

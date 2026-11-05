@@ -15,9 +15,9 @@ import {
 
 describe("knowledge data", () => {
   test("pins the Minecraft data version", () => {
-    assert.equal(KNOWLEDGE_VERSION.minecraftVersion, "1.21.11");
-    assert.equal(KNOWLEDGE_VERSION.dataVersion, 4671);
-    assert.match(KNOWLEDGE_VERSION.sourceTag, /1\.21\.11/u);
+    assert.equal(KNOWLEDGE_VERSION.minecraftVersion, "1.20.1");
+    assert.equal(KNOWLEDGE_VERSION.dataVersion, 3465);
+    assert.match(KNOWLEDGE_VERSION.sourceTag, /1\.20\.1/u);
   });
 
   test("resolves at least 20 common survival recipes", () => {
@@ -57,7 +57,9 @@ describe("knowledge data", () => {
     assert.equal(queryRecipe("crafting_table")?.station, "inventory");
     assert.equal(queryRecipe("wooden_pickaxe")?.grid, 3);
     assert.equal(queryRecipe("wooden_pickaxe")?.station, "crafting_table");
-    assert.equal(queryRecipe("white_bed")?.station, "crafting_table");
+    const beds = recipesFor("white_bed");
+    assert.ok(beds.some((recipe) => recipe.grid === 2 && recipe.station === "inventory"));
+    assert.ok(beds.some((recipe) => recipe.grid === 3 && recipe.station === "crafting_table"));
   });
 
   test("returns deterministic recipes and can select a variant", () => {
@@ -74,7 +76,7 @@ describe("knowledge data", () => {
   test("resolves tag ingredients to concrete items", () => {
     const pickaxe = queryRecipe("wooden_pickaxe");
     assert.ok(pickaxe !== null);
-    const material = pickaxe.ingredients.find((entry) => entry.tag === "#minecraft:wooden_tool_materials");
+    const material = pickaxe.ingredients.find((entry) => entry.tag === "minecraft:planks");
     assert.ok(material !== undefined);
     assert.ok(material.choices.includes("minecraft:oak_planks"));
     assert.equal(material.count, 3);

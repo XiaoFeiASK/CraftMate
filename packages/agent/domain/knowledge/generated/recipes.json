@@ -1,11 +1,11 @@
 {
   "meta": {
     "schemaVersion": 1,
-    "minecraftVersion": "1.21.11",
+    "minecraftVersion": "1.20.1",
     "source": "https://github.com/misode/mcmeta.git",
-    "sourceTag": "1.21.11-data-json",
-    "dataVersion": 4671,
-    "generatedFrom": "2025-12-09T12:20:42+00:00"
+    "sourceTag": "1.20.1-data-json",
+    "dataVersion": 3465,
+    "generatedFrom": "2023-06-12T13:23:26+00:00"
   },
   "recipes": [
     {
@@ -148,7 +148,7 @@
       "ingredients": [
         {
           "choices": [
-            "minecraft:iron_chain"
+            "minecraft:chain"
           ],
           "count": 2
         },
@@ -178,7 +178,7 @@
             "minecraft:stripped_acacia_log",
             "minecraft:stripped_acacia_wood"
           ],
-          "tag": "#minecraft:acacia_logs",
+          "tag": "minecraft:acacia_logs",
           "count": 1
         }
       ],
@@ -206,25 +206,6 @@
         "count": 1
       },
       "group": "wooden_pressure_plate"
-    },
-    {
-      "id": "minecraft:acacia_shelf",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:stripped_acacia_log"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:acacia_shelf",
-        "count": 6
-      },
-      "group": "shelf"
     },
     {
       "id": "minecraft:acacia_sign",
@@ -645,7 +626,7 @@
         "item": "minecraft:bamboo_fence",
         "count": 3
       },
-      "group": "wooden_fence"
+      "group": "wooden_custom_fence"
     },
     {
       "id": "minecraft:bamboo_fence_gate",
@@ -670,7 +651,7 @@
         "item": "minecraft:bamboo_fence_gate",
         "count": 1
       },
-      "group": "wooden_fence_gate"
+      "group": "wooden_custom_fence_gate"
     },
     {
       "id": "minecraft:bamboo_hanging_sign",
@@ -680,7 +661,7 @@
       "ingredients": [
         {
           "choices": [
-            "minecraft:iron_chain"
+            "minecraft:chain"
           ],
           "count": 2
         },
@@ -765,7 +746,7 @@
             "minecraft:bamboo_block",
             "minecraft:stripped_bamboo_block"
           ],
-          "tag": "#minecraft:bamboo_blocks",
+          "tag": "minecraft:bamboo_blocks",
           "count": 1
         }
       ],
@@ -812,25 +793,6 @@
         "count": 1
       },
       "group": "boat"
-    },
-    {
-      "id": "minecraft:bamboo_shelf",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:stripped_bamboo_block"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:bamboo_shelf",
-        "count": 6
-      },
-      "group": "shelf"
     },
     {
       "id": "minecraft:bamboo_sign",
@@ -931,11 +893,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 6
         },
         {
@@ -949,11 +910,10 @@
             "minecraft:jungle_slab",
             "minecraft:mangrove_slab",
             "minecraft:oak_slab",
-            "minecraft:pale_oak_slab",
             "minecraft:spruce_slab",
             "minecraft:warped_slab"
           ],
-          "tag": "#minecraft:wooden_slabs",
+          "tag": "minecraft:wooden_slabs",
           "count": 2
         }
       ],
@@ -1011,11 +971,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 6
         },
         {
@@ -1196,7 +1155,7 @@
       "ingredients": [
         {
           "choices": [
-            "minecraft:iron_chain"
+            "minecraft:chain"
           ],
           "count": 2
         },
@@ -1226,7 +1185,7 @@
             "minecraft:stripped_birch_log",
             "minecraft:stripped_birch_wood"
           ],
-          "tag": "#minecraft:birch_logs",
+          "tag": "minecraft:birch_logs",
           "count": 1
         }
       ],
@@ -1254,25 +1213,6 @@
         "count": 1
       },
       "group": "wooden_pressure_plate"
-    },
-    {
-      "id": "minecraft:birch_shelf",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:stripped_birch_log"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:birch_shelf",
-        "count": 6
-      },
-      "group": "shelf"
     },
     {
       "id": "minecraft:birch_sign",
@@ -1417,11 +1357,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -1549,37 +1488,6 @@
         "count": 1
       },
       "group": "black_dye"
-    },
-    {
-      "id": "minecraft:black_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_wool"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:black_harness",
-        "count": 1
-      },
-      "group": "harness"
     },
     {
       "id": "minecraft:black_stained_glass",
@@ -1824,11 +1732,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -1958,37 +1865,6 @@
       "group": "blue_dye"
     },
     {
-      "id": "minecraft:blue_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:blue_wool"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:blue_harness",
-        "count": 1
-      },
-      "group": "harness"
-    },
-    {
       "id": "minecraft:blue_ice",
       "type": "crafting_shapeless",
       "station": "crafting_table",
@@ -2102,38 +1978,6 @@
       "group": "stained_terracotta"
     },
     {
-      "id": "minecraft:bolt_armor_trim_smithing_template",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bolt_armor_trim_smithing_template"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:copper_block",
-            "minecraft:waxed_copper_block"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:diamond"
-          ],
-          "count": 7
-        }
-      ],
-      "output": {
-        "item": "minecraft:bolt_armor_trim_smithing_template",
-        "count": 2
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:bone_block",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -2232,11 +2076,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 6
         },
         {
@@ -2248,31 +2091,6 @@
       ],
       "output": {
         "item": "minecraft:bookshelf",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:bordure_indented_banner_pattern",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:paper"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:vine"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:bordure_indented_banner_pattern",
         "count": 1
       },
       "group": null
@@ -2319,11 +2137,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         }
       ],
@@ -2364,7 +2181,7 @@
             "minecraft:cobbled_deepslate",
             "minecraft:cobblestone"
           ],
-          "tag": "#minecraft:stone_crafting_materials",
+          "tag": "minecraft:stone_crafting_materials",
           "count": 3
         },
         {
@@ -2498,11 +2315,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -2611,37 +2427,6 @@
         "count": 1
       },
       "group": "brown_dye"
-    },
-    {
-      "id": "minecraft:brown_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:brown_wool"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:brown_harness",
-        "count": 1
-      },
-      "group": "harness"
     },
     {
       "id": "minecraft:brown_stained_glass",
@@ -2788,31 +2573,6 @@
       "group": null
     },
     {
-      "id": "minecraft:bundle",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:string"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:bundle",
-        "count": 1
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:cake",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -2820,11 +2580,8 @@
       "ingredients": [
         {
           "choices": [
-            "minecraft:blue_egg",
-            "minecraft:brown_egg",
             "minecraft:egg"
           ],
-          "tag": "#minecraft:eggs",
           "count": 1
         },
         {
@@ -2901,8 +2658,6 @@
             "minecraft:mangrove_wood",
             "minecraft:oak_log",
             "minecraft:oak_wood",
-            "minecraft:pale_oak_log",
-            "minecraft:pale_oak_wood",
             "minecraft:spruce_log",
             "minecraft:spruce_wood",
             "minecraft:stripped_acacia_log",
@@ -2921,8 +2676,6 @@
             "minecraft:stripped_mangrove_wood",
             "minecraft:stripped_oak_log",
             "minecraft:stripped_oak_wood",
-            "minecraft:stripped_pale_oak_log",
-            "minecraft:stripped_pale_oak_wood",
             "minecraft:stripped_spruce_log",
             "minecraft:stripped_spruce_wood",
             "minecraft:stripped_warped_hyphae",
@@ -2930,7 +2683,7 @@
             "minecraft:warped_hyphae",
             "minecraft:warped_stem"
           ],
-          "tag": "#minecraft:logs",
+          "tag": "minecraft:logs",
           "count": 3
         },
         {
@@ -2938,7 +2691,7 @@
             "minecraft:charcoal",
             "minecraft:coal"
           ],
-          "tag": "#minecraft:coals",
+          "tag": "minecraft:coals",
           "count": 1
         },
         {
@@ -3021,11 +2774,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 4
         },
         {
@@ -3056,6 +2808,31 @@
       ],
       "output": {
         "item": "minecraft:cauldron",
+        "count": 1
+      },
+      "group": null
+    },
+    {
+      "id": "minecraft:chain",
+      "type": "crafting_shaped",
+      "station": "crafting_table",
+      "grid": 3,
+      "ingredients": [
+        {
+          "choices": [
+            "minecraft:iron_ingot"
+          ],
+          "count": 1
+        },
+        {
+          "choices": [
+            "minecraft:iron_nugget"
+          ],
+          "count": 2
+        }
+      ],
+      "output": {
+        "item": "minecraft:chain",
         "count": 1
       },
       "group": null
@@ -3200,7 +2977,7 @@
       "ingredients": [
         {
           "choices": [
-            "minecraft:iron_chain"
+            "minecraft:chain"
           ],
           "count": 2
         },
@@ -3230,7 +3007,7 @@
             "minecraft:stripped_cherry_log",
             "minecraft:stripped_cherry_wood"
           ],
-          "tag": "#minecraft:cherry_logs",
+          "tag": "minecraft:cherry_logs",
           "count": 1
         }
       ],
@@ -3258,25 +3035,6 @@
         "count": 1
       },
       "group": "wooden_pressure_plate"
-    },
-    {
-      "id": "minecraft:cherry_shelf",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:stripped_cherry_log"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:cherry_shelf",
-        "count": 6
-      },
-      "group": "shelf"
     },
     {
       "id": "minecraft:cherry_sign",
@@ -3396,11 +3154,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 8
         }
       ],
@@ -3452,11 +3209,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 6
         },
         {
@@ -3470,35 +3226,15 @@
             "minecraft:jungle_slab",
             "minecraft:mangrove_slab",
             "minecraft:oak_slab",
-            "minecraft:pale_oak_slab",
             "minecraft:spruce_slab",
             "minecraft:warped_slab"
           ],
-          "tag": "#minecraft:wooden_slabs",
+          "tag": "minecraft:wooden_slabs",
           "count": 3
         }
       ],
       "output": {
         "item": "minecraft:chiseled_bookshelf",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:chiseled_copper",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:cut_copper_slab"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:chiseled_copper",
         "count": 1
       },
       "group": null
@@ -3599,25 +3335,6 @@
       "group": null
     },
     {
-      "id": "minecraft:chiseled_resin_bricks",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:resin_brick_slab"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:chiseled_resin_bricks",
-        "count": 1
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:chiseled_sandstone",
       "type": "crafting_shaped",
       "station": "inventory",
@@ -3651,44 +3368,6 @@
       ],
       "output": {
         "item": "minecraft:chiseled_stone_bricks",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:chiseled_tuff",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:tuff_slab"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:chiseled_tuff",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:chiseled_tuff_bricks",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:tuff_brick_slab"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:chiseled_tuff_bricks",
         "count": 1
       },
       "group": null
@@ -4018,11 +3697,10 @@
             "minecraft:jungle_slab",
             "minecraft:mangrove_slab",
             "minecraft:oak_slab",
-            "minecraft:pale_oak_slab",
             "minecraft:spruce_slab",
             "minecraft:warped_slab"
           ],
-          "tag": "#minecraft:wooden_slabs",
+          "tag": "minecraft:wooden_slabs",
           "count": 7
         }
       ],
@@ -4083,51 +3761,6 @@
       "group": null
     },
     {
-      "id": "minecraft:copper_axe",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "tag": "#minecraft:copper_tool_materials",
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_axe",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_bars",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_bars",
-        "count": 16
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:copper_block",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -4142,208 +3775,6 @@
       ],
       "output": {
         "item": "minecraft:copper_block",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_boots",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_boots",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_bulb",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:blaze_rod"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:copper_block"
-          ],
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:redstone"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_bulb",
-        "count": 4
-      },
-      "group": "copper_bulb"
-    },
-    {
-      "id": "minecraft:copper_chain",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:copper_nugget"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_chain",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_chest",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:chest"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "count": 8
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_chest",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_chestplate",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "count": 8
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_chestplate",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_door",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_door",
-        "count": 3
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_grate",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_block"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_grate",
-        "count": 4
-      },
-      "group": "copper_grate"
-    },
-    {
-      "id": "minecraft:copper_helmet",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "count": 5
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_helmet",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_hoe",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "tag": "#minecraft:copper_tool_materials",
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_hoe",
         "count": 1
       },
       "group": null
@@ -4368,25 +3799,6 @@
       "group": "copper_ingot"
     },
     {
-      "id": "minecraft:copper_ingot_from_nuggets",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_nugget"
-          ],
-          "count": 9
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_ingot",
-        "count": 1
-      },
-      "group": "copper_ingot"
-    },
-    {
       "id": "minecraft:copper_ingot_from_waxed_copper_block",
       "type": "crafting_shapeless",
       "station": "inventory",
@@ -4406,261 +3818,6 @@
       "group": "copper_ingot"
     },
     {
-      "id": "minecraft:copper_lantern",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_nugget"
-          ],
-          "count": 8
-        },
-        {
-          "choices": [
-            "minecraft:copper_torch"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_lantern",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_leggings",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "count": 7
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_leggings",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_nugget",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_nugget",
-        "count": 9
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_pickaxe",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "tag": "#minecraft:copper_tool_materials",
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_pickaxe",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_shovel",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "tag": "#minecraft:copper_tool_materials",
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_shovel",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_spear",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "tag": "#minecraft:copper_tool_materials",
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_spear",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_sword",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "tag": "#minecraft:copper_tool_materials",
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_sword",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_torch",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:charcoal",
-            "minecraft:coal"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:copper_nugget"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_torch",
-        "count": 4
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:copper_trapdoor",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_ingot"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:copper_trapdoor",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:crafter",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:crafting_table"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:dropper"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:iron_ingot"
-          ],
-          "count": 5
-        },
-        {
-          "choices": [
-            "minecraft:redstone"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:crafter",
-        "count": 1
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:crafting_table",
       "type": "crafting_shaped",
       "station": "inventory",
@@ -4677,41 +3834,15 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 4
         }
       ],
       "output": {
         "item": "minecraft:crafting_table",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:creaking_heart",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:pale_oak_log"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:resin_block"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:creaking_heart",
         "count": 1
       },
       "group": null
@@ -4837,7 +3968,7 @@
       "ingredients": [
         {
           "choices": [
-            "minecraft:iron_chain"
+            "minecraft:chain"
           ],
           "count": 2
         },
@@ -4886,7 +4017,7 @@
             "minecraft:stripped_crimson_hyphae",
             "minecraft:stripped_crimson_stem"
           ],
-          "tag": "#minecraft:crimson_stems",
+          "tag": "minecraft:crimson_stems",
           "count": 1
         }
       ],
@@ -4914,25 +4045,6 @@
         "count": 1
       },
       "group": "wooden_pressure_plate"
-    },
-    {
-      "id": "minecraft:crimson_shelf",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:stripped_crimson_stem"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:crimson_shelf",
-        "count": 6
-      },
-      "group": "shelf"
     },
     {
       "id": "minecraft:crimson_sign",
@@ -5228,11 +4340,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -5366,37 +4477,6 @@
         "count": 2
       },
       "group": "cyan_dye"
-    },
-    {
-      "id": "minecraft:cyan_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:cyan_wool"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:cyan_harness",
-        "count": 1
-      },
-      "group": "harness"
     },
     {
       "id": "minecraft:cyan_stained_glass",
@@ -5632,7 +4712,7 @@
       "ingredients": [
         {
           "choices": [
-            "minecraft:iron_chain"
+            "minecraft:chain"
           ],
           "count": 2
         },
@@ -5662,7 +4742,7 @@
             "minecraft:stripped_dark_oak_log",
             "minecraft:stripped_dark_oak_wood"
           ],
-          "tag": "#minecraft:dark_oak_logs",
+          "tag": "minecraft:dark_oak_logs",
           "count": 1
         }
       ],
@@ -5690,25 +4770,6 @@
         "count": 1
       },
       "group": "wooden_pressure_plate"
-    },
-    {
-      "id": "minecraft:dark_oak_shelf",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:stripped_dark_oak_log"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:dark_oak_shelf",
-        "count": 6
-      },
-      "group": "shelf"
     },
     {
       "id": "minecraft:dark_oak_sign",
@@ -5891,11 +4952,10 @@
             "minecraft:jungle_slab",
             "minecraft:mangrove_slab",
             "minecraft:oak_slab",
-            "minecraft:pale_oak_slab",
             "minecraft:spruce_slab",
             "minecraft:warped_slab"
           ],
-          "tag": "#minecraft:wooden_slabs",
+          "tag": "minecraft:wooden_slabs",
           "count": 3
         },
         {
@@ -6148,7 +5208,6 @@
           "choices": [
             "minecraft:diamond"
           ],
-          "tag": "#minecraft:diamond_tool_materials",
           "count": 3
         },
         {
@@ -6250,7 +5309,6 @@
           "choices": [
             "minecraft:diamond"
           ],
-          "tag": "#minecraft:diamond_tool_materials",
           "count": 2
         },
         {
@@ -6295,7 +5353,6 @@
           "choices": [
             "minecraft:diamond"
           ],
-          "tag": "#minecraft:diamond_tool_materials",
           "count": 3
         },
         {
@@ -6321,7 +5378,6 @@
           "choices": [
             "minecraft:diamond"
           ],
-          "tag": "#minecraft:diamond_tool_materials",
           "count": 1
         },
         {
@@ -6338,32 +5394,6 @@
       "group": null
     },
     {
-      "id": "minecraft:diamond_spear",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:diamond"
-          ],
-          "tag": "#minecraft:diamond_tool_materials",
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:diamond_spear",
-        "count": 1
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:diamond_sword",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -6373,7 +5403,6 @@
           "choices": [
             "minecraft:diamond"
           ],
-          "tag": "#minecraft:diamond_tool_materials",
           "count": 2
         },
         {
@@ -6501,31 +5530,6 @@
         "count": 1
       },
       "group": null
-    },
-    {
-      "id": "minecraft:dried_ghast",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:ghast_tear"
-          ],
-          "count": 8
-        },
-        {
-          "choices": [
-            "minecraft:soul_sand"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:dried_ghast",
-        "count": 1
-      },
-      "group": "dry_ghast"
     },
     {
       "id": "minecraft:dried_kelp",
@@ -6677,7 +5681,7 @@
         "item": "minecraft:black_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_black_carpet",
@@ -6716,46 +5720,7 @@
         "item": "minecraft:black_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_black_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_dye"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:blue_harness",
-            "minecraft:brown_harness",
-            "minecraft:cyan_harness",
-            "minecraft:gray_harness",
-            "minecraft:green_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:lime_harness",
-            "minecraft:magenta_harness",
-            "minecraft:orange_harness",
-            "minecraft:pink_harness",
-            "minecraft:purple_harness",
-            "minecraft:red_harness",
-            "minecraft:white_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:black_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_black_wool",
@@ -6833,7 +5798,7 @@
         "item": "minecraft:blue_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_blue_carpet",
@@ -6872,46 +5837,7 @@
         "item": "minecraft:blue_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_blue_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:brown_harness",
-            "minecraft:cyan_harness",
-            "minecraft:gray_harness",
-            "minecraft:green_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:lime_harness",
-            "minecraft:magenta_harness",
-            "minecraft:orange_harness",
-            "minecraft:pink_harness",
-            "minecraft:purple_harness",
-            "minecraft:red_harness",
-            "minecraft:white_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:blue_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:blue_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_blue_wool",
@@ -6989,7 +5915,7 @@
         "item": "minecraft:brown_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_brown_carpet",
@@ -7028,46 +5954,7 @@
         "item": "minecraft:brown_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_brown_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:blue_harness",
-            "minecraft:cyan_harness",
-            "minecraft:gray_harness",
-            "minecraft:green_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:lime_harness",
-            "minecraft:magenta_harness",
-            "minecraft:orange_harness",
-            "minecraft:pink_harness",
-            "minecraft:purple_harness",
-            "minecraft:red_harness",
-            "minecraft:white_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:brown_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_brown_wool",
@@ -7145,7 +6032,7 @@
         "item": "minecraft:cyan_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_cyan_carpet",
@@ -7184,46 +6071,7 @@
         "item": "minecraft:cyan_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_cyan_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:blue_harness",
-            "minecraft:brown_harness",
-            "minecraft:gray_harness",
-            "minecraft:green_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:lime_harness",
-            "minecraft:magenta_harness",
-            "minecraft:orange_harness",
-            "minecraft:pink_harness",
-            "minecraft:purple_harness",
-            "minecraft:red_harness",
-            "minecraft:white_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:cyan_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:cyan_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_cyan_wool",
@@ -7301,7 +6149,7 @@
         "item": "minecraft:gray_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_gray_carpet",
@@ -7340,46 +6188,7 @@
         "item": "minecraft:gray_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_gray_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:blue_harness",
-            "minecraft:brown_harness",
-            "minecraft:cyan_harness",
-            "minecraft:green_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:lime_harness",
-            "minecraft:magenta_harness",
-            "minecraft:orange_harness",
-            "minecraft:pink_harness",
-            "minecraft:purple_harness",
-            "minecraft:red_harness",
-            "minecraft:white_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:gray_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:gray_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_gray_wool",
@@ -7457,7 +6266,7 @@
         "item": "minecraft:green_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_green_carpet",
@@ -7496,46 +6305,7 @@
         "item": "minecraft:green_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_green_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:blue_harness",
-            "minecraft:brown_harness",
-            "minecraft:cyan_harness",
-            "minecraft:gray_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:lime_harness",
-            "minecraft:magenta_harness",
-            "minecraft:orange_harness",
-            "minecraft:pink_harness",
-            "minecraft:purple_harness",
-            "minecraft:red_harness",
-            "minecraft:white_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:green_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:green_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_green_wool",
@@ -7613,7 +6383,7 @@
         "item": "minecraft:light_blue_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_light_blue_carpet",
@@ -7652,46 +6422,7 @@
         "item": "minecraft:light_blue_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_light_blue_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:blue_harness",
-            "minecraft:brown_harness",
-            "minecraft:cyan_harness",
-            "minecraft:gray_harness",
-            "minecraft:green_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:lime_harness",
-            "minecraft:magenta_harness",
-            "minecraft:orange_harness",
-            "minecraft:pink_harness",
-            "minecraft:purple_harness",
-            "minecraft:red_harness",
-            "minecraft:white_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:light_blue_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:light_blue_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_light_blue_wool",
@@ -7769,7 +6500,7 @@
         "item": "minecraft:light_gray_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_light_gray_carpet",
@@ -7808,46 +6539,7 @@
         "item": "minecraft:light_gray_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_light_gray_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:blue_harness",
-            "minecraft:brown_harness",
-            "minecraft:cyan_harness",
-            "minecraft:gray_harness",
-            "minecraft:green_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:lime_harness",
-            "minecraft:magenta_harness",
-            "minecraft:orange_harness",
-            "minecraft:pink_harness",
-            "minecraft:purple_harness",
-            "minecraft:red_harness",
-            "minecraft:white_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:light_gray_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:light_gray_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_light_gray_wool",
@@ -7925,7 +6617,7 @@
         "item": "minecraft:lime_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_lime_carpet",
@@ -7964,46 +6656,7 @@
         "item": "minecraft:lime_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_lime_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:blue_harness",
-            "minecraft:brown_harness",
-            "minecraft:cyan_harness",
-            "minecraft:gray_harness",
-            "minecraft:green_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:magenta_harness",
-            "minecraft:orange_harness",
-            "minecraft:pink_harness",
-            "minecraft:purple_harness",
-            "minecraft:red_harness",
-            "minecraft:white_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:lime_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:lime_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_lime_wool",
@@ -8081,7 +6734,7 @@
         "item": "minecraft:magenta_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_magenta_carpet",
@@ -8120,46 +6773,7 @@
         "item": "minecraft:magenta_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_magenta_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:blue_harness",
-            "minecraft:brown_harness",
-            "minecraft:cyan_harness",
-            "minecraft:gray_harness",
-            "minecraft:green_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:lime_harness",
-            "minecraft:orange_harness",
-            "minecraft:pink_harness",
-            "minecraft:purple_harness",
-            "minecraft:red_harness",
-            "minecraft:white_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:magenta_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:magenta_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_magenta_wool",
@@ -8237,7 +6851,7 @@
         "item": "minecraft:orange_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_orange_carpet",
@@ -8276,46 +6890,7 @@
         "item": "minecraft:orange_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_orange_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:blue_harness",
-            "minecraft:brown_harness",
-            "minecraft:cyan_harness",
-            "minecraft:gray_harness",
-            "minecraft:green_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:lime_harness",
-            "minecraft:magenta_harness",
-            "minecraft:pink_harness",
-            "minecraft:purple_harness",
-            "minecraft:red_harness",
-            "minecraft:white_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:orange_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:orange_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_orange_wool",
@@ -8393,7 +6968,7 @@
         "item": "minecraft:pink_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_pink_carpet",
@@ -8432,46 +7007,7 @@
         "item": "minecraft:pink_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_pink_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:blue_harness",
-            "minecraft:brown_harness",
-            "minecraft:cyan_harness",
-            "minecraft:gray_harness",
-            "minecraft:green_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:lime_harness",
-            "minecraft:magenta_harness",
-            "minecraft:orange_harness",
-            "minecraft:purple_harness",
-            "minecraft:red_harness",
-            "minecraft:white_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:pink_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:pink_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_pink_wool",
@@ -8549,7 +7085,7 @@
         "item": "minecraft:purple_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_purple_carpet",
@@ -8588,46 +7124,7 @@
         "item": "minecraft:purple_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_purple_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:blue_harness",
-            "minecraft:brown_harness",
-            "minecraft:cyan_harness",
-            "minecraft:gray_harness",
-            "minecraft:green_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:lime_harness",
-            "minecraft:magenta_harness",
-            "minecraft:orange_harness",
-            "minecraft:pink_harness",
-            "minecraft:red_harness",
-            "minecraft:white_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:purple_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:purple_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_purple_wool",
@@ -8705,7 +7202,7 @@
         "item": "minecraft:red_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_red_carpet",
@@ -8744,46 +7241,7 @@
         "item": "minecraft:red_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_red_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:blue_harness",
-            "minecraft:brown_harness",
-            "minecraft:cyan_harness",
-            "minecraft:gray_harness",
-            "minecraft:green_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:lime_harness",
-            "minecraft:magenta_harness",
-            "minecraft:orange_harness",
-            "minecraft:pink_harness",
-            "minecraft:purple_harness",
-            "minecraft:white_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:red_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_red_wool",
@@ -8861,7 +7319,7 @@
         "item": "minecraft:white_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_white_carpet",
@@ -8900,46 +7358,7 @@
         "item": "minecraft:white_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_white_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:blue_harness",
-            "minecraft:brown_harness",
-            "minecraft:cyan_harness",
-            "minecraft:gray_harness",
-            "minecraft:green_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:lime_harness",
-            "minecraft:magenta_harness",
-            "minecraft:orange_harness",
-            "minecraft:pink_harness",
-            "minecraft:purple_harness",
-            "minecraft:red_harness",
-            "minecraft:yellow_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:white_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:white_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_white_wool",
@@ -9017,7 +7436,7 @@
         "item": "minecraft:yellow_bed",
         "count": 1
       },
-      "group": "bed_dye"
+      "group": "bed"
     },
     {
       "id": "minecraft:dye_yellow_carpet",
@@ -9056,46 +7475,7 @@
         "item": "minecraft:yellow_carpet",
         "count": 1
       },
-      "group": "carpet_dye"
-    },
-    {
-      "id": "minecraft:dye_yellow_harness",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:black_harness",
-            "minecraft:blue_harness",
-            "minecraft:brown_harness",
-            "minecraft:cyan_harness",
-            "minecraft:gray_harness",
-            "minecraft:green_harness",
-            "minecraft:light_blue_harness",
-            "minecraft:light_gray_harness",
-            "minecraft:lime_harness",
-            "minecraft:magenta_harness",
-            "minecraft:orange_harness",
-            "minecraft:pink_harness",
-            "minecraft:purple_harness",
-            "minecraft:red_harness",
-            "minecraft:white_harness"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:yellow_dye"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:yellow_harness",
-        "count": 1
-      },
-      "group": "harness_dye"
+      "group": "carpet"
     },
     {
       "id": "minecraft:dye_yellow_wool",
@@ -9388,75 +7768,6 @@
       "group": null
     },
     {
-      "id": "minecraft:exposed_chiseled_copper",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:exposed_cut_copper_slab"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:exposed_chiseled_copper",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:exposed_copper_bulb",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:blaze_rod"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:exposed_copper"
-          ],
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:redstone"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:exposed_copper_bulb",
-        "count": 4
-      },
-      "group": "exposed_copper_bulb"
-    },
-    {
-      "id": "minecraft:exposed_copper_grate",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:exposed_copper"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:exposed_copper_grate",
-        "count": 4
-      },
-      "group": "exposed_copper_grate"
-    },
-    {
       "id": "minecraft:exposed_cut_copper",
       "type": "crafting_shaped",
       "station": "inventory",
@@ -9576,31 +7887,6 @@
       "group": null
     },
     {
-      "id": "minecraft:field_masoned_banner_pattern",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bricks"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:paper"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:field_masoned_banner_pattern",
-        "count": 1
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:fire_charge",
       "type": "crafting_shapeless",
       "station": "inventory",
@@ -9699,11 +7985,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 4
         },
         {
@@ -9741,37 +8026,6 @@
       "output": {
         "item": "minecraft:flint_and_steel",
         "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:flow_armor_trim_smithing_template",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:breeze_rod"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:diamond"
-          ],
-          "count": 7
-        },
-        {
-          "choices": [
-            "minecraft:flow_armor_trim_smithing_template"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:flow_armor_trim_smithing_template",
-        "count": 2
       },
       "group": null
     },
@@ -9831,7 +8085,7 @@
             "minecraft:cobbled_deepslate",
             "minecraft:cobblestone"
           ],
-          "tag": "#minecraft:stone_crafting_materials",
+          "tag": "minecraft:stone_crafting_materials",
           "count": 8
         }
       ],
@@ -10084,7 +8338,6 @@
           "choices": [
             "minecraft:gold_ingot"
           ],
-          "tag": "#minecraft:gold_tool_materials",
           "count": 3
         },
         {
@@ -10192,7 +8445,6 @@
           "choices": [
             "minecraft:gold_ingot"
           ],
-          "tag": "#minecraft:gold_tool_materials",
           "count": 2
         },
         {
@@ -10237,7 +8489,6 @@
           "choices": [
             "minecraft:gold_ingot"
           ],
-          "tag": "#minecraft:gold_tool_materials",
           "count": 3
         },
         {
@@ -10263,7 +8514,6 @@
           "choices": [
             "minecraft:gold_ingot"
           ],
-          "tag": "#minecraft:gold_tool_materials",
           "count": 1
         },
         {
@@ -10280,32 +8530,6 @@
       "group": null
     },
     {
-      "id": "minecraft:golden_spear",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:gold_ingot"
-          ],
-          "tag": "#minecraft:gold_tool_materials",
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:golden_spear",
-        "count": 1
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:golden_sword",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -10315,7 +8539,6 @@
           "choices": [
             "minecraft:gold_ingot"
           ],
-          "tag": "#minecraft:gold_tool_materials",
           "count": 2
         },
         {
@@ -10455,11 +8678,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -10573,57 +8795,7 @@
         "item": "minecraft:gray_dye",
         "count": 2
       },
-      "group": "gray_dye"
-    },
-    {
-      "id": "minecraft:gray_dye_from_closed_eyeblossom",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:closed_eyeblossom"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:gray_dye",
-        "count": 1
-      },
-      "group": "gray_dye"
-    },
-    {
-      "id": "minecraft:gray_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:gray_wool"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:gray_harness",
-        "count": 1
-      },
-      "group": "harness"
+      "group": null
     },
     {
       "id": "minecraft:gray_stained_glass",
@@ -10761,11 +8933,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -10855,37 +9026,6 @@
         "count": 8
       },
       "group": "concrete_powder"
-    },
-    {
-      "id": "minecraft:green_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:green_wool"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:green_harness",
-        "count": 1
-      },
-      "group": "harness"
     },
     {
       "id": "minecraft:green_stained_glass",
@@ -10998,11 +9138,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 2
         },
         {
@@ -11216,7 +9355,6 @@
           "choices": [
             "minecraft:iron_ingot"
           ],
-          "tag": "#minecraft:iron_tool_materials",
           "count": 3
         },
         {
@@ -11290,31 +9428,6 @@
       "group": null
     },
     {
-      "id": "minecraft:iron_chain",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:iron_ingot"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:iron_nugget"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:iron_chain",
-        "count": 1
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:iron_chestplate",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -11381,7 +9494,6 @@
           "choices": [
             "minecraft:iron_ingot"
           ],
-          "tag": "#minecraft:iron_tool_materials",
           "count": 2
         },
         {
@@ -11483,7 +9595,6 @@
           "choices": [
             "minecraft:iron_ingot"
           ],
-          "tag": "#minecraft:iron_tool_materials",
           "count": 3
         },
         {
@@ -11509,7 +9620,6 @@
           "choices": [
             "minecraft:iron_ingot"
           ],
-          "tag": "#minecraft:iron_tool_materials",
           "count": 1
         },
         {
@@ -11526,32 +9636,6 @@
       "group": null
     },
     {
-      "id": "minecraft:iron_spear",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:iron_ingot"
-          ],
-          "tag": "#minecraft:iron_tool_materials",
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:iron_spear",
-        "count": 1
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:iron_sword",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -11561,7 +9645,6 @@
           "choices": [
             "minecraft:iron_ingot"
           ],
-          "tag": "#minecraft:iron_tool_materials",
           "count": 2
         },
         {
@@ -11663,11 +9746,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 8
         },
         {
@@ -11823,7 +9905,7 @@
       "ingredients": [
         {
           "choices": [
-            "minecraft:iron_chain"
+            "minecraft:chain"
           ],
           "count": 2
         },
@@ -11853,7 +9935,7 @@
             "minecraft:stripped_jungle_log",
             "minecraft:stripped_jungle_wood"
           ],
-          "tag": "#minecraft:jungle_logs",
+          "tag": "minecraft:jungle_logs",
           "count": 1
         }
       ],
@@ -11881,25 +9963,6 @@
         "count": 1
       },
       "group": "wooden_pressure_plate"
-    },
-    {
-      "id": "minecraft:jungle_shelf",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:stripped_jungle_log"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:jungle_shelf",
-        "count": 6
-      },
-      "group": "shelf"
     },
     {
       "id": "minecraft:jungle_sign",
@@ -12092,9 +10155,15 @@
       "ingredients": [
         {
           "choices": [
+            "minecraft:slime_ball"
+          ],
+          "count": 1
+        },
+        {
+          "choices": [
             "minecraft:string"
           ],
-          "count": 5
+          "count": 4
         }
       ],
       "output": {
@@ -12234,11 +10303,10 @@
             "minecraft:jungle_slab",
             "minecraft:mangrove_slab",
             "minecraft:oak_slab",
-            "minecraft:pale_oak_slab",
             "minecraft:spruce_slab",
             "minecraft:warped_slab"
           ],
-          "tag": "#minecraft:wooden_slabs",
+          "tag": "minecraft:wooden_slabs",
           "count": 4
         },
         {
@@ -12321,11 +10389,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -12459,37 +10526,6 @@
         "count": 2
       },
       "group": "light_blue_dye"
-    },
-    {
-      "id": "minecraft:light_blue_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:light_blue_wool"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:light_blue_harness",
-        "count": 1
-      },
-      "group": "harness"
     },
     {
       "id": "minecraft:light_blue_stained_glass",
@@ -12627,11 +10663,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -12830,37 +10865,6 @@
       "group": "light_gray_dye"
     },
     {
-      "id": "minecraft:light_gray_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:light_gray_wool"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:light_gray_harness",
-        "count": 1
-      },
-      "group": "harness"
-    },
-    {
       "id": "minecraft:light_gray_stained_glass",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -13034,11 +11038,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -13155,37 +11158,6 @@
       "group": null
     },
     {
-      "id": "minecraft:lime_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:lime_wool"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:lime_harness",
-        "count": 1
-      },
-      "group": "harness"
-    },
-    {
       "id": "minecraft:lime_stained_glass",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -13293,7 +11265,7 @@
         },
         {
           "choices": [
-            "minecraft:iron_ingot"
+            "minecraft:netherite_ingot"
           ],
           "count": 1
         }
@@ -13321,11 +11293,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 2
         },
         {
@@ -13337,31 +11308,6 @@
       ],
       "output": {
         "item": "minecraft:loom",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:mace",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:breeze_rod"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:heavy_core"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:mace",
         "count": 1
       },
       "group": null
@@ -13408,11 +11354,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -13627,37 +11572,6 @@
         "count": 2
       },
       "group": "magenta_dye"
-    },
-    {
-      "id": "minecraft:magenta_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:magenta_wool"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:magenta_harness",
-        "count": 1
-      },
-      "group": "harness"
     },
     {
       "id": "minecraft:magenta_stained_glass",
@@ -13937,7 +11851,7 @@
       "ingredients": [
         {
           "choices": [
-            "minecraft:iron_chain"
+            "minecraft:chain"
           ],
           "count": 2
         },
@@ -13967,7 +11881,7 @@
             "minecraft:stripped_mangrove_log",
             "minecraft:stripped_mangrove_wood"
           ],
-          "tag": "#minecraft:mangrove_logs",
+          "tag": "minecraft:mangrove_logs",
           "count": 1
         }
       ],
@@ -13995,25 +11909,6 @@
         "count": 1
       },
       "group": "wooden_pressure_plate"
-    },
-    {
-      "id": "minecraft:mangrove_shelf",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:stripped_mangrove_log"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:mangrove_shelf",
-        "count": 6
-      },
-      "group": "shelf"
     },
     {
       "id": "minecraft:mangrove_sign",
@@ -14838,11 +12733,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 8
         },
         {
@@ -14998,7 +12892,7 @@
       "ingredients": [
         {
           "choices": [
-            "minecraft:iron_chain"
+            "minecraft:chain"
           ],
           "count": 2
         },
@@ -15028,7 +12922,7 @@
             "minecraft:stripped_oak_log",
             "minecraft:stripped_oak_wood"
           ],
-          "tag": "#minecraft:oak_logs",
+          "tag": "minecraft:oak_logs",
           "count": 1
         }
       ],
@@ -15056,25 +12950,6 @@
         "count": 1
       },
       "group": "wooden_pressure_plate"
-    },
-    {
-      "id": "minecraft:oak_shelf",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:stripped_oak_log"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:oak_shelf",
-        "count": 6
-      },
-      "group": "shelf"
     },
     {
       "id": "minecraft:oak_sign",
@@ -15250,11 +13125,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -15346,25 +13220,6 @@
       "group": "concrete_powder"
     },
     {
-      "id": "minecraft:orange_dye_from_open_eyeblossom",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:open_eyeblossom"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:orange_dye",
-        "count": 1
-      },
-      "group": "orange_dye"
-    },
-    {
       "id": "minecraft:orange_dye_from_orange_tulip",
       "type": "crafting_shapeless",
       "station": "inventory",
@@ -15426,37 +13281,6 @@
         "count": 1
       },
       "group": "orange_dye"
-    },
-    {
-      "id": "minecraft:orange_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:orange_wool"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:orange_harness",
-        "count": 1
-      },
-      "group": "harness"
     },
     {
       "id": "minecraft:orange_stained_glass",
@@ -15551,75 +13375,6 @@
         "count": 8
       },
       "group": "stained_terracotta"
-    },
-    {
-      "id": "minecraft:oxidized_chiseled_copper",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:oxidized_cut_copper_slab"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:oxidized_chiseled_copper",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:oxidized_copper_bulb",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:blaze_rod"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:oxidized_copper"
-          ],
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:redstone"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:oxidized_copper_bulb",
-        "count": 4
-      },
-      "group": "oxidized_copper_bulb"
-    },
-    {
-      "id": "minecraft:oxidized_copper_grate",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:oxidized_copper"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:oxidized_copper_grate",
-        "count": 4
-      },
-      "group": "oxidized_copper_grate"
     },
     {
       "id": "minecraft:oxidized_cut_copper",
@@ -15747,7 +13502,7 @@
             "minecraft:white_wool",
             "minecraft:yellow_wool"
           ],
-          "tag": "#minecraft:wool",
+          "tag": "minecraft:wool",
           "count": 1
         },
         {
@@ -15762,344 +13517,6 @@
         "count": 1
       },
       "group": null
-    },
-    {
-      "id": "minecraft:pale_moss_carpet",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:pale_moss_block"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_moss_carpet",
-        "count": 3
-      },
-      "group": "carpet"
-    },
-    {
-      "id": "minecraft:pale_oak_boat",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:pale_oak_planks"
-          ],
-          "count": 5
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_boat",
-        "count": 1
-      },
-      "group": "boat"
-    },
-    {
-      "id": "minecraft:pale_oak_button",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:pale_oak_planks"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_button",
-        "count": 1
-      },
-      "group": "wooden_button"
-    },
-    {
-      "id": "minecraft:pale_oak_chest_boat",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:chest"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:pale_oak_boat"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_chest_boat",
-        "count": 1
-      },
-      "group": "chest_boat"
-    },
-    {
-      "id": "minecraft:pale_oak_door",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:pale_oak_planks"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_door",
-        "count": 3
-      },
-      "group": "wooden_door"
-    },
-    {
-      "id": "minecraft:pale_oak_fence",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:pale_oak_planks"
-          ],
-          "count": 4
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_fence",
-        "count": 3
-      },
-      "group": "wooden_fence"
-    },
-    {
-      "id": "minecraft:pale_oak_fence_gate",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:pale_oak_planks"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_fence_gate",
-        "count": 1
-      },
-      "group": "wooden_fence_gate"
-    },
-    {
-      "id": "minecraft:pale_oak_hanging_sign",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:iron_chain"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:stripped_pale_oak_log"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_hanging_sign",
-        "count": 6
-      },
-      "group": "hanging_sign"
-    },
-    {
-      "id": "minecraft:pale_oak_planks",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:pale_oak_log",
-            "minecraft:pale_oak_wood",
-            "minecraft:stripped_pale_oak_log",
-            "minecraft:stripped_pale_oak_wood"
-          ],
-          "tag": "#minecraft:pale_oak_logs",
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_planks",
-        "count": 4
-      },
-      "group": "planks"
-    },
-    {
-      "id": "minecraft:pale_oak_pressure_plate",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:pale_oak_planks"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_pressure_plate",
-        "count": 1
-      },
-      "group": "wooden_pressure_plate"
-    },
-    {
-      "id": "minecraft:pale_oak_shelf",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:stripped_pale_oak_log"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_shelf",
-        "count": 6
-      },
-      "group": "shelf"
-    },
-    {
-      "id": "minecraft:pale_oak_sign",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:pale_oak_planks"
-          ],
-          "count": 6
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_sign",
-        "count": 3
-      },
-      "group": "wooden_sign"
-    },
-    {
-      "id": "minecraft:pale_oak_slab",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:pale_oak_planks"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_slab",
-        "count": 6
-      },
-      "group": "wooden_slab"
-    },
-    {
-      "id": "minecraft:pale_oak_stairs",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:pale_oak_planks"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_stairs",
-        "count": 4
-      },
-      "group": "wooden_stairs"
-    },
-    {
-      "id": "minecraft:pale_oak_trapdoor",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:pale_oak_planks"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_trapdoor",
-        "count": 2
-      },
-      "group": "wooden_trapdoor"
-    },
-    {
-      "id": "minecraft:pale_oak_wood",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:pale_oak_log"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:pale_oak_wood",
-        "count": 3
-      },
-      "group": "bark"
     },
     {
       "id": "minecraft:paper",
@@ -16162,11 +13579,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -16258,25 +13674,6 @@
       "group": "concrete_powder"
     },
     {
-      "id": "minecraft:pink_dye_from_cactus_flower",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:cactus_flower"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:pink_dye",
-        "count": 1
-      },
-      "group": "pink_dye"
-    },
-    {
       "id": "minecraft:pink_dye_from_peony",
       "type": "crafting_shapeless",
       "station": "inventory",
@@ -16357,37 +13754,6 @@
         "count": 2
       },
       "group": "pink_dye"
-    },
-    {
-      "id": "minecraft:pink_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:pink_wool"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:pink_harness",
-        "count": 1
-      },
-      "group": "harness"
     },
     {
       "id": "minecraft:pink_stained_glass",
@@ -16500,11 +13866,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -16989,82 +14354,6 @@
       "group": null
     },
     {
-      "id": "minecraft:polished_tuff",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:tuff"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:polished_tuff",
-        "count": 4
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:polished_tuff_slab",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:polished_tuff"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:polished_tuff_slab",
-        "count": 6
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:polished_tuff_stairs",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:polished_tuff"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:polished_tuff_stairs",
-        "count": 4
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:polished_tuff_wall",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:polished_tuff"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:polished_tuff_wall",
-        "count": 6
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:powered_rail",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -17236,11 +14525,8 @@
       "ingredients": [
         {
           "choices": [
-            "minecraft:blue_egg",
-            "minecraft:brown_egg",
             "minecraft:egg"
           ],
-          "tag": "#minecraft:eggs",
           "count": 1
         },
         {
@@ -17323,11 +14609,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -17442,37 +14727,6 @@
         "count": 2
       },
       "group": null
-    },
-    {
-      "id": "minecraft:purple_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:purple_wool"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:purple_harness",
-        "count": 1
-      },
-      "group": "harness"
     },
     {
       "id": "minecraft:purple_stained_glass",
@@ -18068,11 +15322,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -18238,37 +15491,6 @@
         "count": 1
       },
       "group": "red_dye"
-    },
-    {
-      "id": "minecraft:red_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:red_wool"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:red_harness",
-        "count": 1
-      },
-      "group": "harness"
     },
     {
       "id": "minecraft:red_nether_brick_slab",
@@ -18645,120 +15867,6 @@
       "group": null
     },
     {
-      "id": "minecraft:resin_block",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:resin_clump"
-          ],
-          "count": 9
-        }
-      ],
-      "output": {
-        "item": "minecraft:resin_block",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:resin_brick_slab",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:resin_bricks"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:resin_brick_slab",
-        "count": 6
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:resin_brick_stairs",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:resin_bricks"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:resin_brick_stairs",
-        "count": 4
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:resin_brick_wall",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:resin_bricks"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:resin_brick_wall",
-        "count": 6
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:resin_bricks",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:resin_brick"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:resin_bricks",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:resin_clump",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:resin_block"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:resin_clump",
-        "count": 9
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:respawn_anchor",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -18811,31 +15919,6 @@
       "output": {
         "item": "minecraft:rib_armor_trim_smithing_template",
         "count": 2
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:saddle",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:iron_ingot"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:saddle",
-        "count": 1
       },
       "group": null
     },
@@ -19066,11 +16149,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:wooden_tool_materials",
+          "tag": "minecraft:planks",
           "count": 6
         },
         {
@@ -19222,11 +16304,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 4
         },
         {
@@ -19266,8 +16347,6 @@
             "minecraft:mangrove_wood",
             "minecraft:oak_log",
             "minecraft:oak_wood",
-            "minecraft:pale_oak_log",
-            "minecraft:pale_oak_wood",
             "minecraft:spruce_log",
             "minecraft:spruce_wood",
             "minecraft:stripped_acacia_log",
@@ -19286,8 +16365,6 @@
             "minecraft:stripped_mangrove_wood",
             "minecraft:stripped_oak_log",
             "minecraft:stripped_oak_wood",
-            "minecraft:stripped_pale_oak_log",
-            "minecraft:stripped_pale_oak_wood",
             "minecraft:stripped_spruce_log",
             "minecraft:stripped_spruce_wood",
             "minecraft:stripped_warped_hyphae",
@@ -19295,7 +16372,7 @@
             "minecraft:warped_hyphae",
             "minecraft:warped_stem"
           ],
-          "tag": "#minecraft:logs",
+          "tag": "minecraft:logs",
           "count": 4
         },
         {
@@ -19537,8 +16614,6 @@
             "minecraft:mangrove_wood",
             "minecraft:oak_log",
             "minecraft:oak_wood",
-            "minecraft:pale_oak_log",
-            "minecraft:pale_oak_wood",
             "minecraft:spruce_log",
             "minecraft:spruce_wood",
             "minecraft:stripped_acacia_log",
@@ -19557,8 +16632,6 @@
             "minecraft:stripped_mangrove_wood",
             "minecraft:stripped_oak_log",
             "minecraft:stripped_oak_wood",
-            "minecraft:stripped_pale_oak_log",
-            "minecraft:stripped_pale_oak_wood",
             "minecraft:stripped_spruce_log",
             "minecraft:stripped_spruce_wood",
             "minecraft:stripped_warped_hyphae",
@@ -19566,7 +16639,7 @@
             "minecraft:warped_hyphae",
             "minecraft:warped_stem"
           ],
-          "tag": "#minecraft:logs",
+          "tag": "minecraft:logs",
           "count": 3
         },
         {
@@ -19574,7 +16647,7 @@
             "minecraft:soul_sand",
             "minecraft:soul_soil"
           ],
-          "tag": "#minecraft:soul_fire_base_blocks",
+          "tag": "minecraft:soul_fire_base_blocks",
           "count": 1
         },
         {
@@ -19633,7 +16706,7 @@
             "minecraft:soul_sand",
             "minecraft:soul_soil"
           ],
-          "tag": "#minecraft:soul_fire_base_blocks",
+          "tag": "minecraft:soul_fire_base_blocks",
           "count": 1
         },
         {
@@ -19845,7 +16918,7 @@
       "ingredients": [
         {
           "choices": [
-            "minecraft:iron_chain"
+            "minecraft:chain"
           ],
           "count": 2
         },
@@ -19875,7 +16948,7 @@
             "minecraft:stripped_spruce_log",
             "minecraft:stripped_spruce_wood"
           ],
-          "tag": "#minecraft:spruce_logs",
+          "tag": "minecraft:spruce_logs",
           "count": 1
         }
       ],
@@ -19903,25 +16976,6 @@
         "count": 1
       },
       "group": "wooden_pressure_plate"
-    },
-    {
-      "id": "minecraft:spruce_shelf",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:stripped_spruce_log"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:spruce_shelf",
-        "count": 6
-      },
-      "group": "shelf"
     },
     {
       "id": "minecraft:spruce_sign",
@@ -20066,11 +17120,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 2
         }
       ],
@@ -20136,7 +17189,7 @@
             "minecraft:cobbled_deepslate",
             "minecraft:cobblestone"
           ],
-          "tag": "#minecraft:stone_tool_materials",
+          "tag": "minecraft:stone_tool_materials",
           "count": 3
         },
         {
@@ -20259,7 +17312,7 @@
             "minecraft:cobbled_deepslate",
             "minecraft:cobblestone"
           ],
-          "tag": "#minecraft:stone_tool_materials",
+          "tag": "minecraft:stone_tool_materials",
           "count": 2
         },
         {
@@ -20287,7 +17340,7 @@
             "minecraft:cobbled_deepslate",
             "minecraft:cobblestone"
           ],
-          "tag": "#minecraft:stone_tool_materials",
+          "tag": "minecraft:stone_tool_materials",
           "count": 3
         },
         {
@@ -20334,7 +17387,7 @@
             "minecraft:cobbled_deepslate",
             "minecraft:cobblestone"
           ],
-          "tag": "#minecraft:stone_tool_materials",
+          "tag": "minecraft:stone_tool_materials",
           "count": 1
         },
         {
@@ -20370,34 +17423,6 @@
       "group": null
     },
     {
-      "id": "minecraft:stone_spear",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:blackstone",
-            "minecraft:cobbled_deepslate",
-            "minecraft:cobblestone"
-          ],
-          "tag": "#minecraft:stone_tool_materials",
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:stone_spear",
-        "count": 1
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:stone_stairs",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -20428,7 +17453,7 @@
             "minecraft:cobbled_deepslate",
             "minecraft:cobblestone"
           ],
-          "tag": "#minecraft:stone_tool_materials",
+          "tag": "minecraft:stone_tool_materials",
           "count": 2
         },
         {
@@ -20622,25 +17647,6 @@
       "group": "bark"
     },
     {
-      "id": "minecraft:stripped_pale_oak_wood",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:stripped_pale_oak_log"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:stripped_pale_oak_wood",
-        "count": 3
-      },
-      "group": "bark"
-    },
-    {
       "id": "minecraft:stripped_spruce_wood",
       "type": "crafting_shaped",
       "station": "inventory",
@@ -20715,598 +17721,6 @@
         "count": 1
       },
       "group": "sugar"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_allium",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:allium"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_azure_bluet",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:azure_bluet"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_blue_orchid",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:blue_orchid"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_closed_eyeblossom",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:closed_eyeblossom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_cornflower",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:cornflower"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_dandelion",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:dandelion"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_lily_of_the_valley",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:lily_of_the_valley"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_open_eyeblossom",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:open_eyeblossom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_orange_tulip",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:orange_tulip"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_oxeye_daisy",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:oxeye_daisy"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_pink_tulip",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:pink_tulip"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_poppy",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:poppy"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_red_tulip",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_tulip"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_torchflower",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:torchflower"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_white_tulip",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:white_tulip"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
-    },
-    {
-      "id": "minecraft:suspicious_stew_from_wither_rose",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:bowl"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:brown_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:red_mushroom"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:wither_rose"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:suspicious_stew",
-        "count": 1
-      },
-      "group": "suspicious_stew"
     },
     {
       "id": "minecraft:target",
@@ -21508,11 +17922,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 1
         },
         {
@@ -21535,139 +17948,6 @@
       "group": null
     },
     {
-      "id": "minecraft:tuff_brick_slab",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:tuff_bricks"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:tuff_brick_slab",
-        "count": 6
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:tuff_brick_stairs",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:tuff_bricks"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:tuff_brick_stairs",
-        "count": 4
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:tuff_brick_wall",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:tuff_bricks"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:tuff_brick_wall",
-        "count": 6
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:tuff_bricks",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:polished_tuff"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:tuff_bricks",
-        "count": 4
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:tuff_slab",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:tuff"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:tuff_slab",
-        "count": 6
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:tuff_stairs",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:tuff"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:tuff_stairs",
-        "count": 4
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:tuff_wall",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:tuff"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:tuff_wall",
-        "count": 6
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:turtle_helmet",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -21675,7 +17955,7 @@
       "ingredients": [
         {
           "choices": [
-            "minecraft:turtle_scute"
+            "minecraft:scute"
           ],
           "count": 5
         }
@@ -21869,7 +18149,7 @@
       "ingredients": [
         {
           "choices": [
-            "minecraft:iron_chain"
+            "minecraft:chain"
           ],
           "count": 2
         },
@@ -21918,7 +18198,7 @@
             "minecraft:warped_hyphae",
             "minecraft:warped_stem"
           ],
-          "tag": "#minecraft:warped_stems",
+          "tag": "minecraft:warped_stems",
           "count": 1
         }
       ],
@@ -21946,25 +18226,6 @@
         "count": 1
       },
       "group": "wooden_pressure_plate"
-    },
-    {
-      "id": "minecraft:warped_shelf",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:stripped_warped_stem"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:warped_shelf",
-        "count": 6
-      },
-      "group": "shelf"
     },
     {
       "id": "minecraft:warped_sign",
@@ -22049,75 +18310,6 @@
       "group": "wooden_trapdoor"
     },
     {
-      "id": "minecraft:waxed_chiseled_copper",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:waxed_cut_copper_slab"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_chiseled_copper",
-        "count": 1
-      },
-      "group": "waxed_chiseled_copper"
-    },
-    {
-      "id": "minecraft:waxed_chiseled_copper_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:chiseled_copper"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_chiseled_copper",
-        "count": 1
-      },
-      "group": "waxed_chiseled_copper"
-    },
-    {
-      "id": "minecraft:waxed_copper_bars_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_bars"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_copper_bars",
-        "count": 1
-      },
-      "group": "waxed_copper_bar"
-    },
-    {
       "id": "minecraft:waxed_copper_block_from_honeycomb",
       "type": "crafting_shapeless",
       "station": "inventory",
@@ -22141,256 +18333,6 @@
         "count": 1
       },
       "group": "waxed_copper_block"
-    },
-    {
-      "id": "minecraft:waxed_copper_bulb",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:blaze_rod"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:redstone"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:waxed_copper_block"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_copper_bulb",
-        "count": 4
-      },
-      "group": "waxed_copper_bulb"
-    },
-    {
-      "id": "minecraft:waxed_copper_bulb_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_bulb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_copper_bulb",
-        "count": 1
-      },
-      "group": "waxed_copper_bulb"
-    },
-    {
-      "id": "minecraft:waxed_copper_chain_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_chain"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_copper_chain",
-        "count": 1
-      },
-      "group": "waxed_copper_chain"
-    },
-    {
-      "id": "minecraft:waxed_copper_chest_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_chest"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_copper_chest",
-        "count": 1
-      },
-      "group": "waxed_copper_chest"
-    },
-    {
-      "id": "minecraft:waxed_copper_door_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_door"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_copper_door",
-        "count": 1
-      },
-      "group": "waxed_copper_door"
-    },
-    {
-      "id": "minecraft:waxed_copper_golem_statue_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_golem_statue"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_copper_golem_statue",
-        "count": 1
-      },
-      "group": "waxed_copper_golem_statue"
-    },
-    {
-      "id": "minecraft:waxed_copper_grate",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:waxed_copper_block"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_copper_grate",
-        "count": 4
-      },
-      "group": "waxed_copper_grate"
-    },
-    {
-      "id": "minecraft:waxed_copper_grate_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_grate"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_copper_grate",
-        "count": 1
-      },
-      "group": "waxed_copper_grate"
-    },
-    {
-      "id": "minecraft:waxed_copper_lantern_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_lantern"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_copper_lantern",
-        "count": 1
-      },
-      "group": "waxed_copper_lantern"
-    },
-    {
-      "id": "minecraft:waxed_copper_trapdoor_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:copper_trapdoor"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_copper_trapdoor",
-        "count": 1
-      },
-      "group": "waxed_copper_trapdoor"
     },
     {
       "id": "minecraft:waxed_cut_copper",
@@ -22525,206 +18467,6 @@
       "group": "waxed_cut_copper_stairs"
     },
     {
-      "id": "minecraft:waxed_exposed_chiseled_copper",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:waxed_exposed_cut_copper_slab"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_exposed_chiseled_copper",
-        "count": 1
-      },
-      "group": "waxed_exposed_chiseled_copper"
-    },
-    {
-      "id": "minecraft:waxed_exposed_chiseled_copper_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:exposed_chiseled_copper"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_exposed_chiseled_copper",
-        "count": 1
-      },
-      "group": "waxed_exposed_chiseled_copper"
-    },
-    {
-      "id": "minecraft:waxed_exposed_copper_bars_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:exposed_copper_bars"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_exposed_copper_bars",
-        "count": 1
-      },
-      "group": "waxed_copper_bar"
-    },
-    {
-      "id": "minecraft:waxed_exposed_copper_bulb",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:blaze_rod"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:redstone"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:waxed_exposed_copper"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_exposed_copper_bulb",
-        "count": 4
-      },
-      "group": "waxed_exposed_copper_bulb"
-    },
-    {
-      "id": "minecraft:waxed_exposed_copper_bulb_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:exposed_copper_bulb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_exposed_copper_bulb",
-        "count": 1
-      },
-      "group": "waxed_exposed_copper_bulb"
-    },
-    {
-      "id": "minecraft:waxed_exposed_copper_chain_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:exposed_copper_chain"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_exposed_copper_chain",
-        "count": 1
-      },
-      "group": "waxed_copper_chain"
-    },
-    {
-      "id": "minecraft:waxed_exposed_copper_chest_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:exposed_copper_chest"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_exposed_copper_chest",
-        "count": 1
-      },
-      "group": "waxed_copper_chest"
-    },
-    {
-      "id": "minecraft:waxed_exposed_copper_door_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:exposed_copper_door"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_exposed_copper_door",
-        "count": 1
-      },
-      "group": "waxed_copper_door"
-    },
-    {
       "id": "minecraft:waxed_exposed_copper_from_honeycomb",
       "type": "crafting_shapeless",
       "station": "inventory",
@@ -22747,126 +18489,7 @@
         "item": "minecraft:waxed_exposed_copper",
         "count": 1
       },
-      "group": "waxed_copper_block"
-    },
-    {
-      "id": "minecraft:waxed_exposed_copper_golem_statue_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:exposed_copper_golem_statue"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_exposed_copper_golem_statue",
-        "count": 1
-      },
-      "group": "waxed_copper_golem_statue"
-    },
-    {
-      "id": "minecraft:waxed_exposed_copper_grate",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:waxed_exposed_copper"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_exposed_copper_grate",
-        "count": 4
-      },
-      "group": "waxed_exposed_copper_grate"
-    },
-    {
-      "id": "minecraft:waxed_exposed_copper_grate_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:exposed_copper_grate"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_exposed_copper_grate",
-        "count": 1
-      },
-      "group": "waxed_exposed_copper_grate"
-    },
-    {
-      "id": "minecraft:waxed_exposed_copper_lantern_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:exposed_copper_lantern"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_exposed_copper_lantern",
-        "count": 1
-      },
-      "group": "waxed_copper_lantern"
-    },
-    {
-      "id": "minecraft:waxed_exposed_copper_trapdoor_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:exposed_copper_trapdoor"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_exposed_copper_trapdoor",
-        "count": 1
-      },
-      "group": "waxed_copper_trapdoor"
+      "group": "waxed_exposed_copper"
     },
     {
       "id": "minecraft:waxed_exposed_cut_copper",
@@ -23001,256 +18624,6 @@
       "group": "waxed_exposed_cut_copper_stairs"
     },
     {
-      "id": "minecraft:waxed_exposed_lightning_rod_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:exposed_lightning_rod"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_exposed_lightning_rod",
-        "count": 1
-      },
-      "group": "waxed_lightning_rod"
-    },
-    {
-      "id": "minecraft:waxed_lightning_rod_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:lightning_rod"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_lightning_rod",
-        "count": 1
-      },
-      "group": "waxed_lightning_rod"
-    },
-    {
-      "id": "minecraft:waxed_oxidized_chiseled_copper",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:waxed_oxidized_cut_copper_slab"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_oxidized_chiseled_copper",
-        "count": 1
-      },
-      "group": "waxed_oxidized_chiseled_copper"
-    },
-    {
-      "id": "minecraft:waxed_oxidized_chiseled_copper_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:oxidized_chiseled_copper"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_oxidized_chiseled_copper",
-        "count": 1
-      },
-      "group": "waxed_oxidized_chiseled_copper"
-    },
-    {
-      "id": "minecraft:waxed_oxidized_copper_bars_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:oxidized_copper_bars"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_oxidized_copper_bars",
-        "count": 1
-      },
-      "group": "waxed_copper_bar"
-    },
-    {
-      "id": "minecraft:waxed_oxidized_copper_bulb",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:blaze_rod"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:redstone"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:waxed_oxidized_copper"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_oxidized_copper_bulb",
-        "count": 4
-      },
-      "group": "waxed_oxidized_copper_bulb"
-    },
-    {
-      "id": "minecraft:waxed_oxidized_copper_bulb_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:oxidized_copper_bulb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_oxidized_copper_bulb",
-        "count": 1
-      },
-      "group": "waxed_oxidized_copper_bulb"
-    },
-    {
-      "id": "minecraft:waxed_oxidized_copper_chain_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:oxidized_copper_chain"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_oxidized_copper_chain",
-        "count": 1
-      },
-      "group": "waxed_copper_chain"
-    },
-    {
-      "id": "minecraft:waxed_oxidized_copper_chest_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:oxidized_copper_chest"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_oxidized_copper_chest",
-        "count": 1
-      },
-      "group": "waxed_copper_chest"
-    },
-    {
-      "id": "minecraft:waxed_oxidized_copper_door_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:oxidized_copper_door"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_oxidized_copper_door",
-        "count": 1
-      },
-      "group": "waxed_copper_door"
-    },
-    {
       "id": "minecraft:waxed_oxidized_copper_from_honeycomb",
       "type": "crafting_shapeless",
       "station": "inventory",
@@ -23273,126 +18646,7 @@
         "item": "minecraft:waxed_oxidized_copper",
         "count": 1
       },
-      "group": "waxed_copper_block"
-    },
-    {
-      "id": "minecraft:waxed_oxidized_copper_golem_statue_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:oxidized_copper_golem_statue"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_oxidized_copper_golem_statue",
-        "count": 1
-      },
-      "group": "waxed_copper_golem_statue"
-    },
-    {
-      "id": "minecraft:waxed_oxidized_copper_grate",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:waxed_oxidized_copper"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_oxidized_copper_grate",
-        "count": 4
-      },
-      "group": "waxed_oxidized_copper_grate"
-    },
-    {
-      "id": "minecraft:waxed_oxidized_copper_grate_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:oxidized_copper_grate"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_oxidized_copper_grate",
-        "count": 1
-      },
-      "group": "waxed_oxidized_copper_grate"
-    },
-    {
-      "id": "minecraft:waxed_oxidized_copper_lantern_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:oxidized_copper_lantern"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_oxidized_copper_lantern",
-        "count": 1
-      },
-      "group": "waxed_copper_lantern"
-    },
-    {
-      "id": "minecraft:waxed_oxidized_copper_trapdoor_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:oxidized_copper_trapdoor"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_oxidized_copper_trapdoor",
-        "count": 1
-      },
-      "group": "waxed_copper_trapdoor"
+      "group": "waxed_oxidized_copper"
     },
     {
       "id": "minecraft:waxed_oxidized_cut_copper",
@@ -23527,231 +18781,6 @@
       "group": "waxed_oxidized_cut_copper_stairs"
     },
     {
-      "id": "minecraft:waxed_oxidized_lightning_rod_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:oxidized_lightning_rod"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_oxidized_lightning_rod",
-        "count": 1
-      },
-      "group": "waxed_lightning_rod"
-    },
-    {
-      "id": "minecraft:waxed_weathered_chiseled_copper",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:waxed_weathered_cut_copper_slab"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_weathered_chiseled_copper",
-        "count": 1
-      },
-      "group": "waxed_weathered_chiseled_copper"
-    },
-    {
-      "id": "minecraft:waxed_weathered_chiseled_copper_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:weathered_chiseled_copper"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_weathered_chiseled_copper",
-        "count": 1
-      },
-      "group": "waxed_weathered_chiseled_copper"
-    },
-    {
-      "id": "minecraft:waxed_weathered_copper_bars_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:weathered_copper_bars"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_weathered_copper_bars",
-        "count": 1
-      },
-      "group": "waxed_copper_bar"
-    },
-    {
-      "id": "minecraft:waxed_weathered_copper_bulb",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:blaze_rod"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:redstone"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:waxed_weathered_copper"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_weathered_copper_bulb",
-        "count": 4
-      },
-      "group": "waxed_weathered_copper_bulb"
-    },
-    {
-      "id": "minecraft:waxed_weathered_copper_bulb_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:weathered_copper_bulb"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_weathered_copper_bulb",
-        "count": 1
-      },
-      "group": "waxed_weathered_copper_bulb"
-    },
-    {
-      "id": "minecraft:waxed_weathered_copper_chain_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:weathered_copper_chain"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_weathered_copper_chain",
-        "count": 1
-      },
-      "group": "waxed_copper_chain"
-    },
-    {
-      "id": "minecraft:waxed_weathered_copper_chest_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:weathered_copper_chest"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_weathered_copper_chest",
-        "count": 1
-      },
-      "group": "waxed_copper_chest"
-    },
-    {
-      "id": "minecraft:waxed_weathered_copper_door_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:weathered_copper_door"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_weathered_copper_door",
-        "count": 1
-      },
-      "group": "waxed_copper_door"
-    },
-    {
       "id": "minecraft:waxed_weathered_copper_from_honeycomb",
       "type": "crafting_shapeless",
       "station": "inventory",
@@ -23774,126 +18803,7 @@
         "item": "minecraft:waxed_weathered_copper",
         "count": 1
       },
-      "group": "waxed_copper_block"
-    },
-    {
-      "id": "minecraft:waxed_weathered_copper_golem_statue_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:weathered_copper_golem_statue"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_weathered_copper_golem_statue",
-        "count": 1
-      },
-      "group": "waxed_copper_golem_statue"
-    },
-    {
-      "id": "minecraft:waxed_weathered_copper_grate",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:waxed_weathered_copper"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_weathered_copper_grate",
-        "count": 4
-      },
-      "group": "waxed_weathered_copper_grate"
-    },
-    {
-      "id": "minecraft:waxed_weathered_copper_grate_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:weathered_copper_grate"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_weathered_copper_grate",
-        "count": 1
-      },
-      "group": "waxed_weathered_copper_grate"
-    },
-    {
-      "id": "minecraft:waxed_weathered_copper_lantern_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:weathered_copper_lantern"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_weathered_copper_lantern",
-        "count": 1
-      },
-      "group": "waxed_copper_lantern"
-    },
-    {
-      "id": "minecraft:waxed_weathered_copper_trapdoor_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:weathered_copper_trapdoor"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_weathered_copper_trapdoor",
-        "count": 1
-      },
-      "group": "waxed_copper_trapdoor"
+      "group": "waxed_weathered_copper"
     },
     {
       "id": "minecraft:waxed_weathered_cut_copper",
@@ -24028,31 +18938,6 @@
       "group": "waxed_weathered_cut_copper_stairs"
     },
     {
-      "id": "minecraft:waxed_weathered_lightning_rod_from_honeycomb",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:honeycomb"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:weathered_lightning_rod"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:waxed_weathered_lightning_rod",
-        "count": 1
-      },
-      "group": "waxed_lightning_rod"
-    },
-    {
       "id": "minecraft:wayfinder_armor_trim_smithing_template",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -24082,75 +18967,6 @@
         "count": 2
       },
       "group": null
-    },
-    {
-      "id": "minecraft:weathered_chiseled_copper",
-      "type": "crafting_shaped",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:weathered_cut_copper_slab"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:weathered_chiseled_copper",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:weathered_copper_bulb",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:blaze_rod"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:redstone"
-          ],
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:weathered_copper"
-          ],
-          "count": 3
-        }
-      ],
-      "output": {
-        "item": "minecraft:weathered_copper_bulb",
-        "count": 4
-      },
-      "group": "weathered_copper_bulb"
-    },
-    {
-      "id": "minecraft:weathered_copper_grate",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:weathered_copper"
-          ],
-          "count": 4
-        }
-      ],
-      "output": {
-        "item": "minecraft:weathered_copper_grate",
-        "count": 4
-      },
-      "group": "weathered_copper_grate"
     },
     {
       "id": "minecraft:weathered_cut_copper",
@@ -24270,11 +19086,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -24402,37 +19217,6 @@
         "count": 1
       },
       "group": "white_dye"
-    },
-    {
-      "id": "minecraft:white_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:white_wool"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:white_harness",
-        "count": 1
-      },
-      "group": "harness"
     },
     {
       "id": "minecraft:white_stained_glass",
@@ -24579,44 +19363,6 @@
       "group": null
     },
     {
-      "id": "minecraft:wind_charge",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:breeze_rod"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:wind_charge",
-        "count": 4
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:wolf_armor",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:armadillo_scute"
-          ],
-          "count": 6
-        }
-      ],
-      "output": {
-        "item": "minecraft:wolf_armor",
-        "count": 1
-      },
-      "group": null
-    },
-    {
       "id": "minecraft:wooden_axe",
       "type": "crafting_shaped",
       "station": "crafting_table",
@@ -24633,11 +19379,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:wooden_tool_materials",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -24670,11 +19415,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:wooden_tool_materials",
+          "tag": "minecraft:planks",
           "count": 2
         },
         {
@@ -24707,11 +19451,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:wooden_tool_materials",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -24744,11 +19487,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:wooden_tool_materials",
+          "tag": "minecraft:planks",
           "count": 1
         },
         {
@@ -24760,43 +19502,6 @@
       ],
       "output": {
         "item": "minecraft:wooden_shovel",
-        "count": 1
-      },
-      "group": null
-    },
-    {
-      "id": "minecraft:wooden_spear",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:acacia_planks",
-            "minecraft:bamboo_planks",
-            "minecraft:birch_planks",
-            "minecraft:cherry_planks",
-            "minecraft:crimson_planks",
-            "minecraft:dark_oak_planks",
-            "minecraft:jungle_planks",
-            "minecraft:mangrove_planks",
-            "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
-            "minecraft:spruce_planks",
-            "minecraft:warped_planks"
-          ],
-          "tag": "#minecraft:wooden_tool_materials",
-          "count": 1
-        },
-        {
-          "choices": [
-            "minecraft:stick"
-          ],
-          "count": 2
-        }
-      ],
-      "output": {
-        "item": "minecraft:wooden_spear",
         "count": 1
       },
       "group": null
@@ -24818,11 +19523,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:wooden_tool_materials",
+          "tag": "minecraft:planks",
           "count": 2
         },
         {
@@ -24911,11 +19615,10 @@
             "minecraft:jungle_planks",
             "minecraft:mangrove_planks",
             "minecraft:oak_planks",
-            "minecraft:pale_oak_planks",
             "minecraft:spruce_planks",
             "minecraft:warped_planks"
           ],
-          "tag": "#minecraft:planks",
+          "tag": "minecraft:planks",
           "count": 3
         },
         {
@@ -25043,56 +19746,6 @@
         "count": 2
       },
       "group": "yellow_dye"
-    },
-    {
-      "id": "minecraft:yellow_dye_from_wildflowers",
-      "type": "crafting_shapeless",
-      "station": "inventory",
-      "grid": 2,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:wildflowers"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:yellow_dye",
-        "count": 1
-      },
-      "group": "yellow_dye"
-    },
-    {
-      "id": "minecraft:yellow_harness",
-      "type": "crafting_shaped",
-      "station": "crafting_table",
-      "grid": 3,
-      "ingredients": [
-        {
-          "choices": [
-            "minecraft:glass"
-          ],
-          "count": 2
-        },
-        {
-          "choices": [
-            "minecraft:leather"
-          ],
-          "count": 3
-        },
-        {
-          "choices": [
-            "minecraft:yellow_wool"
-          ],
-          "count": 1
-        }
-      ],
-      "output": {
-        "item": "minecraft:yellow_harness",
-        "count": 1
-      },
-      "group": "harness"
     },
     {
       "id": "minecraft:yellow_stained_glass",

@@ -1,11 +1,11 @@
 {
   "meta": {
     "schemaVersion": 1,
-    "minecraftVersion": "1.21.11",
+    "minecraftVersion": "1.20.1",
     "source": "https://github.com/misode/mcmeta.git",
-    "sourceTag": "1.21.11-data-json",
-    "dataVersion": 4671,
-    "generatedFrom": "2025-12-09T12:20:42+00:00"
+    "sourceTag": "1.20.1-data-json",
+    "dataVersion": 3465,
+    "generatedFrom": "2023-06-12T13:23:26+00:00"
   },
   "entities": [
     {
@@ -15,46 +15,6 @@
           "item": "minecraft:blaze_rod",
           "min": 0,
           "max": 1
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:bogged",
-      "drops": [
-        {
-          "item": "minecraft:arrow",
-          "min": 0,
-          "max": 2
-        },
-        {
-          "item": "minecraft:bone",
-          "min": 0,
-          "max": 2
-        },
-        {
-          "item": "minecraft:tipped_arrow",
-          "min": 0,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:breeze",
-      "drops": [
-        {
-          "item": "minecraft:breeze_rod",
-          "min": 1,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:camel_husk",
-      "drops": [
-        {
-          "item": "minecraft:rotten_flesh",
-          "min": 2,
-          "max": 3
         }
       ]
     },
@@ -110,16 +70,6 @@
           "item": "minecraft:cod",
           "min": 1,
           "max": 1
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:copper_golem",
-      "drops": [
-        {
-          "item": "minecraft:copper_ingot",
-          "min": 1,
-          "max": 3
         }
       ]
     },
@@ -250,11 +200,6 @@
           "item": "minecraft:gunpowder",
           "min": 0,
           "max": 2
-        },
-        {
-          "item": "minecraft:music_disc_tears",
-          "min": 1,
-          "max": 1
         }
       ]
     },
@@ -329,11 +274,6 @@
         {
           "item": "minecraft:potato",
           "min": 1,
-          "max": 1
-        },
-        {
-          "item": "minecraft:rabbit_foot",
-          "min": 0,
           "max": 1
         },
         {
@@ -419,41 +359,11 @@
       ]
     },
     {
-      "entity": "minecraft:nautilus",
-      "drops": [
-        {
-          "item": "minecraft:nautilus_shell",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "entity": "minecraft:panda",
       "drops": [
         {
           "item": "minecraft:bamboo",
           "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:parched",
-      "drops": [
-        {
-          "item": "minecraft:arrow",
-          "min": 0,
-          "max": 2
-        },
-        {
-          "item": "minecraft:bone",
-          "min": 0,
-          "max": 2
-        },
-        {
-          "item": "minecraft:tipped_arrow",
-          "min": 0,
           "max": 1
         }
       ]
@@ -485,16 +395,6 @@
           "item": "minecraft:porkchop",
           "min": 1,
           "max": 3
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:pillager",
-      "drops": [
-        {
-          "item": "minecraft:ominous_bottle",
-          "min": 1,
-          "max": 1
         }
       ]
     },
@@ -590,6 +490,11 @@
           "item": "minecraft:black_wool",
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
         }
       ]
     },
@@ -600,6 +505,11 @@
           "item": "minecraft:blue_wool",
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
         }
       ]
     },
@@ -610,6 +520,11 @@
           "item": "minecraft:brown_wool",
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
         }
       ]
     },
@@ -620,6 +535,11 @@
           "item": "minecraft:cyan_wool",
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
         }
       ]
     },
@@ -630,6 +550,11 @@
           "item": "minecraft:gray_wool",
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
         }
       ]
     },
@@ -640,6 +565,11 @@
           "item": "minecraft:green_wool",
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
         }
       ]
     },
@@ -650,6 +580,11 @@
           "item": "minecraft:light_blue_wool",
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
         }
       ]
     },
@@ -660,6 +595,11 @@
           "item": "minecraft:light_gray_wool",
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
         }
       ]
     },
@@ -670,6 +610,11 @@
           "item": "minecraft:lime_wool",
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
         }
       ]
     },
@@ -680,12 +625,22 @@
           "item": "minecraft:magenta_wool",
           "min": 1,
           "max": 1
+        },
+        {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
         }
       ]
     },
     {
       "entity": "minecraft:sheep/orange",
       "drops": [
+        {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
+        },
         {
           "item": "minecraft:orange_wool",
           "min": 1,
@@ -697,6 +652,11 @@
       "entity": "minecraft:sheep/pink",
       "drops": [
         {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
+        },
+        {
           "item": "minecraft:pink_wool",
           "min": 1,
           "max": 1
@@ -706,6 +666,11 @@
     {
       "entity": "minecraft:sheep/purple",
       "drops": [
+        {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
+        },
         {
           "item": "minecraft:purple_wool",
           "min": 1,
@@ -717,6 +682,11 @@
       "entity": "minecraft:sheep/red",
       "drops": [
         {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
+        },
+        {
           "item": "minecraft:red_wool",
           "min": 1,
           "max": 1
@@ -727,6 +697,11 @@
       "entity": "minecraft:sheep/white",
       "drops": [
         {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
+        },
+        {
           "item": "minecraft:white_wool",
           "min": 1,
           "max": 1
@@ -736,6 +711,11 @@
     {
       "entity": "minecraft:sheep/yellow",
       "drops": [
+        {
+          "item": "minecraft:mutton",
+          "min": 1,
+          "max": 2
+        },
         {
           "item": "minecraft:yellow_wool",
           "min": 1,
@@ -933,8 +913,8 @@
         },
         {
           "item": "minecraft:redstone",
-          "min": 4,
-          "max": 8
+          "min": 0,
+          "max": 2
         },
         {
           "item": "minecraft:spider_eye",
@@ -997,18 +977,8 @@
           "max": 1
         },
         {
-          "item": "minecraft:music_disc_lava_chicken",
-          "min": 1,
-          "max": 1
-        },
-        {
           "item": "minecraft:potato",
           "min": 1,
-          "max": 1
-        },
-        {
-          "item": "minecraft:red_mushroom",
-          "min": 0,
           "max": 1
         },
         {
@@ -1023,18 +993,8 @@
       "drops": [
         {
           "item": "minecraft:rotten_flesh",
-          "min": 2,
-          "max": 3
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:zombie_nautilus",
-      "drops": [
-        {
-          "item": "minecraft:rotten_flesh",
           "min": 0,
-          "max": 3
+          "max": 2
         }
       ]
     },

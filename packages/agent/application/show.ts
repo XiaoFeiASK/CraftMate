@@ -16,6 +16,7 @@ import {
   type ShowStats,
   type SourceHealth,
   type VoiceStatus,
+  type VoiceSubtitle,
 } from "@craftmate/contracts";
 import type { BridgeHealth } from "@craftmate/contracts";
 import { createHash } from "node:crypto";
@@ -99,6 +100,11 @@ interface ShowOptions {
   readonly history?: readonly Decision[];
   /** Totals restored with the history; they cannot be re-derived from 50 rows. */
   readonly totals?: ShowStats;
+  /** Persistent dashboard scope; counters are audience-only, history stays auditable. */
+  readonly activity?: {
+    readonly since: () => number;
+    readonly counts: () => Omit<ShowStats, "openCommitments" | "since">;
+  };
   /** Fast-path dedupe capacity; storage remains the authority when it overflows. */
   readonly seenLimit?: number;
   /** Stage C. Absent means the show stays deterministic and never calls a model. */
@@ -140,7 +146,7 @@ export function defaultSettings(persona: Persona, goalText = "盖一间带床和
     goalDescription: "",
     goalMode: false,
     worldName: "本地单人世界",
-    gameVersion: "1.21.11",
+    gameVersion: "1.20.1",
     accountLabel: "专用直播账号",
     integrations: { douyinRoomId: "", deepseekModel: "" },
     persona: {
@@ -160,6 +166,7 @@ export function defaultSettings(persona: Persona, goalText = "盖一间带床和
  * No transport, storage, or model code lives here.
  */
 export class Show {
+  private readonly activity: ShowOptions["activity"];
   private readonly personaId: string;
   private readonly clock: Clock;
   private readonly audience: AudienceStore;
@@ -193,6 +200,7 @@ export class Show {
   private goalMode: boolean;
 
   constructor(options: ShowOptions) {
+    this.activity = options.activity;
     this.personaId = options.persona.id;
     this.clock = options.clock ?? systemClock;
     this.audience = options.audience ?? new MemoryAudienceStore(this.clock);
@@ -434,7 +442,64 @@ export class Show {
     const next: Decision = { ...current, outcome };
     this.decisions[index] = next;
     this.recorder?.updateDecision?.(next);
+    this.reconcileCommitments();
     return next;
+  }
+
+  applyPlaybackFeedback(subtitle: VoiceSubtitle): void {
+    if (!subtitle.commitmentId) return;
+    const commitment = this.ledger.open().find((item) => item.id === subtitle.commitmentId);
+    if (!commitment) return;
+    if (subtitle.state === "speaking" || subtitle.state === "spoken") {
+      if (commitment.status === "proposed") {
+        this.ledger.transition(commitment.id, "spoken", "voice playback confirmed");
+      }
+    } else if (subtitle.state === "failed" || subtitle.state === "cancelled") {
+      this.ledger.transition(commitment.id, "cancelled", `voice ${subtitle.state}`);
+    }
+    this.reconcileCommitments();
+  }
+
+  /** Close only obligations supported by action evidence, never by speech alone. */
+  reconcileCommitments(resolve?: (id: string) => Pick<Decision, "skill" | "outcome"> | null): void {
+    for (const commitment of this.ledger.open()) {
+      if (commitment.planId === null) continue;
+      const decision = this.decisions.find((item) => item.id === commitment.planId)
+        ?? resolve?.(commitment.planId);
+      if (!decision) continue;
+      if (decision.skill === null) {
+        this.ledger.transition(commitment.id, "cancelled", "speech-only reply has no action obligation");
+        continue;
+      }
+      if (decision.outcome == null) {
+        // Older action rows predate explicit deadlines. Close a stale unknown
+        // result as expired, without claiming the promised action succeeded.
+        const recoveryDeadline = commitment.createdAt + Math.max(120_000,
+          (decision.skill.deadlineTicks ?? 1200) * 50 + 120_000);
+        if (commitment.deadlineAt === null && recoveryDeadline <= this.clock.now()) {
+          this.ledger.transition(commitment.id, "expired", "legacy action has no completion evidence after its recovery window");
+        }
+        continue;
+      }
+      if (decision.outcome.status !== "completed") {
+        this.ledger.transition(commitment.id, "cancelled", `action ended: ${decision.outcome.status}`);
+        continue;
+      }
+      // A result may arrive before the first playback frame. Keep it pending
+      // until both the spoken promise and the completed action are evidenced.
+      if (commitment.status === "proposed") continue;
+      let status: import("../domain/commitment/status.ts").CommitmentStatus = commitment.status;
+      if (status === "spoken") {
+        status = this.ledger.transition(commitment.id, "accepted", "linked action completed").status;
+      }
+      if (status === "accepted") {
+        status = this.ledger.transition(commitment.id, "in_progress", "linked action execution evidenced").status;
+      }
+      if (status === "in_progress") {
+        this.ledger.transition(commitment.id, "fulfilled", "linked action completed successfully");
+      }
+    }
+    this.ledger.expireOverdue();
   }
 
   /** The settings are replaced wholesale so a partial edit can never drop a field. */
@@ -530,6 +595,9 @@ export class Show {
       utterance: input.utterance,
      sourceId,
       planId: input.decision.id,
+      ...(input.decision.skill === null ? {} : {
+        deadlineAt: this.clock.now() + Math.max(120_000, (input.decision.skill.deadlineTicks ?? 1200) * 50 + 120_000),
+      }),
     });
   }
 
@@ -546,9 +614,10 @@ export class Show {
         executed: this.executed,
         refused: this.refused,
         observed: this.observed,
+        ...(this.activity ? { ...this.activity.counts(), since: this.activity.since() } : {}),
         openCommitments: this.ledger.open().length,
       },
-      decisions: this.recent(),
+      decisions: this.recent().filter((decision) => decision.at >= (this.activity?.since() ?? 0)),
       operatorNotice: this.operatorNotice,
       goal: this.goal,
       proposals: this.proposalInbox.query(null, 40),
@@ -595,7 +664,6 @@ export class Show {
   recordRuntimeDecision(decision: Decision): boolean {
     if (this.mode !== "agent") return false;
     this.remember(decision);
-    this.count(decision);
     return true;
   }
 

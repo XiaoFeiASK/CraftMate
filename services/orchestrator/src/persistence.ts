@@ -61,6 +61,8 @@ export interface PersistentShow {
   recordCost(provider: string, model: string, cost: number): void;
   /** Records a GoalRuntime decision without pretending it was an audience event. */
   recordGoalDecision(decision: import("@craftmate/contracts").Decision): void;
+  resetActivity(): void;
+  reconcileCommitments(): void;
   close(): void;
 }
 
@@ -108,7 +110,9 @@ export function createPersistentShow(options: {
       : createRuntimeConfigStore({ env: options.env });
   const runtime = runtimeConfig.read();
   const history = decisions.recent(context.sessionId, 50);
-  const totals = decisions.counts(context.sessionId);
+  let activitySince = (db.prepare("SELECT since_ms FROM dashboard_activity WHERE session_id = ?")
+    .get(context.sessionId) as { since_ms: number } | undefined)?.since_ms ?? 0;
+  const totals = decisions.counts(context.sessionId, activitySince);
   const stored = showSettingsSchema.safeParse(settingsStore.read(context.sessionId));
   // Normalise rows written before a setting existed. Validating supplies the
   // defaults, but leaving them only in memory makes the next read disagree
@@ -181,6 +185,10 @@ export function createPersistentShow(options: {
     }),
     history: history.reverse(),
     totals: { ...totals, openCommitments: commitments.openCount() },
+    activity: {
+      since: () => activitySince,
+      counts: () => decisions.counts(context.sessionId, activitySince),
+    },
     ...(goalRecord === null
       ? {}
       : {
@@ -191,6 +199,10 @@ export function createPersistentShow(options: {
           },
         }),
   });
+  const reconcileCommitments = (): void => {
+    show.reconcileCommitments((id) => decisions.commitmentEvidence(id));
+  };
+  reconcileCommitments();
   const goals = new GoalRuntime({
     store: goalStore,
     planner: options.goalPlanner ?? new SurvivalGoalPlanner(),
@@ -225,6 +237,15 @@ export function createPersistentShow(options: {
     show,
     context,
     db,
+    reconcileCommitments,
+    resetActivity: () => {
+      const since = Date.now();
+      db.prepare(`INSERT INTO dashboard_activity (session_id, since_ms) VALUES (?, ?)
+        ON CONFLICT(session_id) DO UPDATE SET since_ms = excluded.since_ms`)
+        .run(context.sessionId, since);
+      activitySince = since;
+      reconcileCommitments();
+    },
     memory,
     personas,
     replay,

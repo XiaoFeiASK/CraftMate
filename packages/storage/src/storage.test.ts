@@ -62,6 +62,43 @@ describe("storage", () => {
     db.close();
   });
 
+  test("viewer statistics exclude internal goal decisions and honor the activity reset time", () => {
+    const db = openDatabase({ file: temporaryDatabase() });
+    const context = new SessionStore(db).bootstrap(dafeiyu, "盖房");
+    const recorder = new SqliteRecorder(db, context);
+    const show = new Show({ persona: dafeiyu, recorder });
+    const audienceDecision = show.ingest(comment("viewer-1", "去挖木头"));
+    assert.ok(audienceDecision);
+
+    const sources = new SourceStore(db);
+    const decisions = new DecisionStore(db);
+    const internal = sources.appendInternal(context.sessionId, {
+      id: "goal:internal-1",
+      kind: "system",
+      actorRef: "craftmate-goal",
+      text: "目标运行时规划动作",
+      at: Date.now(),
+    });
+    decisions.append(
+      context,
+      internal.id,
+      { ...audienceDecision, id: "goal-d1", eventId: "goal:internal-1" },
+      "goal:internal-1",
+    );
+
+    const allTime = decisions.counts(context.sessionId);
+    assert.equal(allTime.received, 1);
+    assert.equal(allTime.decided, 1);
+    assert.equal((db.prepare("SELECT count(*) AS n FROM decision_log").get() as { n: number }).n, 2);
+
+    const resetAt = Date.now() + 10;
+    db.prepare("INSERT INTO dashboard_activity (session_id, since_ms) VALUES (?, ?)")
+      .run(context.sessionId, resetAt);
+    assert.equal(decisions.counts(context.sessionId, resetAt).received, 0);
+    assert.equal((db.prepare("SELECT count(*) AS n FROM decision_log").get() as { n: number }).n, 2);
+    db.close();
+  });
+
   test("a restart keeps decisions and their original text", () => {
     const file = temporaryDatabase();
     const first = openDatabase({ file });

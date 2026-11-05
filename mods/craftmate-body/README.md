@@ -1,13 +1,13 @@
 # CraftMate Fabric body
 
-This Fabric client mod connects Minecraft Java Edition 1.21.11 to CraftMate's
+This Fabric client mod connects Minecraft Java Edition 1.20.1 to CraftMate's
 `/bridge` WebSocket protocol. It is the real game body used by the orchestrator:
 it runs game mutations on the Minecraft client thread, reports progress and
 results, and stops local input when the connection or heartbeat fails.
 
 ## Build
 
-Requires Java 21 and network access to Fabric/Mojang Maven repositories.
+Requires Java 17 or newer and network access to Fabric/Mojang Maven repositories.
 
 ```bash
 cd mods/craftmate-body
@@ -15,7 +15,8 @@ cd mods/craftmate-body
 cp build/libs/craftmate-body-0.1.0.jar "$HOME/MC/.minecraft/mods/"
 ```
 
-Install Fabric Loader 0.20.1 for Minecraft 1.21.11 in HMCL, then launch with the
+Install Fabric Loader 0.15.11 or newer and Fabric API 0.92.2+1.20.1 for Minecraft 1.20.1
+in HMCL. Remove any Fabric API jar built for another Minecraft version, then launch with the
 same game directory as the installed mod. The bridge token is read from the
 operating-system account's `~/.craftmate/bridge.token`; the orchestrator creates
 it with `0600` permissions. HMCL passes `-Duser.home=<game dir>` to the game, so

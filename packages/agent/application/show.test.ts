@@ -101,6 +101,21 @@ describe("show settings", () => {
   });
 });
 
+describe("goal commitment recovery", () => {
+  test("runtime-authored decisions are not added to audience totals", () => {
+    const { show } = createShow();
+    const before = show.snapshot().stats;
+    const result = show.ingest(comment("audience-first", 1_000));
+    assert.ok(result);
+    const withAudience = show.snapshot().stats;
+    show.recordRuntimeDecision({ ...result, id: "goal-1", eventId: "goal:one" });
+
+    assert.equal(show.snapshot().stats.received, withAudience.received);
+    assert.equal(show.snapshot().stats.decided, withAudience.decided);
+    assert.equal(show.snapshot().stats.received, before.received + 1);
+  });
+});
+
 describe("show model planning", () => {
   test("a failed dispatch is stored and cannot be overwritten later", () => {
     const { show } = createShow();

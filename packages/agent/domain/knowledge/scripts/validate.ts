@@ -36,7 +36,7 @@ for (const dataset of [
   if (!isRecord(value) || !isKnowledgeMeta(value["meta"])) {
     throw new Error(`${name}: missing or invalid meta`);
   }
-  if (value["meta"].minecraftVersion !== "1.21.11") {
+  if (value["meta"].minecraftVersion !== "1.20.1") {
     throw new Error(`${name}: unexpected Minecraft version ${value["meta"].minecraftVersion}`);
   }
 }

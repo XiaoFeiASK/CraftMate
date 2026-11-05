@@ -55,6 +55,7 @@ export function TitleBar({
       <div className="titlebar__brand" {...dragRegion}>
         <img className="titlebar__logo" src={mascotLogo} alt="" aria-hidden="true" />
         <strong>CraftMate</strong>
+        <span className="titlebar__edition">直播助手</span>
       </div>
 
       <span className="titlebar__crumb" {...dragRegion}>

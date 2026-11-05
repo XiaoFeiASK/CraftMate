@@ -2,17 +2,17 @@ import type { Decision } from "@craftmate/contracts";
 import type { Show } from "@craftmate/agent/application";
 
 export interface SpeechHooks {
-  /** Called only after the commitment row is durable. */
+  /** Called after an action promise, if any, has been persisted. */
   speak(input: {
     readonly text: string;
     readonly decisionId: string;
-    readonly commitmentId: string;
+    readonly commitmentId: string | null;
     readonly priority: Decision["priority"];
   }): void;
 }
 
 export interface SpeechOutcome {
-  readonly commitmentId: string;
+  readonly commitmentId: string | null;
   readonly text: string;
 }
 
@@ -43,14 +43,17 @@ export function speakDecision(
   // An operator takeover silences the agent without stopping the pipeline.
   if (show.snapshot().mode !== "agent" || !voice) return null;
 
-  const commitment = show.reserveCommitment({ decision, utterance: text });
+  // A conversational reply or a queue explanation is not an action promise.
+  const commitment = decision.decision === "EXECUTE" && decision.skill !== null
+    ? show.reserveCommitment({ decision, utterance: text })
+    : null;
   // The commitment stays "proposed" until Voice actually plays it. The Voice
   // service will emit events (speaking/spoken/failed) that drive the state.
   voice.speak({
     text,
     decisionId: decision.id,
-    commitmentId: commitment.id,
+    commitmentId: commitment?.id ?? null,
     priority: decision.priority,
   });
-  return { commitmentId: commitment.id, text };
+  return { commitmentId: commitment?.id ?? null, text };
 }

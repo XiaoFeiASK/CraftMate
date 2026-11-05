@@ -99,12 +99,12 @@ Ingress 健康检查：`http://127.0.0.1:4322/health`。
 
 ## 4. Minecraft：Fabric 身体
 
-当前身体是仓库内 `mods/craftmate-body`，目标版本为 Minecraft 1.21.11 与 Fabric
-Loader 0.20.1。
+当前身体是仓库内 `mods/craftmate-body`，目标版本为 Minecraft 1.20.1 与 Fabric
+Loader 0.15.11。
 
 ### 安装
 
-1. 准备 Minecraft 1.21.11 实例和 Fabric Loader 0.20.1；开发验证使用 HMCL。
+1. 准备 Minecraft 1.20.1、Fabric Loader 0.15.11 和 Fabric API 0.92.2+1.20.1 实例；开发验证使用 HMCL。
 2. 构建：
 
    ```bash

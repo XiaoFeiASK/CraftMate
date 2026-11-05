@@ -13,7 +13,7 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SOURCE_REPO = "https://github.com/misode/mcmeta.git";
-const SOURCE_TAG = "1.21.11-data-json";
+const SOURCE_TAG = "1.20.1-data-json";
 const OUTPUT_DIR = fileURLToPath(new URL("../generated", import.meta.url));
 /**
  * Offline/reproducible escape hatch: point this at an existing checkout of
@@ -107,9 +107,13 @@ if (LOCAL_SOURCE !== undefined) {
       "sparse-checkout",
       "set",
       "data/minecraft/recipe",
+      "data/minecraft/recipes",
       "data/minecraft/loot_table",
+      "data/minecraft/loot_tables",
       "data/minecraft/tags/item",
+      "data/minecraft/tags/items",
       "data/minecraft/tags/block",
+      "data/minecraft/tags/blocks",
     ],
     { cwd: cloneDir, stdio: "inherit" },
   );
@@ -126,12 +130,12 @@ const meta = {
   generatedFrom: version.build_time,
 } as const;
 
-const itemTags = loadTags(join(cloneDir, "data/minecraft/tags/item"));
-const blockTags = loadTags(join(cloneDir, "data/minecraft/tags/block"));
-const blockLoot = loadLootTables(join(cloneDir, "data/minecraft/loot_table/blocks"));
-const entityLoot = loadLootTables(join(cloneDir, "data/minecraft/loot_table/entities"));
+const itemTags = loadTags(sourceDirectory("tags/item", "tags/items"));
+const blockTags = loadTags(sourceDirectory("tags/block", "tags/blocks"));
+const blockLoot = loadLootTables(sourceDirectory("loot_table/blocks", "loot_tables/blocks"));
+const entityLoot = loadLootTables(sourceDirectory("loot_table/entities", "loot_tables/entities"));
 
-const recipes = readJsonFiles<RawRecipe>(join(cloneDir, "data/minecraft/recipe"));
+const recipes = readJsonFiles<RawRecipe>(sourceDirectory("recipe", "recipes"));
 const crafting: Array<{
   id: string;
   type: "crafting_shaped" | "crafting_shapeless";
@@ -232,6 +236,18 @@ function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T;
 }
 
+function sourceDirectory(...paths: string[]): string {
+  for (const path of paths) {
+    const candidate = join(cloneDir, "data/minecraft", path);
+    try {
+      if (statSync(candidate).isDirectory()) return candidate;
+    } catch {
+      // Upstream datapack directory names changed between Minecraft releases.
+    }
+  }
+  throw new Error(`missing upstream data directory: ${paths.join(" or ")}`);
+}
+
 function readJsonFiles<T>(dir: string): Map<string, T> {
   const result = new Map<string, T>();
   const walk = (current: string): void => {
@@ -330,6 +346,7 @@ function parseIngredient(value: Json | undefined, tags: Map<string, RawTag>): In
 
 function parseResult(value: Json | undefined): ItemStack | null {
   if (value === undefined) return null;
+  if (typeof value === "string") return { item: normalizeItem(value), count: 1 };
   if (Array.isArray(value)) {
     for (const child of value) {
       const parsed = parseResult(child);
@@ -338,7 +355,7 @@ function parseResult(value: Json | undefined): ItemStack | null {
     return null;
   }
   if (!isRecord(value)) return null;
-  const id = value["id"];
+  const id = value["id"] ?? value["item"];
   if (typeof id !== "string") return null;
   const count = typeof value["count"] === "number" ? value["count"] : 1;
   if (count <= 0) return null;

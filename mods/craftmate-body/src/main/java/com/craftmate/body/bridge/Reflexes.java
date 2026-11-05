@@ -129,12 +129,18 @@ final class Reflexes {
 	 */
 	private static void releaseInputs(LocalPlayer player) {
 		if (player.input != null) {
-			player.input.keyPresses = net.minecraft.world.entity.player.Input.EMPTY;
+			player.input.up = false;
+			player.input.down = false;
+			player.input.left = false;
+			player.input.right = false;
+			player.input.jumping = false;
+			player.input.shiftKeyDown = false;
+			player.input.forwardImpulse = 0;
+			player.input.leftImpulse = 0;
 		}
 		Minecraft client = Minecraft.getInstance();
-		// Clearing `keyPresses` is not enough: `KeyboardInput.tick` rebuilds the
-		// move vector from the `KeyMapping`s on the next frame, so a held forward
-		// key keeps the body walking into the danger it just reported.
+		// Release the actual key mappings too, so vanilla does not rebuild a
+		// forward move on the next frame after the reflex reports danger.
 		GameActions.releaseWalkInput(client);
 		GameActions.releaseMiningInput(client);
 	}

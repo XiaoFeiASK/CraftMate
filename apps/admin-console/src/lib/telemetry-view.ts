@@ -220,6 +220,23 @@ export function currentWork(
       tone: "waiting",
     };
   }
+  if (snapshot.goal?.status === "blocked") {
+    return {
+      label: `目标受阻：${snapshot.goal.stage.title}`,
+      detail: snapshot.goal.lastFailure || "检查游戏状态后，在目标模式设置中恢复运行。",
+      tone: "bad",
+    };
+  }
+  if (snapshot.goal?.status === "paused") {
+    return {
+      label: "目标已暂停",
+      detail: snapshot.goal.lastFailure || "在设置的目标模式中继续运行。",
+      tone: "waiting",
+    };
+  }
+  if (snapshot.model?.state === "error") {
+    return { label: "模型调用失败", detail: snapshot.model.detail || "请在设置中检查模型名称、API 地址和 Key。", tone: "bad" };
+  }
   if (judgement !== null) {
     return {
       label: judgement.summary,

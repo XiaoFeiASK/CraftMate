@@ -1,11 +1,11 @@
 {
   "meta": {
     "schemaVersion": 1,
-    "minecraftVersion": "1.21.11",
+    "minecraftVersion": "1.20.1",
     "source": "https://github.com/misode/mcmeta.git",
-    "sourceTag": "1.21.11-data-json",
-    "dataVersion": 4671,
-    "generatedFrom": "2025-12-09T12:20:42+00:00"
+    "sourceTag": "1.20.1-data-json",
+    "dataVersion": 3465,
+    "generatedFrom": "2023-06-12T13:23:26+00:00"
   },
   "blocks": [
     {
@@ -103,16 +103,6 @@
       "drops": [
         {
           "item": "minecraft:acacia_sapling",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:acacia_shelf",
-      "drops": [
-        {
-          "item": "minecraft:acacia_shelf",
           "min": 1,
           "max": 1
         }
@@ -449,16 +439,6 @@
       ]
     },
     {
-      "block": "minecraft:bamboo_shelf",
-      "drops": [
-        {
-          "item": "minecraft:bamboo_shelf",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:bamboo_sign",
       "drops": [
         {
@@ -688,16 +668,6 @@
       "drops": [
         {
           "item": "minecraft:birch_sapling",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:birch_shelf",
-      "drops": [
-        {
-          "item": "minecraft:birch_shelf",
           "min": 1,
           "max": 1
         }
@@ -1364,30 +1334,10 @@
       ]
     },
     {
-      "block": "minecraft:bush",
-      "drops": [
-        {
-          "item": "minecraft:bush",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:cactus",
       "drops": [
         {
           "item": "minecraft:cactus",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:cactus_flower",
-      "drops": [
-        {
-          "item": "minecraft:cactus_flower",
           "min": 1,
           "max": 1
         }
@@ -1504,6 +1454,16 @@
       ]
     },
     {
+      "block": "minecraft:chain",
+      "drops": [
+        {
+          "item": "minecraft:chain",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
       "block": "minecraft:cherry_button",
       "drops": [
         {
@@ -1604,16 +1564,6 @@
       ]
     },
     {
-      "block": "minecraft:cherry_shelf",
-      "drops": [
-        {
-          "item": "minecraft:cherry_shelf",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:cherry_sign",
       "drops": [
         {
@@ -1694,16 +1644,6 @@
       ]
     },
     {
-      "block": "minecraft:chiseled_copper",
-      "drops": [
-        {
-          "item": "minecraft:chiseled_copper",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:chiseled_deepslate",
       "drops": [
         {
@@ -1754,16 +1694,6 @@
       ]
     },
     {
-      "block": "minecraft:chiseled_resin_bricks",
-      "drops": [
-        {
-          "item": "minecraft:chiseled_resin_bricks",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:chiseled_sandstone",
       "drops": [
         {
@@ -1778,26 +1708,6 @@
       "drops": [
         {
           "item": "minecraft:chiseled_stone_bricks",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:chiseled_tuff",
-      "drops": [
-        {
-          "item": "minecraft:chiseled_tuff",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:chiseled_tuff_bricks",
-      "drops": [
-        {
-          "item": "minecraft:chiseled_tuff_bricks",
           "min": 1,
           "max": 1
         }
@@ -1830,16 +1740,6 @@
           "item": "minecraft:clay_ball",
           "min": 4,
           "max": 4
-        }
-      ]
-    },
-    {
-      "block": "minecraft:closed_eyeblossom",
-      "drops": [
-        {
-          "item": "minecraft:closed_eyeblossom",
-          "min": 1,
-          "max": 1
         }
       ]
     },
@@ -2009,90 +1909,10 @@
       ]
     },
     {
-      "block": "minecraft:copper_bars",
-      "drops": [
-        {
-          "item": "minecraft:copper_bars",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:copper_block",
       "drops": [
         {
           "item": "minecraft:copper_block",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:copper_bulb",
-      "drops": [
-        {
-          "item": "minecraft:copper_bulb",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:copper_chain",
-      "drops": [
-        {
-          "item": "minecraft:copper_chain",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:copper_chest",
-      "drops": [
-        {
-          "item": "minecraft:copper_chest",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:copper_door",
-      "drops": [
-        {
-          "item": "minecraft:copper_door",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:copper_golem_statue",
-      "drops": [
-        {
-          "item": "minecraft:copper_golem_statue",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:copper_grate",
-      "drops": [
-        {
-          "item": "minecraft:copper_grate",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:copper_lantern",
-      "drops": [
-        {
-          "item": "minecraft:copper_lantern",
           "min": 1,
           "max": 1
         }
@@ -2105,26 +1925,6 @@
           "item": "minecraft:raw_copper",
           "min": 2,
           "max": 5
-        }
-      ]
-    },
-    {
-      "block": "minecraft:copper_torch",
-      "drops": [
-        {
-          "item": "minecraft:copper_torch",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:copper_trapdoor",
-      "drops": [
-        {
-          "item": "minecraft:copper_trapdoor",
-          "min": 1,
-          "max": 1
         }
       ]
     },
@@ -2189,32 +1989,12 @@
       ]
     },
     {
-      "block": "minecraft:crafter",
-      "drops": [
-        {
-          "item": "minecraft:crafter",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:crafting_table",
       "drops": [
         {
           "item": "minecraft:crafting_table",
           "min": 1,
           "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:creaking_heart",
-      "drops": [
-        {
-          "item": "minecraft:resin_clump",
-          "min": 1,
-          "max": 3
         }
       ]
     },
@@ -2333,16 +2113,6 @@
       "drops": [
         {
           "item": "minecraft:crimson_roots",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:crimson_shelf",
-      "drops": [
-        {
-          "item": "minecraft:crimson_shelf",
           "min": 1,
           "max": 1
         }
@@ -2723,16 +2493,6 @@
       "drops": [
         {
           "item": "minecraft:dark_oak_sapling",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:dark_oak_shelf",
-      "drops": [
-        {
-          "item": "minecraft:dark_oak_shelf",
           "min": 1,
           "max": 1
         }
@@ -3289,16 +3049,6 @@
       ]
     },
     {
-      "block": "minecraft:dried_ghast",
-      "drops": [
-        {
-          "item": "minecraft:dried_ghast",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:dried_kelp_block",
       "drops": [
         {
@@ -3429,110 +3179,10 @@
       ]
     },
     {
-      "block": "minecraft:exposed_chiseled_copper",
-      "drops": [
-        {
-          "item": "minecraft:exposed_chiseled_copper",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:exposed_copper",
       "drops": [
         {
           "item": "minecraft:exposed_copper",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:exposed_copper_bars",
-      "drops": [
-        {
-          "item": "minecraft:exposed_copper_bars",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:exposed_copper_bulb",
-      "drops": [
-        {
-          "item": "minecraft:exposed_copper_bulb",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:exposed_copper_chain",
-      "drops": [
-        {
-          "item": "minecraft:exposed_copper_chain",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:exposed_copper_chest",
-      "drops": [
-        {
-          "item": "minecraft:exposed_copper_chest",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:exposed_copper_door",
-      "drops": [
-        {
-          "item": "minecraft:exposed_copper_door",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:exposed_copper_golem_statue",
-      "drops": [
-        {
-          "item": "minecraft:exposed_copper_golem_statue",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:exposed_copper_grate",
-      "drops": [
-        {
-          "item": "minecraft:exposed_copper_grate",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:exposed_copper_lantern",
-      "drops": [
-        {
-          "item": "minecraft:exposed_copper_lantern",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:exposed_copper_trapdoor",
-      "drops": [
-        {
-          "item": "minecraft:exposed_copper_trapdoor",
           "min": 1,
           "max": 1
         }
@@ -3563,16 +3213,6 @@
       "drops": [
         {
           "item": "minecraft:exposed_cut_copper_stairs",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:exposed_lightning_rod",
-      "drops": [
-        {
-          "item": "minecraft:exposed_lightning_rod",
           "min": 1,
           "max": 1
         }
@@ -3623,16 +3263,6 @@
       "drops": [
         {
           "item": "minecraft:fire_coral_fan",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:firefly_bush",
-      "drops": [
-        {
-          "item": "minecraft:firefly_bush",
           "min": 1,
           "max": 1
         }
@@ -3793,6 +3423,16 @@
       "drops": [
         {
           "item": "minecraft:granite_wall",
+          "min": 1,
+          "max": 1
+        }
+      ]
+    },
+    {
+      "block": "minecraft:grass",
+      "drops": [
+        {
+          "item": "minecraft:grass",
           "min": 1,
           "max": 1
         }
@@ -4109,16 +3749,6 @@
       ]
     },
     {
-      "block": "minecraft:heavy_core",
-      "drops": [
-        {
-          "item": "minecraft:heavy_core",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:heavy_weighted_pressure_plate",
       "drops": [
         {
@@ -4289,16 +3919,6 @@
       ]
     },
     {
-      "block": "minecraft:iron_chain",
-      "drops": [
-        {
-          "item": "minecraft:iron_chain",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:iron_door",
       "drops": [
         {
@@ -4449,16 +4069,6 @@
       ]
     },
     {
-      "block": "minecraft:jungle_shelf",
-      "drops": [
-        {
-          "item": "minecraft:jungle_shelf",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:jungle_sign",
       "drops": [
         {
@@ -4593,16 +4203,6 @@
       "drops": [
         {
           "item": "minecraft:cauldron",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:leaf_litter",
-      "drops": [
-        {
-          "item": "minecraft:leaf_litter",
           "min": 1,
           "max": 1
         }
@@ -5339,16 +4939,6 @@
       ]
     },
     {
-      "block": "minecraft:mangrove_shelf",
-      "drops": [
-        {
-          "item": "minecraft:mangrove_shelf",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:mangrove_sign",
       "drops": [
         {
@@ -5839,16 +5429,6 @@
       ]
     },
     {
-      "block": "minecraft:oak_shelf",
-      "drops": [
-        {
-          "item": "minecraft:oak_shelf",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:oak_sign",
       "drops": [
         {
@@ -5923,16 +5503,6 @@
       "drops": [
         {
           "item": "minecraft:ochre_froglight",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:open_eyeblossom",
-      "drops": [
-        {
-          "item": "minecraft:open_eyeblossom",
           "min": 1,
           "max": 1
         }
@@ -6089,110 +5659,10 @@
       ]
     },
     {
-      "block": "minecraft:oxidized_chiseled_copper",
-      "drops": [
-        {
-          "item": "minecraft:oxidized_chiseled_copper",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:oxidized_copper",
       "drops": [
         {
           "item": "minecraft:oxidized_copper",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:oxidized_copper_bars",
-      "drops": [
-        {
-          "item": "minecraft:oxidized_copper_bars",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:oxidized_copper_bulb",
-      "drops": [
-        {
-          "item": "minecraft:oxidized_copper_bulb",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:oxidized_copper_chain",
-      "drops": [
-        {
-          "item": "minecraft:oxidized_copper_chain",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:oxidized_copper_chest",
-      "drops": [
-        {
-          "item": "minecraft:oxidized_copper_chest",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:oxidized_copper_door",
-      "drops": [
-        {
-          "item": "minecraft:oxidized_copper_door",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:oxidized_copper_golem_statue",
-      "drops": [
-        {
-          "item": "minecraft:oxidized_copper_golem_statue",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:oxidized_copper_grate",
-      "drops": [
-        {
-          "item": "minecraft:oxidized_copper_grate",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:oxidized_copper_lantern",
-      "drops": [
-        {
-          "item": "minecraft:oxidized_copper_lantern",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:oxidized_copper_trapdoor",
-      "drops": [
-        {
-          "item": "minecraft:oxidized_copper_trapdoor",
           "min": 1,
           "max": 1
         }
@@ -6229,16 +5699,6 @@
       ]
     },
     {
-      "block": "minecraft:oxidized_lightning_rod",
-      "drops": [
-        {
-          "item": "minecraft:oxidized_lightning_rod",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:packed_ice",
       "drops": [
         {
@@ -6253,196 +5713,6 @@
       "drops": [
         {
           "item": "minecraft:packed_mud",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_hanging_moss",
-      "drops": [
-        {
-          "item": "minecraft:pale_hanging_moss",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_moss_block",
-      "drops": [
-        {
-          "item": "minecraft:pale_moss_block",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_moss_carpet",
-      "drops": [
-        {
-          "item": "minecraft:pale_moss_carpet",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_button",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_button",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_door",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_door",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_fence",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_fence",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_fence_gate",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_fence_gate",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_hanging_sign",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_hanging_sign",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_leaves",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_leaves",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_log",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_log",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_planks",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_planks",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_pressure_plate",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_pressure_plate",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_sapling",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_sapling",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_shelf",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_shelf",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_sign",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_sign",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_slab",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_slab",
-          "min": 2,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_stairs",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_stairs",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_trapdoor",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_trapdoor",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:pale_oak_wood",
-      "drops": [
-        {
-          "item": "minecraft:pale_oak_wood",
           "min": 1,
           "max": 1
         }
@@ -6939,46 +6209,6 @@
       ]
     },
     {
-      "block": "minecraft:polished_tuff",
-      "drops": [
-        {
-          "item": "minecraft:polished_tuff",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:polished_tuff_slab",
-      "drops": [
-        {
-          "item": "minecraft:polished_tuff_slab",
-          "min": 2,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "block": "minecraft:polished_tuff_stairs",
-      "drops": [
-        {
-          "item": "minecraft:polished_tuff_stairs",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:polished_tuff_wall",
-      "drops": [
-        {
-          "item": "minecraft:polished_tuff_wall",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:poppy",
       "drops": [
         {
@@ -7138,21 +6368,6 @@
       "drops": [
         {
           "item": "minecraft:cherry_sapling",
-          "min": 1,
-          "max": 1
-        },
-        {
-          "item": "minecraft:flower_pot",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:potted_closed_eyeblossom",
-      "drops": [
-        {
-          "item": "minecraft:closed_eyeblossom",
           "min": 1,
           "max": 1
         },
@@ -7344,21 +6559,6 @@
       ]
     },
     {
-      "block": "minecraft:potted_open_eyeblossom",
-      "drops": [
-        {
-          "item": "minecraft:flower_pot",
-          "min": 1,
-          "max": 1
-        },
-        {
-          "item": "minecraft:open_eyeblossom",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:potted_orange_tulip",
       "drops": [
         {
@@ -7383,21 +6583,6 @@
         },
         {
           "item": "minecraft:oxeye_daisy",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:potted_pale_oak_sapling",
-      "drops": [
-        {
-          "item": "minecraft:flower_pot",
-          "min": 1,
-          "max": 1
-        },
-        {
-          "item": "minecraft:pale_oak_sapling",
           "min": 1,
           "max": 1
         }
@@ -8234,66 +7419,6 @@
       ]
     },
     {
-      "block": "minecraft:resin_block",
-      "drops": [
-        {
-          "item": "minecraft:resin_block",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:resin_brick_slab",
-      "drops": [
-        {
-          "item": "minecraft:resin_brick_slab",
-          "min": 2,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "block": "minecraft:resin_brick_stairs",
-      "drops": [
-        {
-          "item": "minecraft:resin_brick_stairs",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:resin_brick_wall",
-      "drops": [
-        {
-          "item": "minecraft:resin_brick_wall",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:resin_bricks",
-      "drops": [
-        {
-          "item": "minecraft:resin_bricks",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:resin_clump",
-      "drops": [
-        {
-          "item": "minecraft:resin_clump",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:respawn_anchor",
       "drops": [
         {
@@ -8448,26 +7573,6 @@
       "drops": [
         {
           "item": "minecraft:seagrass",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:short_dry_grass",
-      "drops": [
-        {
-          "item": "minecraft:short_dry_grass",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:short_grass",
-      "drops": [
-        {
-          "item": "minecraft:short_grass",
           "min": 1,
           "max": 1
         }
@@ -8874,16 +7979,6 @@
       ]
     },
     {
-      "block": "minecraft:spruce_shelf",
-      "drops": [
-        {
-          "item": "minecraft:spruce_shelf",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:spruce_sign",
       "drops": [
         {
@@ -9214,26 +8309,6 @@
       ]
     },
     {
-      "block": "minecraft:stripped_pale_oak_log",
-      "drops": [
-        {
-          "item": "minecraft:stripped_pale_oak_log",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:stripped_pale_oak_wood",
-      "drops": [
-        {
-          "item": "minecraft:stripped_pale_oak_wood",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:stripped_spruce_log",
       "drops": [
         {
@@ -9304,20 +8379,10 @@
       ]
     },
     {
-      "block": "minecraft:tall_dry_grass",
-      "drops": [
-        {
-          "item": "minecraft:tall_dry_grass",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:tall_grass",
       "drops": [
         {
-          "item": "minecraft:short_grass",
+          "item": "minecraft:grass",
           "min": 2,
           "max": 4
         }
@@ -9468,76 +8533,6 @@
       "drops": [
         {
           "item": "minecraft:tuff",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:tuff_brick_slab",
-      "drops": [
-        {
-          "item": "minecraft:tuff_brick_slab",
-          "min": 2,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "block": "minecraft:tuff_brick_stairs",
-      "drops": [
-        {
-          "item": "minecraft:tuff_brick_stairs",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:tuff_brick_wall",
-      "drops": [
-        {
-          "item": "minecraft:tuff_brick_wall",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:tuff_bricks",
-      "drops": [
-        {
-          "item": "minecraft:tuff_bricks",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:tuff_slab",
-      "drops": [
-        {
-          "item": "minecraft:tuff_slab",
-          "min": 2,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "block": "minecraft:tuff_stairs",
-      "drops": [
-        {
-          "item": "minecraft:tuff_stairs",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:tuff_wall",
-      "drops": [
-        {
-          "item": "minecraft:tuff_wall",
           "min": 1,
           "max": 1
         }
@@ -9704,16 +8699,6 @@
       ]
     },
     {
-      "block": "minecraft:warped_shelf",
-      "drops": [
-        {
-          "item": "minecraft:warped_shelf",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:warped_sign",
       "drops": [
         {
@@ -9784,110 +8769,10 @@
       ]
     },
     {
-      "block": "minecraft:waxed_chiseled_copper",
-      "drops": [
-        {
-          "item": "minecraft:waxed_chiseled_copper",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_copper_bars",
-      "drops": [
-        {
-          "item": "minecraft:waxed_copper_bars",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:waxed_copper_block",
       "drops": [
         {
           "item": "minecraft:waxed_copper_block",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_copper_bulb",
-      "drops": [
-        {
-          "item": "minecraft:waxed_copper_bulb",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_copper_chain",
-      "drops": [
-        {
-          "item": "minecraft:waxed_copper_chain",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_copper_chest",
-      "drops": [
-        {
-          "item": "minecraft:waxed_copper_chest",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_copper_door",
-      "drops": [
-        {
-          "item": "minecraft:waxed_copper_door",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_copper_golem_statue",
-      "drops": [
-        {
-          "item": "minecraft:waxed_copper_golem_statue",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_copper_grate",
-      "drops": [
-        {
-          "item": "minecraft:waxed_copper_grate",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_copper_lantern",
-      "drops": [
-        {
-          "item": "minecraft:waxed_copper_lantern",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_copper_trapdoor",
-      "drops": [
-        {
-          "item": "minecraft:waxed_copper_trapdoor",
           "min": 1,
           "max": 1
         }
@@ -9924,110 +8809,10 @@
       ]
     },
     {
-      "block": "minecraft:waxed_exposed_chiseled_copper",
-      "drops": [
-        {
-          "item": "minecraft:waxed_exposed_chiseled_copper",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:waxed_exposed_copper",
       "drops": [
         {
           "item": "minecraft:waxed_exposed_copper",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_bars",
-      "drops": [
-        {
-          "item": "minecraft:waxed_exposed_copper_bars",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_bulb",
-      "drops": [
-        {
-          "item": "minecraft:waxed_exposed_copper_bulb",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_chain",
-      "drops": [
-        {
-          "item": "minecraft:waxed_exposed_copper_chain",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_chest",
-      "drops": [
-        {
-          "item": "minecraft:waxed_exposed_copper_chest",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_door",
-      "drops": [
-        {
-          "item": "minecraft:waxed_exposed_copper_door",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_golem_statue",
-      "drops": [
-        {
-          "item": "minecraft:waxed_exposed_copper_golem_statue",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_grate",
-      "drops": [
-        {
-          "item": "minecraft:waxed_exposed_copper_grate",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_lantern",
-      "drops": [
-        {
-          "item": "minecraft:waxed_exposed_copper_lantern",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_exposed_copper_trapdoor",
-      "drops": [
-        {
-          "item": "minecraft:waxed_exposed_copper_trapdoor",
           "min": 1,
           "max": 1
         }
@@ -10064,130 +8849,10 @@
       ]
     },
     {
-      "block": "minecraft:waxed_exposed_lightning_rod",
-      "drops": [
-        {
-          "item": "minecraft:waxed_exposed_lightning_rod",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_lightning_rod",
-      "drops": [
-        {
-          "item": "minecraft:waxed_lightning_rod",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_oxidized_chiseled_copper",
-      "drops": [
-        {
-          "item": "minecraft:waxed_oxidized_chiseled_copper",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:waxed_oxidized_copper",
       "drops": [
         {
           "item": "minecraft:waxed_oxidized_copper",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_bars",
-      "drops": [
-        {
-          "item": "minecraft:waxed_oxidized_copper_bars",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_bulb",
-      "drops": [
-        {
-          "item": "minecraft:waxed_oxidized_copper_bulb",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_chain",
-      "drops": [
-        {
-          "item": "minecraft:waxed_oxidized_copper_chain",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_chest",
-      "drops": [
-        {
-          "item": "minecraft:waxed_oxidized_copper_chest",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_door",
-      "drops": [
-        {
-          "item": "minecraft:waxed_oxidized_copper_door",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_golem_statue",
-      "drops": [
-        {
-          "item": "minecraft:waxed_oxidized_copper_golem_statue",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_grate",
-      "drops": [
-        {
-          "item": "minecraft:waxed_oxidized_copper_grate",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_lantern",
-      "drops": [
-        {
-          "item": "minecraft:waxed_oxidized_copper_lantern",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_oxidized_copper_trapdoor",
-      "drops": [
-        {
-          "item": "minecraft:waxed_oxidized_copper_trapdoor",
           "min": 1,
           "max": 1
         }
@@ -10224,120 +8889,10 @@
       ]
     },
     {
-      "block": "minecraft:waxed_oxidized_lightning_rod",
-      "drops": [
-        {
-          "item": "minecraft:waxed_oxidized_lightning_rod",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_weathered_chiseled_copper",
-      "drops": [
-        {
-          "item": "minecraft:waxed_weathered_chiseled_copper",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:waxed_weathered_copper",
       "drops": [
         {
           "item": "minecraft:waxed_weathered_copper",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_bars",
-      "drops": [
-        {
-          "item": "minecraft:waxed_weathered_copper_bars",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_bulb",
-      "drops": [
-        {
-          "item": "minecraft:waxed_weathered_copper_bulb",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_chain",
-      "drops": [
-        {
-          "item": "minecraft:waxed_weathered_copper_chain",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_chest",
-      "drops": [
-        {
-          "item": "minecraft:waxed_weathered_copper_chest",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_door",
-      "drops": [
-        {
-          "item": "minecraft:waxed_weathered_copper_door",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_golem_statue",
-      "drops": [
-        {
-          "item": "minecraft:waxed_weathered_copper_golem_statue",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_grate",
-      "drops": [
-        {
-          "item": "minecraft:waxed_weathered_copper_grate",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_lantern",
-      "drops": [
-        {
-          "item": "minecraft:waxed_weathered_copper_lantern",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:waxed_weathered_copper_trapdoor",
-      "drops": [
-        {
-          "item": "minecraft:waxed_weathered_copper_trapdoor",
           "min": 1,
           "max": 1
         }
@@ -10374,120 +8929,10 @@
       ]
     },
     {
-      "block": "minecraft:waxed_weathered_lightning_rod",
-      "drops": [
-        {
-          "item": "minecraft:waxed_weathered_lightning_rod",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:weathered_chiseled_copper",
-      "drops": [
-        {
-          "item": "minecraft:weathered_chiseled_copper",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
       "block": "minecraft:weathered_copper",
       "drops": [
         {
           "item": "minecraft:weathered_copper",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:weathered_copper_bars",
-      "drops": [
-        {
-          "item": "minecraft:weathered_copper_bars",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:weathered_copper_bulb",
-      "drops": [
-        {
-          "item": "minecraft:weathered_copper_bulb",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:weathered_copper_chain",
-      "drops": [
-        {
-          "item": "minecraft:weathered_copper_chain",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:weathered_copper_chest",
-      "drops": [
-        {
-          "item": "minecraft:weathered_copper_chest",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:weathered_copper_door",
-      "drops": [
-        {
-          "item": "minecraft:weathered_copper_door",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:weathered_copper_golem_statue",
-      "drops": [
-        {
-          "item": "minecraft:weathered_copper_golem_statue",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:weathered_copper_grate",
-      "drops": [
-        {
-          "item": "minecraft:weathered_copper_grate",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:weathered_copper_lantern",
-      "drops": [
-        {
-          "item": "minecraft:weathered_copper_lantern",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:weathered_copper_trapdoor",
-      "drops": [
-        {
-          "item": "minecraft:weathered_copper_trapdoor",
           "min": 1,
           "max": 1
         }
@@ -10518,16 +8963,6 @@
       "drops": [
         {
           "item": "minecraft:weathered_cut_copper_stairs",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:weathered_lightning_rod",
-      "drops": [
-        {
-          "item": "minecraft:weathered_lightning_rod",
           "min": 1,
           "max": 1
         }
@@ -10713,16 +9148,6 @@
       "drops": [
         {
           "item": "minecraft:white_wool",
-          "min": 1,
-          "max": 1
-        }
-      ]
-    },
-    {
-      "block": "minecraft:wildflowers",
-      "drops": [
-        {
-          "item": "minecraft:wildflowers",
           "min": 1,
           "max": 1
         }

@@ -6,7 +6,7 @@
 
 | 事项 | 取值 | 详见 |
 | --- | --- | --- |
-| 游戏 | Minecraft Java 1.21.11 + Fabric Loader 0.20.1 | §3 |
+| 游戏 | Minecraft Java 1.20.1 + Fabric Loader 0.15.11 + Fabric API 0.92.2 | §3 |
 | 运行时 | Node.js ≥ 22.5、TypeScript、zod | §4 |
 | 管理端 | Tauri 2 + React | §10 |
 | Orchestrator | `127.0.0.1:4321`，`/control`、`/ingress`、`/bridge` | §2 |
@@ -97,8 +97,8 @@ control    Agent / Operator / None 三态仲裁
 - `pauseOnLostFocus:false`；直播必须使用专用存档。
 - `fabric.mod.json` 只声明实测版本范围。
 
-基线选 1.21.11 是因为当前 Fabric 生态和真实身体在该版本完成开发验证；换版本时新增
-compat，不改 core。
+当前 Minecraft 运行目标为 1.20.1；游戏 API 兼容代码保留在身体 Mod 中，Bridge 协议继续
+使用语义 ID，以减少游戏版本变化对规划层的影响。
 
 ## 4. 决策内核
 
