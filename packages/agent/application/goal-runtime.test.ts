@@ -107,7 +107,11 @@ describe("goal runtime", () => {
     assert.equal(value.beginStep(context()), null);
 
     assert.equal(
-      value.settle(first.decision.id, { status: "completed", at: 2_000 }),
+      value.settle(first.decision.id, {
+        status: "completed",
+        at: 2_000,
+        changes: [{ kind: "block_broken", detail: "minecraft:oak_log" }],
+      }),
       true,
     );
     const second = value.beginStep(context());
@@ -158,8 +162,19 @@ describe("goal runtime", () => {
     });
     assert.equal(value.beginStep(context()), null);
     advance(2_000);
+    const retry = value.beginStep(context());
+    assert.ok(retry);
+    assert.notEqual(retry.decision.skill?.idempotencyKey, first.decision.skill?.idempotencyKey);
+
+    value.settle(retry.decision.id, {
+      status: "failed",
+      errorCode: "E_PRECONDITION",
+      detail: "仍然没有可站立的接近点",
+      at: 3_500,
+    });
+    advance(4_500);
     assert.equal(value.beginStep(context()), null);
-    assert.match(value.currentProgress?.lastFailure ?? "", /同一策略已经失败/);
+    assert.match(value.currentProgress?.lastFailure ?? "", /同一策略已连续失败两次/);
   });
 
   test("failure evidence keeps the task id separate from the strategy key", () => {
@@ -197,7 +212,8 @@ describe("goal runtime", () => {
     const store = new MemoryGoalRuntimeStore();
     const first = new GoalRuntime({ store, planner: planner(), clock });
     first.setGoal({ title: "击败末影龙", description: "完整生存链" });
-    assert.ok(first.beginStep(context()));
+    const issued = first.beginStep(context());
+    assert.ok(issued);
     assert.notEqual(store.load()?.currentDecisionId, null);
 
     const restored = new GoalRuntime({ store, planner: planner(), clock });
@@ -205,6 +221,10 @@ describe("goal runtime", () => {
     assert.equal(restored.currentGoal?.title, "击败末影龙");
     assert.equal(restored.snapshot().currentDecisionId, null);
     assert.match(restored.currentProgress?.lastFailure ?? "", /重启前任务终态未知/);
+
+    const resumed = restored.beginStep(context());
+    assert.ok(resumed);
+    assert.notEqual(resumed.decision.eventId, issued.decision.eventId);
   });
 
   test("survival planner derives the real first task from observed facts", () => {
@@ -338,7 +358,11 @@ describe("goal runtime", () => {
     advance(2_001);
     const second = value.beginStep(context());
     assert.ok(second);
-    value.settle(second.decision.id, { status: "completed", at: 4_000 });
+    value.settle(second.decision.id, {
+      status: "completed",
+      at: 4_000,
+      changes: [{ kind: "block_broken", detail: "minecraft:oak_log" }],
+    });
     assert.equal(store.load()?.failures?.length, 0);
 
     const third = value.beginStep(context());
@@ -383,14 +407,14 @@ describe("goal runtime", () => {
 
   test("survival recovery blocks only after two same-stage failures", () => {
     const first: TaskFailure = {
-      taskId: "task:previous-chop",
+      taskId: "task:wood-and-table:craft:craft:{\"count\":1,\"item\":\"minecraft:oak_planks\"}",
       stage: "wood-and-table",
       code: "E_PRECONDITION",
-      detail: "tree is behind a wall",
+      detail: "planks were not crafted",
       attempts: 1,
     };
     const second: TaskFailure = {
-      taskId: "task:previous-craft",
+      taskId: "task:wood-and-table:craft:craft:{\"count\":1,\"item\":\"minecraft:oak_planks\"}",
       stage: "wood-and-table",
       code: "E_PRECONDITION",
       detail: "table cannot be placed",
@@ -412,6 +436,38 @@ describe("goal runtime", () => {
     });
     assert.equal(plan.nextTask, null);
     assert.match(plan.blockedReason ?? "", /停止重复|人工检查|没有安全/);
+  });
+
+  test("a task that failed once is retried after fresh observation", () => {
+    const failure: TaskFailure = {
+      taskId: "task:wood-and-table:gather:chop_tree:{\"count\":1}",
+      stage: "wood-and-table",
+      code: "E_PRECONDITION",
+      detail: "previous approach timed out",
+      attempts: 1,
+    };
+    const plan = new SurvivalGoalPlanner().plan({
+      goal: goal(),
+      progress: progress(),
+      world: {
+        inWorld: true,
+        inventory: [],
+        nearbyBlocks: [{ id: "minecraft:oak_log" }],
+      },
+      health: health({ skills: ["chop_tree", "craft", "place_block"] }),
+      proposals: [],
+      lastFailure: failure.detail,
+      consecutiveFailures: 1,
+      failures: [failure],
+      lastFailureStrategy:
+        "wood-and-table:gather:chop_tree:{\"count\":1}",
+    });
+    assert.equal(plan.nextTask?.skill.name, "chop_tree");
+    assert.equal(
+      plan.strategyKey,
+      "wood-and-table:gather:chop_tree:{\"count\":1}",
+    );
+    assert.match(plan.nextTask?.reason ?? "", /重试/);
   });
 
   test("survival recovery changes strategy in the same planning round", () => {

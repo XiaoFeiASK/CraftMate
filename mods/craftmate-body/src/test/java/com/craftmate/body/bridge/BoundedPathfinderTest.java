@@ -80,4 +80,21 @@ class BoundedPathfinderTest {
 		);
 		assertFalse(result != null && result.complete());
 	}
+
+	@Test
+	void diagonalStepReachesASlopeAOrthogonalGridCannot() {
+		// A single diagonal rise is ordinary terrain, but a four-direction
+		// search has to detour around it. The eight-direction search must
+		// treat the diagonal cell as a valid move or hunts stall on slopes.
+		BoundedPathfinder.Result result = BoundedPathfinder.find(
+			new BoundedPathfinder.Cell(0, 0, 0),
+			new BoundedPathfinder.Cell(1, 1, 1),
+			(x, y, z) -> x == 1 && y == 1 && z == 1,
+			(x, y, z) -> x == 0 ? y == 0 : (x == 1 && z == 1 ? y == 1 : y == 0),
+			50,
+			8
+		);
+		assertNotNull(result);
+		assertTrue(result.complete());
+	}
 }

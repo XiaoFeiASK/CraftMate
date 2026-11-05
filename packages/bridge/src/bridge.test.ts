@@ -339,6 +339,39 @@ describe("bridge command lifecycle", () => {
     assert.ok(harness.sent.some((frame) => frame.type === "cancel"));
   });
 
+  test("progress extends the coordinator's own default deadline", () => {
+    const harness = createHarness("manual");
+    connectHarness(harness);
+    // No deadlineTick: the coordinator supplies its default 30s window.
+    harness.coordinator.issue(harness.frame({ id: "c-1" }));
+    const sent = harness.sent.at(-1);
+    assert.ok(sent && sent.type === "cmd");
+    harness.coordinator.handle({
+      v: 1,
+      type: "ack",
+      id: "c-1",
+      taskId: "task-body-1",
+      accepted: true,
+    });
+    const before = harness.coordinator.pendingCommand("c-1")?.command.deadlineTick;
+    assert.equal(typeof before, "number");
+
+    // Real digging progress must move the deadline, not freeze the task at
+    // the 30-second default.
+    harness.coordinator.handle({
+      v: 1,
+      type: "progress",
+      taskId: "task-body-1",
+      phase: "breaking",
+      done: 20,
+      total: 100,
+      tick: 1_000,
+    });
+    const after = harness.coordinator.pendingCommand("c-1")?.command.deadlineTick;
+    assert.equal(typeof after, "number");
+    assert.ok((after as number) > (before as number));
+  });
+
   test("a timed-out command is reported as timeout and the body is told to stop", () => {
     const harness = createHarness("manual");
     connectHarness(harness);
@@ -440,9 +473,95 @@ test("world loading does not become a sticky stop before the first in-world hear
     owner: "agent",
     world: { inWorld: true },
   });
-  now += 2_001;
+  now += 3_001;
   session.poll();
   assert.equal(session.control.permission, "stopped");
+});
+
+test("a brief render stall is inside the watchdog grace, not a lost player", () => {
+  let now = 1_000;
+  const session = new BodySession({
+    token: "secret",
+    sessionId: "grace",
+    transport: { send: () => undefined, close: () => undefined },
+    clock: { now: () => now },
+    scheduler: { setInterval: () => 1, clearInterval: () => undefined },
+    actions: new MemoryActionPort(),
+  });
+  session.handle({
+    v: 1,
+    type: "hello",
+    token: "secret",
+    client: "craftmate-body-fabric",
+    capabilities: ["sensor"],
+    skills: ["wait"],
+  });
+  session.handle({
+    v: 1,
+    type: "heartbeat",
+    tick: 1,
+    owner: "agent",
+    world: { inWorld: true },
+  });
+
+  now += 2_500;
+  session.poll();
+  assert.equal(session.control.permission, "agent");
+
+  now += 1_000;
+  session.poll();
+  assert.equal(session.control.permission, "stopped");
+});
+
+test("an orchestrator stall is not mistaken for a missing body heartbeat", () => {
+  let now = 1_000;
+  let mono = 50_000;
+  const session = new BodySession({
+    token: "secret",
+    sessionId: "orchestrator-stall",
+    transport: { send: () => undefined, close: () => undefined },
+    clock: { now: () => now },
+    monotonic: { now: () => mono },
+    scheduler: { setInterval: () => 1, clearInterval: () => undefined },
+    actions: new MemoryActionPort(),
+  });
+  session.handle({
+    v: 1,
+    type: "hello",
+    token: "secret",
+    client: "craftmate-body-fabric",
+    capabilities: ["sensor"],
+    skills: ["wait"],
+  });
+  session.handle({
+    v: 1,
+    type: "heartbeat",
+    tick: 1,
+    owner: "agent",
+    world: { inWorld: true },
+  });
+  mono += 100;
+  session.poll();
+
+  // The Node event loop is blocked for five seconds. Nothing observed the
+  // body during that window, so it cannot prove the body went silent.
+  now += 5_000;
+  mono += 5_000;
+  session.poll();
+  assert.equal(session.control.permission, "agent");
+
+  // Once observation resumes, a fresh heartbeat keeps control healthy.
+  session.handle({
+    v: 1,
+    type: "heartbeat",
+    tick: 2,
+    owner: "agent",
+    world: { inWorld: true },
+  });
+  now += 500;
+  mono += 500;
+  session.poll();
+  assert.equal(session.control.permission, "agent");
 });
 
 test("a liveness-only heartbeat does not erase the last world snapshot", () => {
@@ -632,7 +751,7 @@ describe("bridge control ownership", () => {
       owner: "agent",
       world: { inWorld: true },
     });
-    first.coordinator.poll(3_001);
+    first.coordinator.poll(10_000);
     assert.equal(first.coordinator.health().permission, "stopped");
     first.coordinator.close("socket closed");
 
@@ -663,7 +782,7 @@ describe("bridge control ownership", () => {
       owner: "agent",
       world: { inWorld: true },
     });
-    first.coordinator.poll(3_001);
+    first.coordinator.poll(10_000);
     assert.equal(first.coordinator.health().permission, "stopped");
 
     first.coordinator.handle({

@@ -67,7 +67,21 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
     args: z.object({ block: blockId, count: z.number().int().min(1).max(64).default(1) }),
   }),
   z.object({ name: z.literal("build_schematic"), args: z.object({ schematic: z.string().trim().min(1).max(120) }) }),
-  z.object({ name: z.literal("attack"), args: z.object({ target: z.string().trim().min(1).max(64) }) }),
+  z.object({
+    name: z.literal("attack"),
+    args: z.object({
+      target: z.string().trim().min(1).max(64),
+      /** Alternative entity IDs accepted by the same hunt. */
+      targets: z.array(z.string().trim().min(1).max(64)).min(1).max(8).optional(),
+      count: z.number().int().min(1).max(16).optional(),
+      /** Search radius; the body still proves each hit and approach. */
+      radius: z.number().min(1).max(48).optional(),
+      /** Finish when this target dies, instead of requiring a fixed hit count. */
+      lethal: z.boolean().optional(),
+      /** Collect the kill's drops before reporting success. */
+      collect: z.boolean().optional(),
+    }),
+  }),
   z.object({ name: z.literal("use_block"), args: z.object({ block: blockId.optional() }) }),
   z.object({ name: z.literal("sleep"), args: z.object({}).strict() }),
   z.object({ name: z.literal("say"), args: z.object({ text: z.string().trim().min(1).max(280) }) }),

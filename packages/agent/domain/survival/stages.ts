@@ -1,5 +1,6 @@
 import {
   hasAny,
+  hasCraftingTableProduct,
   hasItem,
   inventoryCount,
   isNight,
@@ -37,6 +38,7 @@ export const STAGES: readonly Stage[] = [
             slot.item === "minecraft:crafting_table" ||
             /(^|:)wooden_[a-z_]+$/u.test(slot.item),
         )
+          || hasCraftingTableProduct(facts)
           ? "complete"
           : "incomplete";
       },
@@ -51,7 +53,13 @@ export const STAGES: readonly Stage[] = [
         const count = facts.inventory
           .filter((slot) => PLANKS_ITEMS.test(slot.item))
           .reduce((total, slot) => total + slot.count, 0);
-        return count >= 4 || hasItem(facts, "minecraft:crafting_table") ? "complete" : "incomplete";
+        return count >= 4 ||
+          hasItem(facts, "minecraft:crafting_table") ||
+          nearbyHas(facts, /crafting_table$/u) !== null ||
+          facts.inventory.some((slot) => /(^|:)wooden_[a-z_]+$/u.test(slot.item)) ||
+          hasCraftingTableProduct(facts)
+          ? "complete"
+          : "incomplete";
       },
     ),
     milestone(
@@ -59,8 +67,17 @@ export const STAGES: readonly Stage[] = [
       "背包或附近有工作台",
       "inventory has crafting_table or a nearby crafting_table block exists",
       (facts) => {
+        if (facts.craftingTableCrafted === true || facts.craftingTablePlaced === true) {
+          // The agent already built a table. Walking away does not undo that
+          // fact, and the 48-block observation radius must not cause the goal
+          // to fall back to wood gathering after the table is out of view.
+          return "complete";
+        }
+        if (facts.craftingTableNearby === true) return "complete";
         if (facts.inventory.length === 0 && facts.nearbyBlocks === undefined) return "unverified";
-        return hasItem(facts, "minecraft:crafting_table") || nearbyHas(facts, /crafting_table$/u) !== null
+        return hasItem(facts, "minecraft:crafting_table") ||
+          nearbyHas(facts, /crafting_table$/u) !== null ||
+          hasCraftingTableProduct(facts)
           ? "complete"
           : "incomplete";
       },
@@ -89,9 +106,12 @@ export const STAGES: readonly Stage[] = [
   stage("food", 2, "食物", "获得并吃下食物，避免饥饿中断采集", ["stone-tools"], [
     milestone(
       "have-food",
-      "背包有食物",
-      "inventory contains a recognized food item",
+      "已获得食物",
+      "this session observed food, or the inventory contains a recognized food item",
       (facts) => {
+        // A meal may have consumed the last item. The session fact keeps the
+        // milestone complete instead of sending the planner back to hunting.
+        if (facts.foodAcquired === true) return "complete";
         // An empty inventory is an observation ("nothing"), not a missing one.
         if (facts.inventory.length === 0) return "incomplete";
         return facts.inventory.some((slot) => FOOD.test(slot.item)) ? "complete" : "incomplete";
@@ -99,15 +119,16 @@ export const STAGES: readonly Stage[] = [
     ),
     milestone(
       "fed",
-      "饥饿值已恢复",
-      "food >= 18 or a food item was eaten (food value unavailable)",
+      "已真正进食",
+      "this body session confirmed consuming a food item",
       (facts) => {
-        if (facts.food === null || facts.food === undefined) return "unverified";
-        // Full hunger alone is not evidence that a meal happened; it is the
-        // expected steady state at spawn. Require an observed food item too.
-        return facts.food >= 18 && facts.inventory.some((slot) => FOOD.test(slot.item))
-          ? "complete"
-          : "incomplete";
+        // An eaten stack can disappear, and full hunger is the spawn state,
+        // not a meal. Only the body's confirmed consumption proves `fed`.
+        if (facts.foodConsumed === true) return "complete";
+        if (facts.foodConsumed === false) return "incomplete";
+        // Older bodies do not report the session fact. Hunger and inventory
+        // cannot substitute for it, so the meal stays unverified.
+        return "unverified";
       },
     ),
   ]),
@@ -126,9 +147,10 @@ export const STAGES: readonly Stage[] = [
     milestone(
       "slept",
       "已睡过一夜",
-      "day increased across a sleep, or the body confirms sleeping",
+      "body confirms sleeping, or this body completed a night",
       (facts) => {
         if (facts.sleeping === true) return "complete";
+        if (facts.sleptThroughNight === true) return "complete";
         if (facts.sleeping === false) return "incomplete";
         return "unverified";
       },

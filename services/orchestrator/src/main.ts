@@ -7,7 +7,11 @@ import { createOps } from "./ops.ts";
 import { createBridgeUpgrade, SqliteActionPort } from "@craftmate/bridge";
 import { loadOrCreateBridgeToken } from "@craftmate/bridge";
 import { createIngressSupervisor } from "./ingress-supervisor.ts";
-import type { GoalInterruption } from "@craftmate/agent/application";
+import {
+  completionEvidenceProblem,
+  type GoalChange,
+  type GoalInterruption,
+} from "@craftmate/agent/application";
 import { readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -127,11 +131,21 @@ bridge = createBridgeUpgrade({
     const parsedOutcome = outcome.outcome
       ? skillOutcomeSchema.safeParse(outcome.outcome)
       : null;
+    const changes = confirmedChanges(outcome.outcome);
+    // The decision log is the operator-facing truth. A body "completed" with
+    // no confirmed change must not be persisted as success just because its
+    // goal runtime later refuses to advance.
+    const missingEvidence =
+      outcome.status === "completed" && decision !== undefined
+        ? completionEvidenceProblem(decision, changes ?? [])
+        : null;
+    const status = missingEvidence === null ? outcome.status : "failed";
+    const detail = missingEvidence ?? outcome.detail;
     const settled = decision
       ? persistent.show.settleDecision(decision.id, {
-          status: outcome.status,
+          status,
           ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
-          ...(outcome.detail === undefined ? {} : { detail: outcome.detail }),
+          ...(detail === undefined ? {} : { detail }),
           outcome: parsedOutcome?.success ? parsedOutcome.data : null,
           at: outcome.at,
         })
@@ -139,24 +153,26 @@ bridge = createBridgeUpgrade({
     if (settled) server.publishDecision(settled);
     // GoalRuntime settles independently of the audience decision stream so a
     // restart, takeover, or late frame cannot leave a goal task "running".
-    if (
-      outcome.decisionId !== undefined &&
-      persistent.goals.settle(outcome.decisionId, {
-        status: outcome.status,
-        ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
-        ...(outcome.detail === undefined ? {} : { detail: outcome.detail }),
-        at: outcome.at,
-      })
-    ) {
-      publishGoalSnapshot();
+    if (outcome.decisionId !== undefined) {
+      if (
+        persistent.goals.settle(outcome.decisionId, {
+          status,
+          ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
+          ...(detail === undefined ? {} : { detail }),
+          at: outcome.at,
+          ...(changes === undefined ? {} : { changes }),
+        })
+      ) {
+        publishGoalSnapshot();
+      }
     }
     // A body-originated failure is the only place some reasons survive. Give
     // the planner the game fact so the next line can be about what actually
     // happened rather than a generic apology.
-    if (outcome.status !== "failed" || outcome.detail === undefined) return;
+    if (status !== "failed" || detail === undefined) return;
     persistent.show.recordIncident({
       kind: "blocked",
-      detail: outcome.detail,
+      detail,
       at: outcome.at,
     });
     // The console must not wait for the 2-second health poll: a safety stop is
@@ -209,6 +225,19 @@ function publishGoalSnapshot(): void {
   persistent.show.setSeasonGoal(persistent.goals.currentGoal);
   if (progress !== null) server.publishGoal?.(progress);
   server.publishProposals(persistent.show.proposals(null, 50));
+}
+
+/**
+ * The bridge result record is untrusted. Only the typed `changes` array can
+ * become completion evidence; free-form fields and `unconfirmed` never do.
+ */
+function confirmedChanges(
+  value: Readonly<Record<string, unknown>> | undefined,
+): readonly GoalChange[] | undefined {
+  if (value === undefined || !Array.isArray(value["changes"])) return undefined;
+  const parsed = skillOutcomeSchema.safeParse(value);
+  if (!parsed.success) return undefined;
+  return parsed.data.changes;
 }
 
 function interruptGoal(

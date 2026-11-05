@@ -113,19 +113,52 @@ export const worldSnapshotSchema = z.object({
   })).max(64).optional(),
   /** World time of day in ticks, 0–23999. */
   timeOfDay: z.number().int().min(0).max(23_999).optional(),
+  /** True while a crafting table is within the body's observation radius. */
+  craftingTableNearby: z.boolean().optional(),
   /** Whole Minecraft days elapsed in this world. */
   day: z.number().int().nonnegative().optional(),
   /** True while the player is lying in a bed. */
   sleeping: z.boolean().optional(),
+  /** True only after a completed sleep advanced the world's day. */
+  sleptThroughNight: z.boolean().optional(),
+  /** True once this body session saw a food item in the inventory. */
+  foodAcquired: z.boolean().optional(),
+  /** True once this body session confirmed eating a food item. */
+  foodConsumed: z.boolean().optional(),
+  /**
+   * True once this body session crafted a crafting table. A table later
+   * placed far from the player is still a table the agent built; re-planning
+   * must not send it back to gather wood just because it walked away.
+   */
+  craftingTableCrafted: z.boolean().optional(),
+  /** True once this body session placed a crafting table in the world. */
+  craftingTablePlaced: z.boolean().optional(),
+  /** Last crafting table this body placed, so a later craft can walk back. */
+  craftingTable: z.object({
+    x: z.number().finite(),
+    y: z.number().finite(),
+    z: z.number().finite(),
+  }).optional(),
   entities: z.array(z.object({
     name: z.string().max(160),
     type: z.string().max(160),
     distance: z.number().nonnegative(),
-  })).max(16).optional(),
+  })).max(32).optional(),
   nearbyBlocks: z.array(z.object({
     id: z.string().min(1).max(160),
     count: z.number().int().positive().optional(),
   })).max(32).optional(),
+  /**
+   * A block the body can actually reach and aim at right now. Existence in
+   * `nearbyBlocks` is not enough: stone under the floor is nearby but not a
+   * legal mining target. Absence means "no confirmed target", not "no world".
+   */
+  reachableBlock: z.object({
+    id: z.string().min(1).max(160),
+    x: z.number().int(),
+    y: z.number().int(),
+    z: z.number().int(),
+  }).nullable().optional(),
 });
 export type WorldSnapshot = z.infer<typeof worldSnapshotSchema>;
 

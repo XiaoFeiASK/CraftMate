@@ -29,6 +29,13 @@ final class Reflexes {
 	private static final double CREEPER_DISTANCE_SQR = 3.0 * 3.0;
 	private static final float LOW_HEALTH = 6.0f;
 	/**
+	 * Low health is a condition, not an event. Re-reporting it every report
+	 * cooldown would keep the runtime's danger window permanently open and
+	 * prevent the recovery task (eating) from ever running. Alert once on
+	 * entry, then reset only after health has recovered with hysteresis.
+	 */
+	private static final float LOW_HEALTH_CLEAR = 8.0f;
+	/**
 	 * A jump or a one-block step starts with a short fall distance, and a
 	 * client tick can observe it before landing. Only a fall that would
 	 * actually hurt (more than three blocks) is a reflex. Keeping this below
@@ -45,6 +52,7 @@ final class Reflexes {
 	private final long[] lastReportedAt = new long[Kind.values().length];
 	private int ticks;
 	private boolean retreated;
+	private boolean lowHealthReported;
 
 	Reflexes(Consumer<JsonObject> send) {
 		this.send = send;
@@ -69,8 +77,13 @@ final class Reflexes {
 			report(Kind.LAVA, "站在岩浆里或离岩浆只有一格", player);
 		}
 		if (player.getHealth() <= LOW_HEALTH) {
-			dangerous = true;
-			report(Kind.LOW_HEALTH, "血量只剩 " + Math.round(player.getHealth()) + " 点", player);
+			if (!lowHealthReported) {
+				lowHealthReported = true;
+				dangerous = true;
+				report(Kind.LOW_HEALTH, "血量只剩 " + Math.round(player.getHealth()) + " 点", player);
+			}
+		} else if (player.getHealth() > LOW_HEALTH_CLEAR) {
+			lowHealthReported = false;
 		}
 		if (
 			player.fallDistance > FALL_DAMAGE_DISTANCE

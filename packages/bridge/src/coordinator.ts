@@ -41,6 +41,12 @@ export const BRIDGE_LIMITS = {
   heartbeatMs: 250,
   /** A missing body heartbeat for this long releases control locally. */
   watchdogMs: 2_000,
+  /**
+   * A render stall or a long GC can miss one heartbeat without meaning the
+   * player is gone. Give the body a bounded grace period before treating it
+   * as lost; a real disconnect still stops within this window.
+   */
+  watchdogGraceMs: 1_000,
 } as const;
 
 export interface BodyTransport {
@@ -73,6 +79,13 @@ export interface BodySessionOptions {
   readonly onOutcome?: (outcome: CommandOutcome) => void;
   /** Every body event, before the coordinator reacts to it. */
   readonly onEvent?: (event: { readonly name: string; readonly data: unknown }) => void;
+  /**
+   * Monotonic process clock used only to detect gaps during which the
+   * coordinator itself was not scheduled. Defaults to `performance.now()`.
+   * Tests inject it to replay a real stall; an injected `clock` alone cannot
+   * prove whether the process was paused or the body was silent.
+   */
+  readonly monotonic?: Clock;
 }
 
 export interface IssueOptions {
@@ -110,10 +123,27 @@ export class BodySession {
   private closed = false;
   private tick = 0;
   private lastSeenAt: number;
+  /**
+   * Wall-clock time of the previous watchdog observation. A gap here larger
+   * than the watchdog window means the coordinator itself was paused (long
+   * GC, event-loop stall, debugger) and did not actually observe the body as
+   * silent. Treating that blind interval as a missed heartbeat cancelled
+   * real actions every time the console stalled for a few seconds.
+   */
+  private lastObservedAt: number;
+  /** One true after a stalled observation; never skip two rounds in a row. */
+  private blindObservationPending = false;
+  /**
+   * Stalls are a property of the real process, not of the injected test
+   * clock. A fake clock advances instantly during replay and must still
+   * exercise the watchdog exactly as production would.
+   */
+  private readonly monotonic: Clock;
 
   constructor(options: BodySessionOptions) {
     this.options = options;
     this.clock = options.clock ?? { now: () => Date.now() };
+    this.monotonic = options.monotonic ?? { now: () => performance.now() };
     this.scheduler = options.scheduler ?? systemTimers;
     // A reconnect creates a new session with a fresh queue. The body ack
     // adopts its own task id, but there is a window between welcome and ack
@@ -125,6 +155,7 @@ export class BodySession {
     this.authority = options.control ?? new ControlAuthority();
     this.ownership = { owner: "none", reason: "awaiting handshake", at: this.clock.now() };
     this.lastSeenAt = this.clock.now();
+    this.lastObservedAt = this.monotonic.now();
   }
 
   get negotiated(): NegotiatedBody | null {
@@ -161,14 +192,33 @@ export class BodySession {
   /** Drives the heartbeat/tick loop in tests with a fake scheduler. */
   poll(now = this.clock.now()): void {
     if (this.closed || !this.body) return;
-    const watchdogMs = this.options.watchdogMs ?? BRIDGE_LIMITS.watchdogMs;
+    const watchdogMs = this.watchdogDeadlineMs;
+    const observedNow = this.monotonic.now();
     // The Minecraft client thread can block while creating or loading a world,
     // so its first heartbeat may arrive many seconds after hello. Do not turn
     // that expected startup pause into a sticky emergency stop. Once the body
     // has reported an in-world snapshot, the normal 2-second safety watchdog
     // applies to every missed heartbeat.
-    if (this.world?.inWorld === true && now - this.lastSeenAt >= watchdogMs) {
-      this.releaseToNone("body heartbeat missed");
+    //
+    // A gap longer than one watchdog period means this process was not
+    // scheduled to observe anything during that time. The body is not proven
+    // silent, only unobserved. Skip this round and let the next real
+    // observation decide, preserving the safety stop for an actual silence.
+    const observationGap = observedNow - this.lastObservedAt;
+    this.lastObservedAt = observedNow;
+    const observedSilence = now - this.lastSeenAt >= watchdogMs;
+    const observationGapIsBlind = observationGap > watchdogMs;
+    if (this.world?.inWorld === true && observedSilence) {
+      if (observationGapIsBlind && !this.blindObservationPending) {
+        // Resume observation for one round before allowing a safety stop.
+        // A real disconnect is still caught on the very next poll.
+        this.blindObservationPending = true;
+      } else {
+        this.blindObservationPending = false;
+        this.releaseToNone("body heartbeat missed");
+      }
+    } else {
+      this.blindObservationPending = false;
     }
     this.pump(now);
   }
@@ -257,7 +307,13 @@ export class BodySession {
       this.audit("rejected", existing, undefined, "command id replay");
       return command.id;
     }
-    const deadlineTick = command.deadlineTick ?? this.tick + 20 * 30;
+    // Whether the deadline may follow real progress is decided by whether
+    // the caller set one. A coordinator-default deadline that is marked
+    // non-extensible frozen the extension path for every long task: a
+    // `chop_tree` still reporting breaking progress was cancelled at 30s
+    // even though the body was making real progress.
+    const callerDeadline = command.deadlineTick;
+    const deadlineTick = callerDeadline ?? this.tick + 20 * 30;
     if (command.deadlineTick !== undefined && command.deadlineTick <= this.tick) {
       throw new BridgeError("E_TIMEOUT", `deadline tick ${command.deadlineTick} already passed`);
     }
@@ -278,7 +334,7 @@ export class BodySession {
         { ...command, deadlineTick },
         attempt.id,
         this.clock.now(),
-        command.deadlineTick === undefined,
+        callerDeadline === undefined,
       );
     } catch (error) {
       // The action port may have created a row before the queue rejected the
@@ -301,6 +357,14 @@ export class BodySession {
 
     this.pump(this.clock.now());
     return command.id;
+  }
+
+  /**
+   * Read-only view of a command still tracked by the queue. Tests use this
+   * instead of reaching into the private queue to assert deadline behaviour.
+   */
+  pendingCommand(commandId: string) {
+    return this.queue.lookup(commandId);
   }
 
   cancel(commandId: string, reason = "cancelled by orchestrator"): void {
@@ -702,7 +766,7 @@ export class BodySession {
         });
       }
     }, 50);
-    const watchdogMs = this.options.watchdogMs ?? BRIDGE_LIMITS.watchdogMs;
+    const watchdogMs = this.watchdogDeadlineMs;
     this.watchdogTimer = this.scheduler.setInterval(
       () => this.poll(this.clock.now()),
       Math.max(10, Math.min(100, Math.floor(watchdogMs / 4))),
@@ -716,6 +780,11 @@ export class BodySession {
     this.heartbeatTimer = null;
     this.tickTimer = null;
     this.watchdogTimer = null;
+  }
+
+  /** The watchdog deadline includes the bounded render-stall grace. */
+  private get watchdogDeadlineMs(): number {
+    return (this.options.watchdogMs ?? BRIDGE_LIMITS.watchdogMs) + BRIDGE_LIMITS.watchdogGraceMs;
   }
 
   private fail(code: BridgeErrorCode, detail: string, id: string | undefined): void {

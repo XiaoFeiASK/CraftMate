@@ -51,15 +51,36 @@ export interface WorldFacts {
   readonly position?: Position | null;
   readonly health?: number | null;
   readonly food?: number | null;
+  /** True once this body session observed a food item in its inventory. */
+  readonly foodAcquired?: boolean | null;
+  /** True once this body session confirmed eating a food item. */
+  readonly foodConsumed?: boolean | null;
+  /** True once this body session crafted a crafting table. */
+  readonly craftingTableCrafted?: boolean | null;
+  /** True once this body session placed a crafting table in the world. */
+  readonly craftingTablePlaced?: boolean | null;
+  /** True while a crafting table is within the body's observation radius. */
+  readonly craftingTableNearby?: boolean | null;
+  /** Last crafting table this body placed. */
+  readonly craftingTable?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly timeOfDay?: number | null;
   readonly day?: number | null;
   readonly sleeping?: boolean | null;
+  /** True only after this body completed a sleep that advanced the day. */
+  readonly sleptThroughNight?: boolean | null;
   readonly screenOpen?: boolean | null;
   readonly onGround?: boolean | null;
   readonly inventory: readonly InventorySlot[];
   readonly nearbyBlocks?: readonly NearbyBlock[];
   readonly entities?: readonly NearbyEntity[];
   readonly selectedItem?: string | null;
+  /** A block the body can aim at now; absence is not proof that none exist. */
+  readonly reachableBlock?: {
+    readonly id: string;
+    readonly x: number;
+    readonly y: number;
+    readonly z: number;
+  } | null;
   /** Facility the body can currently reach and use. */
   readonly stations?: readonly ("crafting_table" | "furnace" | "blast_furnace" | "bed" | "portal")[];
 }

@@ -22,6 +22,10 @@ public final class BoundedPathfinder {
 		{ -1, 0 },
 		{ 0, 1 },
 		{ 0, -1 },
+		{ 1, 1 },
+		{ 1, -1 },
+		{ -1, 1 },
+		{ -1, -1 },
 	};
 	/** Same level first, then a conservative drop or one-block step up. */
 	private static final int[] VERTICAL_ORDER = { 0, -1, 1 };
@@ -110,7 +114,9 @@ public final class BoundedPathfinder {
 					}
 					if (!grid.standable(x, y, z)) continue;
 
-					double moveCost = 1.0 + (dy == 0 ? 0.0 : 0.25);
+					double moveCost =
+						(direction[0] != 0 && direction[1] != 0 ? 1.414 : 1.0)
+							+ (dy == 0 ? 0.0 : 0.25);
 					double cost = current.cost + moveCost;
 					Double known = bestCost.get(next);
 					if (known != null && known <= cost) continue;

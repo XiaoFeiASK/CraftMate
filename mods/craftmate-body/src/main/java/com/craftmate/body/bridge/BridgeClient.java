@@ -27,6 +27,8 @@ public final class BridgeClient {
 	private static final String TOKEN_ENV = "CRAFTMATE_BRIDGE_TOKEN";
 	private static final String URL_ENV = "CRAFTMATE_BRIDGE_URL";
 	private static final String TOKEN_FILE_ENV = "CRAFTMATE_BRIDGE_TOKEN_FILE";
+	/** Same bounded grace the coordinator gives a stalled client. */
+	private static final long SERVER_WATCHDOG_GRACE_MS = 1_000L;
 
 	private final URI uri;
 	private final String token;
@@ -37,7 +39,7 @@ public final class BridgeClient {
 	private long nextTask;
 	private final AtomicBoolean running = new AtomicBoolean(true);
 	private volatile Socket socket;
-	private volatile boolean agentControl;
+	private final ControlOwnership control = new ControlOwnership();
 	private volatile long lastServerFrameAt;
 	private volatile boolean closing;
 	private volatile long connectionGeneration;
@@ -126,7 +128,7 @@ public final class BridgeClient {
 	public void tick(Minecraft minecraft) {
 		executor.drain();
 		GameActions.startFrame();
-		GameActions.update(minecraft);
+		GameActions.update(minecraft, control.agentControlled());
 		long now = System.currentTimeMillis();
 		cachedTick = GameActions.tick(minecraft);
 		cachedWorld = GameActions.snapshot(minecraft);
@@ -137,14 +139,14 @@ public final class BridgeClient {
 
 	/** True while the server has granted this body to the agent. */
 	public boolean agentControlled() {
-		return agentControl;
+		return control.agentControlled();
 	}
 
 	public void close() {
 		running.set(false);
 		closing = true;
 		heartbeats.shutdownNow();
-		agentControl = false;
+		control.applyServerOwner("none");
 		GameActions.stopLocally(Minecraft.getInstance());
 		closeSocket(1000, "client stopping");
 	}
@@ -170,9 +172,13 @@ public final class BridgeClient {
 			case "ownership" -> applyOwnership(source, BridgeJson.string(frame, "owner"), null);
 			case "heartbeat" -> {
 				initialHandshake = false;
-				// The client must not self-grant agent control. Its heartbeat
-				// merely reports the owner last granted by a server frame. The
-				// heartbeat is already the liveness proof consumed above.
+				// The server heartbeat is authoritative and arrives after a
+				// local watchdog stop. Without applying it, a temporary render
+				// stall during world load left this body permanently stopped
+				// even though the orchestrator still considered the agent the
+				// owner. The client never grants itself control: it only
+				// mirrors the owner the server just sent.
+				applyOwnership(source, BridgeJson.string(frame, "owner"), null);
 			}
 			case "cancel" -> {
 				executor.submit(() -> {
@@ -199,7 +205,7 @@ public final class BridgeClient {
 	private void handleCommand(Socket source, JsonObject frame) {
 		String id = BridgeJson.string(frame, "id");
 		String op = BridgeJson.string(frame, "op");
-		if (!agentControl) {
+		if (!control.agentControlled()) {
 			send(reject(id, "E_PERMISSION", "agent control is not granted"));
 			return;
 		}
@@ -237,8 +243,8 @@ public final class BridgeClient {
 	private void applyOwnership(Socket source, String owner, String status) {
 		executor.submit(() -> {
 			if (source != socket || closing) return false;
-			agentControl = "agent".equals(owner);
-			if (!agentControl) GameActions.stopLocally(Minecraft.getInstance());
+			control.applyServerOwner(owner);
+			if (!control.agentControlled()) GameActions.stopLocally(Minecraft.getInstance());
 			if (status != null) GameActions.showStatus(Minecraft.getInstance(), status);
 			return true;
 		});
@@ -270,7 +276,7 @@ public final class BridgeClient {
 		long observed = publishedWorldGeneration.getAndSet(generation);
 		return BridgeMessages.heartbeat(
 			cachedTick,
-			agentControl,
+			control.agentControlled(),
 			generation == observed && !initialHandshake ? null : cachedWorld,
 			generation
 		);
@@ -289,18 +295,17 @@ public final class BridgeClient {
 		if (current == null || !current.isOpen()) return;
 		long now = System.currentTimeMillis();
 		if (
-			(agentControl || initialHandshake)
-				&& now - lastServerFrameAt >= watchdogMs
+			(control.agentControlled() || initialHandshake)
+				&& now - lastServerFrameAt >= watchdogMs + SERVER_WATCHDOG_GRACE_MS
 		) {
-			agentControl = false;
 			initialHandshake = false;
 			CraftMateBodyClient.LOGGER.warn("CraftMate bridge heartbeat timed out; local control stopped");
-			// Do not tear down a live TCP session because a frame was late.
-			// The client thread may be busy generating chunks, and a close
-			// here used to produce a disconnect/reconnect loop during startup.
-			// The server stops granting control when it sees missed
-			// heartbeats; a later server frame proves the session is healthy.
 			lastServerFrameAt = now;
+			// Stop inputs on the client thread. Do not set agentControl=false
+			// here: only the server's ownership/heartbeat frame may grant or
+			// revoke authority. Clearing it on the network thread also caused
+			// a race where a heartbeat that arrived just before this check was
+			// processed, then its owner was overwritten by the watchdog.
 			executor.submit(() -> {
 				if (current != socket) return false;
 				GameActions.stopLocally(Minecraft.getInstance());
@@ -381,7 +386,7 @@ public final class BridgeClient {
 			if (this != socket) return;
 			socket = null;
 			nextReconnectAt = System.currentTimeMillis() + 2_000L;
-			agentControl = false;
+			control.applyServerOwner("none");
 			initialHandshake = false;
 			executor.submit(() -> {
 				// A later connection may already have replaced this socket.

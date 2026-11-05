@@ -112,7 +112,10 @@ describe("bridge wire protocol", () => {
       timeOfDay: 13_000,
       day: 4,
       sleeping: false,
+      foodAcquired: true,
+      foodConsumed: true,
       nearbyBlocks: [{ id: "minecraft:stone", count: 12 }],
+      reachableBlock: { id: "minecraft:stone", x: 11, y: 63, z: -9 },
     });
     assert.equal(snapshot.position?.x, 10.25);
     assert.equal(snapshot.cameraYaw, 145);
@@ -123,7 +126,11 @@ describe("bridge wire protocol", () => {
     assert.equal(snapshot.timeOfDay, 13_000);
     assert.equal(snapshot.day, 4);
     assert.equal(snapshot.sleeping, false);
+    assert.equal(snapshot.foodAcquired, true);
+    assert.equal(snapshot.foodConsumed, true);
     assert.equal(snapshot.nearbyBlocks?.[0]?.count, 12);
+    assert.equal(snapshot.reachableBlock?.id, "minecraft:stone");
+    assert.equal(worldSnapshotSchema.parse({ inWorld: true, reachableBlock: null }).reachableBlock, null);
     assert.equal(
       worldSnapshotSchema.safeParse({
         inWorld: true,
@@ -138,6 +145,17 @@ describe("bridge wire protocol", () => {
         hotbar: [{ slot: 9, item: "minecraft:stone", count: 1 }],
       }).success,
       false,
+    );
+    assert.equal(
+      worldSnapshotSchema.safeParse({
+        inWorld: true,
+        entities: Array.from({ length: 32 }, (_, index) => ({
+          name: `entity-${index}`,
+          type: "minecraft:cow",
+          distance: index,
+        })),
+      }).success,
+      true,
     );
   });
 

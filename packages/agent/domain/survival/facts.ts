@@ -12,9 +12,16 @@ export interface SnapshotView {
   readonly position?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly health?: number | null;
   readonly food?: number | null;
+  readonly foodAcquired?: boolean | null;
+  readonly foodConsumed?: boolean | null;
+  readonly craftingTableCrafted?: boolean | null;
+  readonly craftingTablePlaced?: boolean | null;
+  readonly craftingTableNearby?: boolean | null;
+  readonly craftingTable?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly timeOfDay?: number | null;
   readonly day?: number | null;
   readonly sleeping?: boolean | null;
+  readonly sleptThroughNight?: boolean | null;
   readonly screenOpen?: boolean | null;
   readonly onGround?: boolean | null;
   readonly selectedItem?: string | null;
@@ -35,6 +42,12 @@ export interface SnapshotView {
     readonly id: string;
     readonly count?: number;
   }[];
+  readonly reachableBlock?: {
+    readonly id: string;
+    readonly x: number;
+    readonly y: number;
+    readonly z: number;
+  } | null;
   readonly entities?: readonly {
     readonly name: string;
     readonly type: string;
@@ -53,6 +66,15 @@ export function worldFactsFromSnapshot(snapshot: SnapshotView | null): WorldFact
   const nearbyBlocks = normalizeBlocks(snapshot.nearbyBlocks);
   const entities = normalizeEntities(snapshot.entities);
   const stations = inferStations(nearbyBlocks);
+  const reachableBlock =
+    snapshot.reachableBlock === undefined || snapshot.reachableBlock === null
+      ? snapshot.reachableBlock
+      : {
+          id: normalizeItem(snapshot.reachableBlock.id),
+          x: snapshot.reachableBlock.x,
+          y: snapshot.reachableBlock.y,
+          z: snapshot.reachableBlock.z,
+        };
   const facts: WorldFacts = {
     inWorld: snapshot.inWorld === true,
     inventory,
@@ -66,12 +88,20 @@ export function worldFactsFromSnapshot(snapshot: SnapshotView | null): WorldFact
     position: snapshot.position,
     health: snapshot.health,
     food: snapshot.food,
+    foodAcquired: snapshot.foodAcquired,
+    foodConsumed: snapshot.foodConsumed,
+    craftingTableCrafted: snapshot.craftingTableCrafted,
+    craftingTablePlaced: snapshot.craftingTablePlaced,
+    craftingTableNearby: snapshot.craftingTableNearby,
+    craftingTable: snapshot.craftingTable,
     timeOfDay: snapshot.timeOfDay,
     day: snapshot.day,
     sleeping: snapshot.sleeping,
+    sleptThroughNight: snapshot.sleptThroughNight,
     screenOpen: snapshot.screenOpen,
     onGround: snapshot.onGround,
     selectedItem: snapshot.selectedItem,
+    reachableBlock,
   });
 }
 
@@ -105,6 +135,19 @@ export function hasItem(facts: WorldFacts, item: string, count = 1): boolean {
 
 export function hasAny(facts: WorldFacts, items: readonly string[]): boolean {
   return items.some((item) => inventoryCount(facts, item) > 0);
+}
+
+/**
+ * Items whose vanilla recipe needs a 3x3 grid. Their presence in this body's
+ * inventory is durable evidence that a crafting table existed, even after a
+ * reconnect clears session facts or the body walks out of observation range.
+ * Only self-made tools are used: chests, furnaces and beds also occur in
+ * generated structures and would not prove that this body crafted a table.
+ */
+export function hasCraftingTableProduct(facts: WorldFacts): boolean {
+  const craftedTool =
+    /(^|:)(wooden|stone|iron|golden|diamond|netherite)_(pickaxe|axe|sword|shovel)$/u;
+  return facts.inventory.some((slot) => craftedTool.test(slot.item));
 }
 
 export function countAny(facts: WorldFacts, items: readonly string[]): number {
@@ -249,12 +292,20 @@ function withOptionals(
     readonly position?: WorldFacts["position"] | undefined;
     readonly health?: number | null | undefined;
     readonly food?: number | null | undefined;
+    readonly foodAcquired?: boolean | null | undefined;
+    readonly foodConsumed?: boolean | null | undefined;
+    readonly craftingTableCrafted?: boolean | null | undefined;
+    readonly craftingTablePlaced?: boolean | null | undefined;
+    readonly craftingTableNearby?: boolean | null | undefined;
+    readonly craftingTable?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
     readonly timeOfDay?: number | null | undefined;
     readonly day?: number | null | undefined;
     readonly sleeping?: boolean | null | undefined;
+    readonly sleptThroughNight?: boolean | null | undefined;
     readonly screenOpen?: boolean | null | undefined;
     readonly onGround?: boolean | null | undefined;
     readonly selectedItem?: string | null | undefined;
+    readonly reachableBlock?: WorldFacts["reachableBlock"] | undefined;
   },
 ): WorldFacts {
   return {
@@ -263,11 +314,19 @@ function withOptionals(
     ...(optional.position === undefined ? {} : { position: optional.position }),
     ...(optional.health === undefined ? {} : { health: optional.health }),
     ...(optional.food === undefined ? {} : { food: optional.food }),
+    ...(optional.foodAcquired === undefined ? {} : { foodAcquired: optional.foodAcquired }),
+    ...(optional.foodConsumed === undefined ? {} : { foodConsumed: optional.foodConsumed }),
+    ...(optional.craftingTableCrafted === undefined ? {} : { craftingTableCrafted: optional.craftingTableCrafted }),
+    ...(optional.craftingTablePlaced === undefined ? {} : { craftingTablePlaced: optional.craftingTablePlaced }),
+    ...(optional.craftingTableNearby === undefined ? {} : { craftingTableNearby: optional.craftingTableNearby }),
+    ...(optional.craftingTable === undefined ? {} : { craftingTable: optional.craftingTable }),
     ...(optional.timeOfDay === undefined ? {} : { timeOfDay: optional.timeOfDay }),
     ...(optional.day === undefined ? {} : { day: optional.day }),
     ...(optional.sleeping === undefined ? {} : { sleeping: optional.sleeping }),
+    ...(optional.sleptThroughNight === undefined ? {} : { sleptThroughNight: optional.sleptThroughNight }),
     ...(optional.screenOpen === undefined ? {} : { screenOpen: optional.screenOpen }),
     ...(optional.onGround === undefined ? {} : { onGround: optional.onGround }),
     ...(optional.selectedItem === undefined ? {} : { selectedItem: optional.selectedItem }),
+    ...(optional.reachableBlock === undefined ? {} : { reachableBlock: optional.reachableBlock }),
   };
 }

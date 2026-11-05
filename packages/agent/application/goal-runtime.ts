@@ -16,6 +16,7 @@ import {
 } from "@craftmate/contracts";
 import {
   nextTaskForStage,
+  normalizedTaskId,
   planSurvival,
   recover,
   taskSignature,
@@ -111,6 +112,14 @@ export interface GoalSettlement {
   readonly errorCode?: string;
   readonly detail?: string;
   readonly at: number;
+  /** Body-confirmed effects. A bare `completed` is not proof by itself. */
+  readonly changes?: readonly GoalChange[];
+}
+
+export interface GoalChange {
+  readonly kind: string;
+  readonly detail: string;
+  readonly position?: { readonly x: number; readonly y: number; readonly z: number } | undefined;
 }
 
 export interface GoalInterruption {
@@ -170,7 +179,6 @@ export class GoalRuntime {
   private retryAt = 0;
   private restoredInFlight: string | null = null;
   private failures: TaskFailure[] = [];
-  private sequence = 0;
 
   constructor(options: GoalRuntimeOptions) {
     this.store = options.store;
@@ -463,12 +471,28 @@ export class GoalRuntime {
 
     const strategyKey = plan.strategyKey ?? `${plan.stage.id}:${stableSkillKey(plan.nextTask.skill)}`;
     const taskId = plan.nextTask.taskId ?? `task:${strategyKey}`;
-    if (this.lastFailureStrategy === strategyKey) {
+    // One retry is allowed after a body failure: the world may have changed
+    // (a dropped item became reachable, the body respawned, a menu closed).
+    // A second consecutive failure of the same strategy is the point at which
+    // repeating it becomes a loop rather than recovery.
+    if (
+      this.lastFailureStrategy !== null &&
+      normalizedStrategy(this.lastFailureStrategy) === normalizedStrategy(strategyKey) &&
+      this.consecutiveFailures >= 2
+    ) {
+      // `lastFailure` may already be a runtime-level stop reason (for
+      // example a planner block). Prefixing it again would grow the same
+      // sentence on every re-plan and hide the real body failure.
+      const detail = this.lastFailure ?? "原因未知";
+      const reason = detail.startsWith("同一策略已连续失败两次且没有安全替代")
+        ? detail
+        : `同一策略已连续失败两次且没有安全替代：${detail}`;
+      this.lastFailure = reason;
       this.progress = {
         ...this.progress,
         status: "blocked",
         nextTask: "",
-        lastFailure: `同一策略已经失败且没有安全替代：${this.lastFailure ?? "原因未知"}`,
+        lastFailure: reason,
         updatedAt: this.clock.now(),
       };
       this.persist();
@@ -500,11 +524,20 @@ export class GoalRuntime {
       return null;
     }
 
-    const now = this.clock.now();
     const id = this.clock.newId();
+    const now = this.clock.now();
+    // A decision is a fresh execution attempt, not a transport retry. Reusing
+    // a domain-stable key would hit action_attempt's UNIQUE(idempotency_key)
+    // and silently suppress every retry after the first failure.
+    const issuedSkill = {
+      ...skill.data,
+      idempotencyKey: `goal:${this.goal.id}:${this.goal.version}:${id}`,
+    };
     const decision: Decision = {
       id,
-      eventId: `goal:${this.goal.id}:${this.goal.version}:${(this.sequence += 1)}`,
+      // The event id becomes the durable source id. An in-memory counter would
+      // restart at one and collide with the previous process's first task.
+      eventId: `goal:${this.goal.id}:${this.goal.version}:${id}`,
       nickname: "目标运行时",
       text: plan.nextTask.text,
       intent: plan.nextTask.intent,
@@ -513,7 +546,7 @@ export class GoalRuntime {
       reason: plan.nextTask.reason,
       score: 1,
       stage: "planned",
-      skill: skill.data,
+      skill: issuedSkill,
       speech: "",
       audienceRef: "",
       trace: null,
@@ -538,6 +571,19 @@ export class GoalRuntime {
     if (current === null || current.decision.id !== decisionId) return false;
     this.inFlight = null;
     if (outcome.status === "completed") {
+      const missingEvidence = completionEvidenceProblem(current.decision, outcome.changes ?? []);
+      if (missingEvidence !== null) {
+        this.recordFailure(
+          current.taskId,
+          current.strategyKey,
+          missingEvidence,
+          "failed",
+          outcome.at,
+          current.decision.text,
+          current.decision.intent,
+        );
+        return true;
+      }
       this.consecutiveFailures = 0;
       this.lastFailure = null;
       this.lastFailureStrategy = null;
@@ -675,6 +721,63 @@ export class GoalRuntime {
   }
 }
 
+/**
+ * A task's own verify() needs fresh world facts, which the runtime does not
+ * receive at settlement time. The body's confirmed changes are the next best
+ * evidence: they must at least exist, and state-changing skills must contain
+ * the specific effect the planner asked for. This prevents an empty result
+ * from advancing a survival stage.
+ */
+export function completionEvidenceProblem(
+  decision: Decision,
+  changes: NonNullable<GoalSettlement["changes"]>,
+): string | null {
+  // `sleep` reports its evidence as `slept`, but a wake-up can be confirmed
+  // after the body result. Do not reject it for lack of a change entry.
+  if (changes.length === 0 && decision.skill?.name !== "sleep") {
+    return `任务返回完成但没有已确认的世界变化：${decision.text}`;
+  }
+  const kinds = new Set(changes.map((change) => change.kind));
+  const skill = decision.skill;
+  if (skill === null) return "任务完成但没有技能证据";
+  switch (skill.name) {
+    case "eat":
+      return kinds.has("food_consumed")
+        ? null
+        : `进食完成但没有消耗证据：${decision.text}`;
+    case "place_block":
+      return kinds.has("block_placed")
+        ? null
+        : `放置完成但没有方块证据：${decision.text}`;
+    case "attack":
+      return kinds.has("entity_damaged")
+        ? null
+        : `攻击完成但没有实体受伤证据：${decision.text}`;
+    case "craft":
+      return kinds.has("item_crafted")
+        ? null
+        : `合成完成但没有物品证据：${decision.text}`;
+    case "mine_block":
+    case "chop_tree":
+      return kinds.has("block_broken")
+        ? null
+        : `挖掘完成但没有方块破坏证据：${decision.text}`;
+    case "collect_items":
+      return kinds.has("item_collected")
+        ? null
+        : `收集完成但没有物品证据：${decision.text}`;
+    case "sleep":
+      // Sleeping has no body `changes` today; the next observed day is the
+      // evidence. Do not reject it here, or a real night skip can never
+      // settle as completed.
+      return changes.length === 0 || kinds.has("slept")
+        ? null
+        : `睡眠完成但没有过夜证据：${decision.text}`;
+    default:
+      return null;
+  }
+}
+
 const GOAL_STAGE_ORDER = [
   "wood-and-table",
   "stone-tools",
@@ -721,6 +824,26 @@ export class SurvivalGoalPlanner implements GoalPlanner {
       input.lastFailureStrategy !== null &&
       input.lastFailureStrategy !== undefined
     ) {
+      const normalizedCurrent = withStableTaskId(plan.task);
+      const currentKey = taskSignature(normalizedCurrent);
+      const failureKey = normalizedStrategy(input.lastFailureStrategy);
+      const failedCount = history.filter(
+        (entry) =>
+          entry.stage === failure.stage &&
+          normalizedTaskId(entry.taskId) === normalizedTaskId(currentKey),
+      ).length;
+      if (currentKey === failureKey && failedCount >= 2) {
+        return projectPlan(
+          plan,
+          facts,
+          null,
+          `同一策略已连续失败 ${failedCount} 次且没有安全替代：${input.lastFailure ?? failure.detail}`,
+          plan.blocked,
+        );
+      }
+      if (currentKey === failureKey && failedCount === 1) {
+        return projectPlan(plan, facts, normalizedCurrent, null, plan.blocked, true);
+      }
       const recovered = recover({
         plan,
         facts,
@@ -728,26 +851,8 @@ export class SurvivalGoalPlanner implements GoalPlanner {
         history: history.slice(0, -1),
       });
       if (recovered.task !== null) {
-        const alternative = withStableTaskId(recovered.task);
-        if (taskSignature(alternative) !== input.lastFailureStrategy) {
-          plan = { ...plan, task: alternative, blocked: [] };
-        } else {
-          // `recover()` may select the same strategy when the newly observed
-          // plan still points at it. Ask the stage for its next candidate and
-          // avoid the exact failed signature rather than reissuing it once.
-          const alternativePlan = nextCandidate(plan, facts, input.lastFailureStrategy);
-          if (alternativePlan === null) {
-            return projectPlan(
-              plan,
-              facts,
-              null,
-              `同一策略已经失败且没有安全替代：${input.lastFailure ?? failure.detail}`,
-              recovered.blocked,
-            );
-          }
-          plan = { ...plan, task: alternativePlan, blocked: [] };
-        }
-      } else {
+        plan = { ...plan, task: withStableTaskId(recovered.task), blocked: [] };
+      } else if (currentKey === failureKey) {
         return projectPlan(plan, facts, null, recovered.reason, recovered.blocked);
       }
     }
@@ -770,6 +875,7 @@ function projectPlan(
   task: SurvivalPlan["task"],
   blockedReason: string | null,
   _blocked: SurvivalPlan["blocked"],
+  retried = false,
 ): GoalPlan {
   const completed = plan.stages
     .flatMap((stage) => stage.milestones)
@@ -799,7 +905,9 @@ function projectPlan(
         : {
             intent: intentForTask(task),
             text: task.title,
-            reason: `目标阶段「${plan.stageTitle}」：${task.title}`,
+            reason: retried
+              ? `重新观察后重试一次「${task.title}」；世界状态可能已变化`
+              : `目标阶段「${plan.stageTitle}」：${task.title}`,
             skill: task.skill,
             taskId: task.id,
           },
@@ -836,7 +944,7 @@ function nextCandidate(
   });
   if (candidate === null || !("skill" in candidate)) return null;
   const stable = withStableTaskId(candidate);
-  return taskSignature(stable) === avoid ? null : stable;
+  return taskSignature(stable) === normalizedStrategy(avoid) ? null : stable;
 }
 
 function blockedReason(plan: SurvivalPlan): string | null {
@@ -989,6 +1097,15 @@ function pauseReason(
 
 function stableSkillKey(skill: SkillCall): string {
   return `${skill.name}:${JSON.stringify(skill.args)}`;
+}
+
+/**
+ * The planner's strategy key is the task signature, while failures persist a
+ * stage-prefixed key. Strip the stage prefix before comparing so recovery
+ * recognises the same action rather than treating every retry as a new one.
+ */
+function normalizedStrategy(key: string): string {
+  return normalizedTaskId(key);
 }
 
 function statusText(status: GoalSettlement["status"]): string {
