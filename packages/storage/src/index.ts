@@ -5,6 +5,7 @@ export { SqliteCommitmentGate } from "./commitment-gate.ts";
 export { GoalRuntimeSqliteStore, SqliteProposalRepository } from "./goals.ts";
 export { MemoryStore, ReplayStore } from "./memory.ts";
 export { PersonaVersionStore } from "./persona.ts";
+export { AgentEventStore } from "./telemetry.ts";
 export {
   ActionStore,
   CommitmentStore,

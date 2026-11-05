@@ -26,6 +26,8 @@ const goal: GoalProgress = {
   completed: 0,
   unverified: 0,
   lastFailure: null,
+  consecutiveFailures: 0,
+  retryAt: null,
   updatedAt: 1_000,
 };
 

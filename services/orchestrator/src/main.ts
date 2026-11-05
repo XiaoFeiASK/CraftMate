@@ -8,6 +8,18 @@ import { createBridgeUpgrade, SqliteActionPort } from "@craftmate/bridge";
 import { loadOrCreateBridgeToken } from "@craftmate/bridge";
 import { createIngressSupervisor } from "./ingress-supervisor.ts";
 import {
+  AgentTelemetry,
+  dispatchDirectSkill,
+  failDirectDispatch,
+  notConfiguredIngress,
+  projectIngressFacts,
+  taskProgressSummary,
+  taskSettledSummary,
+  TaskTelemetry,
+  TaskDispatchError,
+  unknownIngress,
+} from "./telemetry.ts";
+import {
   completionEvidenceProblem,
   type GoalChange,
   type GoalInterruption,
@@ -31,11 +43,30 @@ const persistent = createPersistentShow({
 });
 const retention = createRetentionSweep({ expire: (now) => persistent.expireRawText(now) });
 retention.start();
+const telemetry = new AgentTelemetry({
+  store: persistent.agentEvents,
+  history: persistent.agentEvents.recent(160),
+});
+/** Ingress facts already projected, so a metrics reconnect is not replayed. */
+const ingressSeenAt = new Set<string>();
 let voiceLink: ReturnType<typeof connectVoice> | null = null;
 const ingressSupervisor = createIngressSupervisor({
   publishHealth: (health) => server.publishSourceHealth(health),
   onError: (detail) => console.warn(`orchestrator: ingress — ${detail}`),
 });
+
+/**
+ * The supervisor knows the saved room, but the child owns the counters. Until
+ * the child sends a metrics frame, this stays a truthful "not configured" or
+ * "unknown" projection instead of a zero that looks healthy.
+ */
+function primeIngressProjection(): void {
+  const config = persistent.runtimeConfig.read().douyin;
+  if (config.roomId.length === 0) {
+    telemetry.setIngress(notConfiguredIngress());
+    server.publishTelemetry();
+  }
+}
 
 function loadOperatorCliAction():
   | { readonly command: string; readonly actor: "agent" | "operator" }
@@ -151,6 +182,10 @@ bridge = createBridgeUpgrade({
         })
       : null;
     if (settled) server.publishDecision(settled);
+    const taskId =
+      outcome.decisionId === undefined
+        ? outcome.taskId
+        : taskTelemetry.taskId(outcome.decisionId) ?? outcome.taskId;
     // GoalRuntime settles independently of the audience decision stream so a
     // restart, takeover, or late frame cannot leave a goal task "running".
     if (outcome.decisionId !== undefined) {
@@ -164,8 +199,40 @@ bridge = createBridgeUpgrade({
         })
       ) {
         publishGoalSnapshot();
+        if (
+          persistent.show.recent().some((entry) => entry.id === outcome.decisionId)
+        ) {
+          server.publishAgentEvent({
+            stage: "progress",
+            status: status === "completed" ? "ok" : "failed",
+            traceId: decision?.eventId ?? null,
+            taskId,
+            decisionId: outcome.decisionId,
+            goalId: persistent.goals.currentGoal?.id ?? null,
+            summary:
+              status === "completed"
+                ? "目标运行时观察到任务终态，准备重新规划"
+                : "目标运行时已记录失败，进入退避与恢复",
+            source: "goal",
+          });
+        }
       }
     }
+    taskTelemetry.settled({
+      decisionId: outcome.decisionId ?? null,
+      traceId: settled?.eventId ?? decision?.eventId ?? null,
+      taskId,
+      status: status === "completed" ? "ok" : "failed",
+      durationMs:
+        settled?.outcome != null
+          ? Math.max(0, settled.outcome.at - settled.at)
+          : null,
+      // Body detail stays in the durable decision evidence. The operator feed
+      // gets only a fixed status label plus the closed error-code enum.
+      summary: taskSettledSummary(status),
+      errorCode: outcome.errorCode ?? null,
+      source: "bridge",
+    });
     // A body-originated failure is the only place some reasons survive. Give
     // the planner the game fact so the next line can be about what actually
     // happened rather than a generic apology.
@@ -200,6 +267,24 @@ bridge = createBridgeUpgrade({
       at: Date.now(),
     });
     server.publishBridgeHealth(bridge.health());
+  },
+  onProgress: (progress) => {
+    const decision = progress.decisionId === undefined
+      ? null
+      : persistent.show.recent().find((entry) => entry.id === progress.decisionId) ?? null;
+    server.publishAgentEvent({
+      stage: "progress",
+      status: "ok",
+      traceId: decision?.eventId ?? null,
+      taskId:
+        progress.decisionId === undefined
+          ? progress.taskId
+          : taskTelemetry.taskId(progress.decisionId) ?? progress.taskId,
+      decisionId: progress.decisionId ?? null,
+      goalId: persistent.goals.currentGoal?.id ?? null,
+      summary: taskProgressSummary(progress.phase, progress.done, progress.total),
+      source: decision?.eventId.startsWith("goal:") === true ? "goal" : "bridge",
+    });
   },
 });
 
@@ -262,6 +347,14 @@ function interruptGoal(
     at: Date.now(),
   });
   if (settled) server.publishDecision(settled);
+  taskTelemetry.settled({
+    decisionId: interruption.decisionId,
+    traceId: settled?.eventId ?? interruption.decision.eventId,
+    status: "skipped",
+    summary: `任务被取消：${reason}`,
+    errorCode: "E_CANCELLED",
+    source: "goal",
+  });
 }
 
 function goalContext() {
@@ -284,6 +377,14 @@ function dispatchGoalStep(): void {
     return;
   }
   server.publishDecision(dispatch.decision);
+  taskTelemetry.queued({
+    decisionId: dispatch.decision.id,
+    traceId: dispatch.decision.eventId,
+    taskId: dispatch.taskId,
+    goalId: persistent.goals.currentGoal?.id ?? null,
+    summary: `目标任务已排队：${dispatch.decision.skill?.name ?? "未知动作"}`,
+    source: "goal",
+  });
   try {
     bridge.session.issue({
       v: 1,
@@ -297,6 +398,14 @@ function dispatchGoalStep(): void {
       ...(dispatch.decision.skill!.deadlineTicks === undefined
         ? {}
         : { deadlineTick: dispatch.decision.skill!.deadlineTicks }),
+    });
+    taskTelemetry.running({
+      decisionId: dispatch.decision.id,
+      traceId: dispatch.decision.eventId,
+      taskId: dispatch.taskId,
+      goalId: persistent.goals.currentGoal?.id ?? null,
+      summary: `动作已下达：${dispatch.decision.skill!.name}`,
+      source: "goal",
     });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
@@ -312,6 +421,17 @@ function dispatchGoalStep(): void {
       at: Date.now(),
     });
     if (failed) server.publishDecision(failed);
+    taskTelemetry.settled({
+      decisionId: dispatch.decision.id,
+      traceId: dispatch.decision.eventId,
+      taskId: dispatch.taskId,
+      status: "failed",
+      // The dispatch message can originate from the body; only the closed
+      // error code is an operator-safe fact here.
+      summary: "动作未下达",
+      errorCode: "E_DISPATCH",
+      source: "goal",
+    });
   }
   publishGoalSnapshot();
   server.publishBridgeHealth(bridge.health());
@@ -319,6 +439,7 @@ function dispatchGoalStep(): void {
 
 const server = createControlServer({
   show: persistent.show,
+  telemetry,
   settings: {
     saveSettings: (next) => persistent.saveSettings(next),
     saveIntegrationSettings: (next) => persistent.saveIntegrationSettings(next),
@@ -403,28 +524,76 @@ const server = createControlServer({
     if (decision.skill === null) return;
     const goalTask = persistent.goals.snapshot().currentDecisionId === decision.id;
     if (goalTask) return;
-    // Ownership is enforced by the coordinator: no body, no agent control, or
-    // an operator takeover all reject here instead of at the game.
-    bridge.session.issue({
-      v: 1,
-      type: "cmd",
-      id: crypto.randomUUID(),
-      decisionId: decision.id,
-      op: decision.skill.name,
-      args: decision.skill.args,
-      priority: decision.priority,
-      idempotencyKey: decision.skill.idempotencyKey,
-      ...(decision.skill.deadlineTicks === undefined
-        ? {}
-        : { deadlineTick: decision.skill.deadlineTicks }),
-    });
+    // The body assigns its wire task id in the ack, after this call returns.
+    // Until then the command id is the only stable operator join, so publish
+    // it as the task id and never invent an id the body did not send.
+    try {
+      dispatchDirectSkill({
+        decision: {
+          id: decision.id,
+          eventId: decision.eventId,
+          skill: decision.skill,
+          priority: decision.priority,
+        },
+        taskTelemetry,
+        goalId: persistent.goals.currentGoal?.id ?? null,
+        // Ownership is enforced by the coordinator: no body, no agent control,
+        // or an operator takeover all reject here instead of at the game.
+        issue: (command) => bridge.session.issue(command),
+      });
+    } catch (error) {
+      if (!(error instanceof TaskDispatchError)) throw error;
+      failDirectDispatch({
+        taskTelemetry,
+        decision: { id: decision.id, eventId: decision.eventId },
+        error,
+      });
+      // Re-throw the typed bridge error so the control server persists the
+      // decision outcome; the telemetry terminal row was already emitted.
+      throw error;
+    }
     server.publishBridgeHealth(bridge.health());
   },
   onIntegrationsChanged: (config) => {
     voiceLink?.configure(config.voice);
+    // The old child's counters and fact keys describe a different room. Do not
+    // relabel them as the new room while the supervisor reconnects.
+    ingressSeenAt.clear();
+    if (config.douyin.roomId.length === 0) telemetry.setIngress(notConfiguredIngress());
+    else telemetry.setIngress(unknownIngress("Ingress 正在连接新配置"));
+    server.publishTelemetry();
     void ingressSupervisor.configure(config.douyin);
   },
+  onIngressMetrics: (metrics) => {
+    // The child frame carries no room id; the orchestrator is the only process
+    // that knows the saved configuration, so the join happens here.
+    telemetry.setIngress({
+      ...metrics,
+      roomId: persistent.runtimeConfig.read().douyin.roomId || null,
+      updatedAt: Date.now(),
+    });
+    // The child reports one bounded fact per admitted/dropped event. Its
+    // projection is deduped in one place so a reconnect cannot replay history
+    // and a drop never masquerades as an admitted fact.
+    for (const event of projectIngressFacts(metrics.recent, ingressSeenAt)) {
+      const recent = persistent.show.recent();
+      const decision = recent.find((entry) => entry.eventId === event.traceId);
+      server.publishAgentEvent({
+        ...event,
+        decisionId: decision?.id ?? null,
+        taskId:
+          decision === undefined ? null : taskTelemetry.taskId(decision.id),
+      });
+    }
+  },
 });
+
+/**
+ * The map is shared by dispatch, progress and terminal paths. It is created
+ * after the server because publishing is a server operation, but the bridge
+ * callbacks only run after the event loop starts.
+ */
+const taskTelemetry = new TaskTelemetry((event) => server.publishAgentEvent(event));
 
 // Headless smoke-test ingress. This reads only a caller-owned local file,
 // waits for the real game body and world, and then enters through the same
@@ -440,6 +609,37 @@ voiceLink = connectVoice({
   onStatus: (status) => server.publishVoiceStatus(status),
   onSubtitle: (subtitle) => {
     server.publishSubtitle(subtitle);
+    // `decisionId` is an internal id, not the audience trace. Resolve it so
+    // voice events join the same replay row as the comment and its plan.
+    const voiceDecision =
+      subtitle.decisionId === null
+        ? null
+        : persistent.show.recent().find((entry) => entry.id === subtitle.decisionId) ?? null;
+    server.publishAgentEvent({
+      stage: subtitle.state === "speaking" ? "voice_started" : "voice_settled",
+      status:
+        subtitle.state === "spoken"
+          ? "ok"
+          : subtitle.state === "speaking"
+            ? "ok"
+            : subtitle.state === "cancelled"
+              ? "skipped"
+              : "failed",
+      decisionId: subtitle.decisionId,
+      traceId: voiceDecision?.eventId ?? null,
+      taskId:
+        subtitle.decisionId === null
+          ? null
+          : taskTelemetry.taskId(subtitle.decisionId),
+      summary:
+        subtitle.state === "speaking"
+          ? "语音开始播放"
+          : subtitle.state === "spoken"
+            ? "语音播放完成"
+            : `语音${subtitle.state === "cancelled" ? "已取消" : "失败"}`,
+      errorCode: subtitle.code,
+      source: "voice",
+    });
     
     // Forward playback events to the commitment ledger when a commitmentId is present.
     // The ledger tracks promise fulfillment, so real playback state must be reflected.
@@ -529,6 +729,7 @@ const shutdown = async (): Promise<void> => {
 };
 
 void ingressSupervisor.configure(persistent.runtimeConfig.read().douyin);
+primeIngressProjection();
 
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

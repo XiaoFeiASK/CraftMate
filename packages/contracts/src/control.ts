@@ -9,6 +9,7 @@ import {
 import { voiceStatusSchema, voiceSubtitleSchema } from "./voice.ts";
 import { bridgeHealthSchema, opsRequestSchema, opsSnapshotSchema } from "./ops.ts";
 import { timelineEntrySchema } from "./replay.ts";
+import { agentEventSchema, telemetrySnapshotSchema } from "./telemetry.ts";
 
 export const showModeSchema = z.enum(["agent", "operator", "stopped"]);
 export type ShowMode = z.infer<typeof showModeSchema>;
@@ -104,6 +105,10 @@ export const goalProgressSchema = z.object({
   completed: z.number().int().nonnegative().default(0),
   unverified: z.number().int().nonnegative().default(0),
   lastFailure: z.string().trim().max(600).nullable().default(null),
+  /** Consecutive terminal failures; zero means the runtime is not backing off. */
+  consecutiveFailures: z.number().int().nonnegative().default(0),
+  /** Absolute epoch-ms time the next attempt is allowed, or null when none. */
+  retryAt: z.number().int().nonnegative().nullable().default(null),
   updatedAt: z.number().int().nonnegative(),
 });
 export type GoalProgress = z.infer<typeof goalProgressSchema>;
@@ -227,6 +232,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
       snapshot: showSnapshotSchema,
       settings: showSettingsSchema,
       integrations: integrationSettingsViewSchema,
+      telemetry: telemetrySnapshotSchema,
     }),
   }),
   z.object({ type: z.literal("decision"), payload: decisionSchema }),
@@ -257,6 +263,10 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("replay"),
     payload: z.object({ traceId: z.string().min(1), entries: z.array(timelineEntrySchema) }),
   }),
+  /** Append-only operator facts; the console keeps the newest window. */
+  z.object({ type: z.literal("event"), payload: agentEventSchema }),
+  /** Bounded replacement snapshot, sent after any event or metric change. */
+  z.object({ type: z.literal("telemetry"), payload: telemetrySnapshotSchema }),
   z.object({
     type: z.literal("error"),
     payload: z.object({ code: z.string(), detail: z.string() }),

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { audienceEventSchema, sourceHealthSchema } from "./audience.ts";
+import { ingressMetricsFrameSchema } from "./telemetry.ts";
 
 /**
  * Ingress is a local, trusted-by-token data source. It may submit normalized
@@ -16,6 +17,7 @@ export const ingressClientFrameSchema = z.discriminatedUnion("type", [
   ingressHelloSchema,
   z.object({ type: z.literal("event"), payload: audienceEventSchema }),
   z.object({ type: z.literal("health"), payload: sourceHealthSchema }),
+  z.object({ type: z.literal("metrics"), payload: ingressMetricsFrameSchema }),
 ]);
 export type IngressClientFrame = z.infer<typeof ingressClientFrameSchema>;
 

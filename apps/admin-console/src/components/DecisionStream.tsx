@@ -44,19 +44,16 @@ export function DecisionStream({ decisions }: DecisionStreamProps): React.JSX.El
             <li key={decision.id} className="decided" data-kind={decision.decision}>
               <div className="decided__top">
                 <span className="decided__badge">{LABELS[decision.decision]}</span>
-                <span className="decided__nickname">{decision.nickname}</span>
+                <span className="decided__nickname">观众 {audienceRef(decision.audienceRef)}</span>
                 <time className="decided__time">{clock(decision.at)}</time>
               </div>
-              <p className="decided__text">{decision.text || "（无文字）"}</p>
               <div className="decided__meta">
-                <span>{decision.intent}</span>
+                <span>意图 {decision.intent}</span>
                 <span data-priority={decision.priority}>{PRIORITY_LABELS[decision.priority]}</span>
                 <span className="decided__score">分 {decision.score.toFixed(2)}</span>
                 {decision.stage === "planned" ? <span>Stage C</span> : null}
                 {decision.skill ? <span>{decision.skill.name}</span> : null}
               </div>
-              <p className="decided__reason">{decision.reason}</p>
-              {decision.speech ? <p className="decided__speech">「{decision.speech}」</p> : null}
               <Outcome outcome={decision.outcome} />
               {decision.trace ? (
                 <p className="decided__trace">
@@ -70,6 +67,16 @@ export function DecisionStream({ decisions }: DecisionStreamProps): React.JSX.El
       )}
     </aside>
   );
+}
+
+/**
+ * The console shows a stable audience join key, never the platform nickname.
+ * Audience text and speech are deliberately absent: evidence stays in SQLite,
+ * but it is not an operator telemetry surface.
+ */
+function audienceRef(value: string): string {
+  if (value.length === 0) return "身份未上报";
+  return value.length <= 10 ? value : `${value.slice(0, 7)}…${value.slice(-3)}`;
 }
 
 const OUTCOME_LABELS: Record<string, string> = {

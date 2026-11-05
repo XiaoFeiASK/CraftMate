@@ -51,6 +51,9 @@ Orchestrator、Ingress、Voice 共用 `~/.craftmate/ingress-token`；Bridge 使�
 `~/.craftmate/bridge.token`。服务配置在管理端「设置 → 接入」修改；模型、语音和抖音
 细节见[外部集成](../guides/integrations.md)。
 
+`4324` 是身体侧可选的本地录制/调试端口，不是管理端依赖。管理端首屏、控制面和
+Bridge 在主路径都不会请求它；没有 Minecraft 客户端时工作台会显示身体未接入。
+
 ## 4. 配置与环境
 
 仓库 `.env` 只作首次默认值，已被 `.gitignore` 忽略；shell 环境变量优先。`.env.example`
@@ -63,11 +66,16 @@ Orchestrator、Ingress、Voice 共用 `~/.craftmate/ingress-token`；Bridge 使�
 | `CRAFTMATE_TOKEN` / `_FILE` | `~/.craftmate/ingress-token` | ingress/voice token |
 | `CRAFTMATE_DB` / `CRAFTMATE_DB_DIR` | `~/.craftmate/craftmate.db` | SQLite 路径 |
 | `CRAFTMATE_MODEL_*` | 见 `.env.example` | OpenAI 兼容模型与预算 |
+| `CRAFTMATE_CONTROL_ORIGINS` | 空 | 额外允许的控制面浏览器 Origin，逗号分隔 |
 | `TTS_PRIMARY_*` | 见 `.env.example` | Seeduplex 实时语音 |
 | `DOUYIN_ROOM_ID` | 空 | 抖音 `web_rid` |
 | `DYHUB_URL` | `ws://127.0.0.1:8757` | dyhub sidecar |
 
 凭据保存到 `~/.craftmate/integrations.json`，权限 `0600`；API Key 不回传明文、不入库。
+
+`CRAFTMATE_CONTROL_ORIGINS` 只用于本地第二预览端口或同机 Web 调试，例如
+`http://localhost:5174`。默认允许列表不变，未配置时不会放宽；不要把它设为远程
+域名来暴露控制面，远程控制仍需 `CRAFTMATE_ALLOW_REMOTE_CONTROL=1` 和显式网络防护。
 
 ## 5. 操作员控制
 
@@ -81,6 +89,58 @@ Orchestrator、Ingress、Voice 共用 `~/.craftmate/ingress-token`；Bridge 使�
 | Whisper | 只给 Agent 的指令，不进入直播间 |
 
 急停后必须显式 Release；Bridge 控制权跨重连保持。
+
+### 5.1 Agent 可观测工作台
+
+桌面和 Web UI 右侧工作台只读控制面事实：
+
+- 「当前判断」显示后端生成的摘要、当前意图、通用判断依据和下一步；没有判断时
+  显示空态，不从弹幕或模型原文推断；
+- 「目标与里程碑」显示目标运行时阶段、已验证里程碑、结构化 `nextTask`、连续失败和 `retryAt`；
+  未建立目标、未验证里程碑不会显示成 100%；
+- 「处理链路」按最近一条 `traceId` 展示接入、闸门、仲裁、规划、入队、执行、终态；
+  没到达的阶段是“尚未到达”，被丢弃的后续阶段是“已跳过”；
+- 「任务队列」「实时事件」展示真实任务、进度、失败和语音终态，并可跳转 replay；
+- 「评论与决策」显示 Ingress 真实计数器、drop reason、重连和最近事件时间。
+
+空态语义：
+
+| 显示 | 含义 |
+| --- | --- |
+| 未配置抖音房间 | 设置里没有 room id；不是“0 条评论” |
+| Ingress 状态未知 | Orchestrator 未收到 metrics，不能把缺失当零 |
+| 身体未接入 | `/bridge` 没有当前身体，不能显示世界中 |
+| 尚无判断 / 等待事件 | 没有后端事实，不是成功或健康证明 |
+| 未验证 | 目标引擎还没有证据证明该里程碑完成 |
+
+Ingress 指标来自子进程的真实 counters。`received` 是收到的原始事件数，
+`forwarded` 是成功发到 Orchestrator 的数量（重连后补发的缓冲帧也算），`queued`
+是 Gate 队列加尚未补发的有界缓冲，`dropped` 与 `dropReasons` 是去重/限流/队列满
+、队列淘汰和 relay buffer full 的丢弃。每次重连补发后以及来源健康状态变化时
+都会再发一帧 metrics，避免 UI 停留在补发前的旧 `forwarded` 或连接状态。
+Orchestrator 用事实 id、时间和结果去重，避免 UI 重复。
+
+### 5.2 配置闭环
+
+「设置 → 接入」一次提交 show settings 与 integrations 两半：
+
+1. 两半先校验，任一失败都不写入；
+2. show settings 写入 SQLite 并立即作用于运行中的 Show；
+3. integrations 原子写入 `~/.craftmate/integrations.json`，返回脱敏视图；
+4. 运行中模型 provider、超时、语音和 Ingress supervisor 按新配置重载；更换
+   抖音房间时，Ingress 的 gate/relay 计数、缓冲和去重窗口会一起清零，工作台
+   先短暂显示 Ingress 未知，随后从新房间的 0 重新累计；
+5. 控制面广播 `settings` / `integrations`，并记录 `settings_applied` 事件。
+
+保存失败会回传 `E_SETTINGS` 并在面板显示服务端错误；重启后读取同一配置。
+API Key 只出现在请求中，不进入广播、SQLite、日志或 telemetry。
+
+### 5.3 回放边界
+
+工作台按 trace 查询现有 replay。时间轴可能包含来源、决策、承诺和动作，但管理端
+不渲染弹幕原文、提议原文、承诺语音原文或模型理由；这些证据仍可按保留策略留在
+SQLite，用于本机审计。若需要外部录制，使用身体侧 `4324` 并显式连接；控制台不会
+自动订阅视频。
 
 ## 6. 验证
 

@@ -15,11 +15,33 @@ import {
   type BodyEvent,
   type Proposal,
   type ProposalStatus,
+  type TelemetrySnapshot,
+  type AgentEvent,
 } from "@craftmate/contracts";
 import { reconnectDelay, type WireState } from "./connection.ts";
 
 const ENDPOINT = import.meta.env.VITE_CRAFTMATE_WS ?? "ws://127.0.0.1:4321/control";
 const EMPTY_PERSONA_NAME = "大肥鱼";
+
+const emptyTelemetry: TelemetrySnapshot = {
+  events: [],
+  judgement: null,
+  ingress: {
+    state: "unknown",
+    detail: "Ingress 指标尚未上报",
+    roomId: null,
+    lastEventAt: null,
+    received: null,
+    forwarded: null,
+    queued: null,
+    dropped: null,
+    dropReasons: {},
+    upstreamConnected: null,
+    reconnects: null,
+    updatedAt: null,
+  },
+  generatedAt: 0,
+};
 
 const emptySnapshot: ShowSnapshot = {
   mode: "agent",
@@ -54,6 +76,7 @@ export interface ControlLink {
   readonly timelinePending: boolean;
   readonly worldEvents: readonly BodyEvent[];
   readonly proposals: readonly Proposal[];
+  readonly telemetry: TelemetrySnapshot;
   sendComment(nickname: string, text: string): void;
   sendOperator(kind: OperatorKind, text?: string): void;
   saveSettings(next: ShowSettings): void;
@@ -90,8 +113,10 @@ export function useControlLink(): ControlLink {
   const [timeline, setTimeline] = useState<readonly TimelineEntry[]>([]);
   const [timelineTraceId, setTimelineTraceId] = useState<string | null>(null);
   const [timelinePending, setTimelinePending] = useState(false);
+  const replayTimer = useRef<number | null>(null);
   const [worldEvents, setWorldEvents] = useState<readonly BodyEvent[]>([]);
   const [proposals, setProposals] = useState<readonly Proposal[]>([]);
+  const [telemetry, setTelemetry] = useState<TelemetrySnapshot>(emptyTelemetry);
   const sequence = useRef(0);
 
   useEffect(() => {
@@ -108,6 +133,7 @@ export function useControlLink(): ControlLink {
           setMode(message.payload.snapshot.mode);
           setSettings(message.payload.settings);
           setIntegrations(message.payload.integrations);
+          setTelemetry(message.payload.telemetry);
           break;
         case "decision":
           // Stage C rewrites the same decision id in place; a blind prepend
@@ -152,6 +178,11 @@ export function useControlLink(): ControlLink {
           break;
         case "error":
           setLastError(message.payload.detail);
+          if (replayTimer.current !== null) {
+            window.clearTimeout(replayTimer.current);
+            replayTimer.current = null;
+          }
+          setTimelinePending(false);
           break;
         case "subtitle":
           setSubtitles((current) => [message.payload, ...current].slice(0, 20));
@@ -168,9 +199,20 @@ export function useControlLink(): ControlLink {
           setOps(message.payload);
           break;
         case "replay":
+          if (replayTimer.current !== null) window.clearTimeout(replayTimer.current);
+          replayTimer.current = null;
           setTimeline(message.payload.entries);
           setTimelineTraceId(message.payload.traceId);
           setTimelinePending(false);
+          break;
+        case "telemetry":
+          setTelemetry(message.payload);
+          break;
+        case "event":
+          // Both frames are authoritative: the snapshot already contains this
+          // event after the server's broadcast, so replace rather than append
+          // to avoid a duplicate when the frames arrive in either order.
+          setTelemetry((current) => appendEvent(current, message.payload));
           break;
         default:
           break;
@@ -207,6 +249,7 @@ export function useControlLink(): ControlLink {
 
       socket.addEventListener("close", () => {
         if (disposed || socketRef.current !== socket) return;
+        setTimelinePending(false);
         setState("closed");
         reconnectTimer = window.setTimeout(connect, reconnectDelay(attempt));
         attempt = Math.min(attempt + 1, 4);
@@ -218,6 +261,7 @@ export function useControlLink(): ControlLink {
     return () => {
       disposed = true;
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+      if (replayTimer.current !== null) window.clearTimeout(replayTimer.current);
       socketRef.current?.close();
       socketRef.current = null;
     };
@@ -302,8 +346,17 @@ export function useControlLink(): ControlLink {
   );
   const lookupTrace = useCallback(
     (traceId: string) => {
+      if (replayTimer.current !== null) window.clearTimeout(replayTimer.current);
       setTimelinePending(true);
       send({ type: "replay", payload: { traceId } });
+      // A request can be accepted by the socket and still never receive a
+      // response (server error, restart, or a lost connection). Do not leave
+      // the workbench claiming it is still reading forever.
+      replayTimer.current = window.setTimeout(() => {
+        replayTimer.current = null;
+        setTimelinePending(false);
+        setLastError("回放请求超时，请重试");
+      }, 8_000);
     },
     [send],
   );
@@ -336,6 +389,7 @@ export function useControlLink(): ControlLink {
       timelinePending,
       worldEvents,
       proposals,
+      telemetry,
       sendComment,
       sendOperator,
       saveSettings,
@@ -367,6 +421,7 @@ export function useControlLink(): ControlLink {
       timelineTraceId,
       timelinePending,
       proposals,
+      telemetry,
       sendComment,
       sendOperator,
       saveSettings,
@@ -409,4 +464,13 @@ function parseJson(data: unknown): unknown {
   } catch {
     return null;
   }
+}
+
+function appendEvent(current: TelemetrySnapshot, event: AgentEvent): TelemetrySnapshot {
+  if (current.events.some((item) => item.id === event.id)) return current;
+  return {
+    ...current,
+    events: [event, ...current.events].slice(0, 160),
+    generatedAt: Math.max(current.generatedAt, event.at),
+  };
 }

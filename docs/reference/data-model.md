@@ -35,8 +35,33 @@
 | `0004_source_retention_audit` | 原文清理审计 |
 | `0005_planned_decisions` | 决策规划字段 |
 | `0006_model_cost` | 模型成本账本 |
+| `0007_skill_outcome` | 决策终态与技能结果证据 |
+| `0008_goal_runtime` | 目标运行时与观众提议收件箱 |
+| `0009_goal_runtime_failures` | 目标失败恢复历史 |
+| `0010_agent_event` | 管理端可观测事件投影 |
 
-当前校验器报告 27 个对象、23 个索引；新增迁移后以 `npm run db:check` 输出为准。
+当前校验器报告 31 个对象、29 个索引；新增迁移后以 `npm run db:check` 输出为准。
+
+### 2.1 `agent_event`
+
+```text
+id, session_id, stage, status, trace_id, task_id, decision_id, goal_id,
+duration_ms, summary, error_code, source, created_at_ms
+```
+
+- 只追加，不修改既有行；同一 `id` 重复写入为 no-op。
+- `stage`、`status` 和 `source` 都是封闭枚举，非法值在 SQLite 与 zod 两层拒绝。
+- `duration_ms` 只能为空或非负；UID 之外没有明文观众标识。
+- 索引支持最近窗口、按 trace 回放、按 task 聚合和按 decision 关联：
+  `agent_event_recent`、`agent_event_trace`、`agent_event_task`、
+  `agent_event_decision`。
+- `summary` 只允许控制面生成的结构化摘要；原始评论、prompt、模型输出和
+  chain-of-thought 不得写入该表。
+- 事件与决策/承诺/动作共享 join key，但事件表不是业务账本；回放仍读取
+  `source`、`decision_log`、`commitment` 和 `action_attempt`。
+
+保留策略：事件作为运维证据按当前方案保留，不随 `source.raw_text` 的 24 小时
+清理删除。它本身不含原文，因此清理原文不会改变事件的可解释性。
 
 ## 3. 不变量
 
@@ -58,6 +83,10 @@
 - 审计和原文清空在同一事务。
 - 决策、承诺、动作不随原文过期删除。
 - 日志和 trace JSON 不保存弹幕原文、prompt 或模型输出。
+- `agent_event.summary` 只由结构化事实拼接；管理端展示层也不读取原始评论、
+  提议原文、模型理由或语音原文。
+- API Key 只写入本机 `integrations.json` 的请求路径，不进入 SQLite、日志或
+  telemetry。
 
 ## 5. 校验
 

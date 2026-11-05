@@ -1,4 +1,4 @@
-import type { DrawerMode } from "../operations/OperationsDrawer.tsx";
+import type { WorkspaceView } from "../operations/OperationsPage.tsx";
 import type {
   GoalProgress,
   ShowMode,
@@ -11,7 +11,7 @@ import type { WireState } from "../../lib/connection.ts";
 import mascot from "../../assets/dafeiyu.png";
 
 interface SidebarProps {
-  readonly drawer: DrawerMode | null;
+  readonly view: WorkspaceView | null;
   readonly state: WireState;
   readonly mode: ShowMode;
   readonly personaName: string;
@@ -20,13 +20,13 @@ interface SidebarProps {
   readonly stats: ShowStats;
   readonly voiceStatus: VoiceStatus | null;
   readonly goal: GoalProgress | null;
-  readonly onSelect: (drawer: DrawerMode | null) => void;
+  readonly onSelect: (view: WorkspaceView | null) => void;
 }
 
 interface NavigationItem {
   readonly label: string;
   readonly detail: string;
-  readonly drawer: DrawerMode;
+  readonly view: WorkspaceView;
   readonly icon: React.JSX.Element;
 }
 
@@ -34,7 +34,7 @@ const LIVE_ITEMS: readonly NavigationItem[] = [
   {
     label: "直播总览",
     detail: "场景与主线",
-    drawer: "decisions",
+    view: "decisions",
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M4.5 6.5h15v10h-15zM9 20h6M12 16.5V20" />
@@ -45,7 +45,7 @@ const LIVE_ITEMS: readonly NavigationItem[] = [
   {
     label: "评论与决策",
     detail: "仲裁记录",
-    drawer: "decisions",
+    view: "decisions",
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M5 5.5h14v10H9l-4 3z" />
@@ -56,7 +56,7 @@ const LIVE_ITEMS: readonly NavigationItem[] = [
   {
     label: "观众提议",
     detail: "收件箱 / 闸门",
-    drawer: "proposals",
+    view: "proposals",
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M4.5 6.5h15v11h-15z" />
@@ -68,7 +68,7 @@ const LIVE_ITEMS: readonly NavigationItem[] = [
   {
     label: "角色与人格",
     detail: "大肥鱼",
-    drawer: "persona",
+    view: "persona",
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M12 4.2 19 8v8l-7 3.8L5 16V8z" />
@@ -82,7 +82,7 @@ const ROLE_ITEMS: readonly NavigationItem[] = [
   {
     label: "记忆与版本",
     detail: "审核 / 回滚",
-    drawer: "memory",
+    view: "memory",
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M6 4.5h8.5L19 9v10.5H6z" />
@@ -93,7 +93,7 @@ const ROLE_ITEMS: readonly NavigationItem[] = [
   {
     label: "回放",
     detail: "traceId 时间轴",
-    drawer: "replay",
+    view: "replay",
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="12" cy="12" r="7.5" />
@@ -107,7 +107,7 @@ const SYSTEM_ITEMS: readonly NavigationItem[] = [
   {
     label: "接入与语音",
     detail: "抖音 / TTS",
-    drawer: "connections",
+    view: "connections",
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M6.5 12a5.5 5.5 0 0 1 11 0" />
@@ -119,7 +119,7 @@ const SYSTEM_ITEMS: readonly NavigationItem[] = [
   {
     label: "设置",
     detail: "资料与界面",
-    drawer: "settings",
+    view: "settings",
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <circle cx="12" cy="12" r="3" />
@@ -131,7 +131,7 @@ const SYSTEM_ITEMS: readonly NavigationItem[] = [
 ] as const;
 
 export function Sidebar({
-  drawer,
+  view,
   state,
   mode,
   personaName,
@@ -163,17 +163,17 @@ export function Sidebar({
           <h2 className="sidebar__section-title">直播</h2>
           <NavigationButton
             item={LIVE_ITEMS[0]!}
-            selected={drawer === null}
+            selected={view === null}
             onClick={() => onSelect(null)}
           />
           <NavigationButton
             item={LIVE_ITEMS[1]!}
-            selected={drawer === "decisions"}
+            selected={view === "decisions"}
             onClick={() => onSelect("decisions")}
           />
           <NavigationButton
             item={LIVE_ITEMS[2]!}
-            selected={drawer === "proposals"}
+            selected={view === "proposals"}
             onClick={() => onSelect("proposals")}
           />
         </section>
@@ -182,15 +182,15 @@ export function Sidebar({
           <h2 className="sidebar__section-title">角色</h2>
           <NavigationButton
             item={LIVE_ITEMS[3]!}
-            selected={drawer === "persona"}
+            selected={view === "persona"}
             onClick={() => onSelect("persona")}
           />
           {ROLE_ITEMS.map((item) => (
             <NavigationButton
               key={item.label}
               item={item}
-              selected={drawer === item.drawer}
-              onClick={() => onSelect(item.drawer)}
+              selected={view === item.view}
+              onClick={() => onSelect(item.view)}
             />
           ))}
         </section>
@@ -201,8 +201,8 @@ export function Sidebar({
             <NavigationButton
               key={item.label}
               item={item}
-              selected={drawer === item.drawer}
-              onClick={() => onSelect(item.drawer)}
+              selected={view === item.view}
+              onClick={() => onSelect(item.view)}
             />
           ))}
         </section>
@@ -299,7 +299,7 @@ function SessionPanel({
         {goal ? (
           <div className="session-panel__goal-detail">
             <span>{goal.milestone.title}</span>
-            {goal.nextTask ? <span>下一任务：{goal.nextTask}</span> : null}
+            {goal.nextTask ? <span>目标运行时已产出下一任务</span> : null}
             {goal.lastFailure ? <span data-tone="bad">失败：{goal.lastFailure}</span> : null}
           </div>
         ) : null}
@@ -325,7 +325,7 @@ function SessionPanel({
 
       <dl className="session-panel__stats">
         <div>
-          <dt>已收到</dt>
+          <dt>本场输入</dt>
           <dd>{stats.received}</dd>
         </div>
         <div>
@@ -374,7 +374,9 @@ function NavigationButton({ item, selected, onClick }: NavigationButtonProps): R
       type="button"
       className="nav-item"
       data-selected={selected}
+      aria-label={item.label}
       aria-current={selected ? "page" : undefined}
+      title={`${item.label} · ${item.detail}`}
       onClick={onClick}
     >
       <span className="nav-item__icon">{item.icon}</span>

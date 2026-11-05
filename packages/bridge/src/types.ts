@@ -81,6 +81,18 @@ export interface CommandOutcome {
   readonly outcome?: Readonly<Record<string, unknown>>;
 }
 
+/** One body-owned progress fact, joined to the command that caused it. */
+export interface CommandProgress {
+  readonly commandId: string;
+  readonly taskId: string;
+  /** Present when the command carried a decision. */
+  readonly decisionId?: string;
+  readonly phase: string;
+  readonly done: number;
+  readonly total?: number;
+  readonly at: number;
+}
+
 export interface OwnershipState {
   readonly owner: Ownership;
   readonly reason: string;
