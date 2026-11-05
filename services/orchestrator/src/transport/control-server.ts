@@ -479,7 +479,9 @@ export function createControlServer({
             traceId: failed.eventId,
             decisionId: failed.id,
             durationMs: Math.max(0, Date.now() - planningStarted),
-            summary: `动作未下达：${failed.outcome?.detail ?? failed.outcome?.errorCode ?? "未知原因"}`,
+            // The dispatch error message may contain local or body text. The
+            // code is allowlisted; the detail stays in the durable decision.
+            summary: "动作未下达",
             errorCode: failed.outcome?.errorCode ?? "E_INTERNAL",
             source: "agent",
           });

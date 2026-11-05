@@ -850,9 +850,16 @@ describe("operator control to the game body", () => {
     await withBridge(
       async ({ control }) => {
         const updates: Decision[] = [];
+        const events: { type: string; payload?: { stage?: string; summary?: string } }[] = [];
         control.on("message", (raw) => {
-          const frame = JSON.parse(raw.toString()) as { type: string; payload?: Decision };
-          if (frame.type === "decision" && frame.payload) updates.push(frame.payload);
+          const frame = JSON.parse(raw.toString()) as {
+            type: string;
+            payload?: Decision | { stage?: string; summary?: string };
+          };
+          if (frame.type === "decision" && frame.payload) {
+            updates.push(frame.payload as Decision);
+          }
+          if (frame.type === "event" && frame.payload) events.push(frame);
         });
         control.send(JSON.stringify({ type: "comment", payload: commentEvent("rejected-plan") }));
         await delay(80);
@@ -862,6 +869,14 @@ describe("operator control to the game body", () => {
         assert.equal(planned.outcome?.status, "failed");
         assert.equal(planned.outcome?.errorCode, "E_INTERNAL");
         assert.match(planned.outcome?.detail ?? "", /not issued/);
+
+        const failed = events.find((event) => event.payload?.stage === "failed");
+        assert.equal(failed?.payload?.summary, "动作未下达");
+        assert.equal(
+          events.some((event) => JSON.stringify(event).includes("not issued")),
+          false,
+          "raw dispatch text must not reach the telemetry feed",
+        );
       },
       {
         show,

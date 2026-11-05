@@ -13,6 +13,8 @@ import {
   failDirectDispatch,
   notConfiguredIngress,
   projectIngressFacts,
+  taskProgressSummary,
+  taskSettledSummary,
   TaskTelemetry,
   TaskDispatchError,
   unknownIngress,
@@ -209,10 +211,9 @@ bridge = createBridgeUpgrade({
         settled?.outcome != null
           ? Math.max(0, settled.outcome.at - settled.at)
           : null,
-      summary:
-        outcome.status === "completed"
-          ? `任务完成${outcome.detail === undefined ? "" : `：${outcome.detail}`}`
-          : `任务${outcome.status}${outcome.detail === undefined ? "" : `：${outcome.detail}`}`,
+      // Body detail stays in the durable decision evidence. The operator feed
+      // gets only a fixed status label plus the closed error-code enum.
+      summary: taskSettledSummary(outcome.status),
       errorCode: outcome.errorCode ?? null,
       source: "bridge",
     });
@@ -265,7 +266,7 @@ bridge = createBridgeUpgrade({
           : taskTelemetry.taskId(progress.decisionId) ?? progress.taskId,
       decisionId: progress.decisionId ?? null,
       goalId: persistent.goals.currentGoal?.id ?? null,
-      summary: `${progress.phase}：${progress.done}/${progress.total ?? "?"}`,
+      summary: taskProgressSummary(progress.phase, progress.done, progress.total),
       source: decision?.eventId.startsWith("goal:") === true ? "goal" : "bridge",
     });
   },
@@ -396,7 +397,9 @@ function dispatchGoalStep(): void {
       traceId: dispatch.decision.eventId,
       taskId: dispatch.taskId,
       status: "failed",
-      summary: `动作未下达：${detail}`,
+      // The dispatch message can originate from the body; only the closed
+      // error code is an operator-safe fact here.
+      summary: "动作未下达",
       errorCode: "E_DISPATCH",
       source: "goal",
     });
@@ -604,9 +607,7 @@ voiceLink = connectVoice({
           ? "语音开始播放"
           : subtitle.state === "spoken"
             ? "语音播放完成"
-            : `语音${subtitle.state === "cancelled" ? "已取消" : "失败"}${
-                subtitle.detail.length > 0 ? `：${subtitle.detail}` : ""
-              }`,
+            : `语音${subtitle.state === "cancelled" ? "已取消" : "失败"}`,
       errorCode: subtitle.code,
       source: "voice",
     });

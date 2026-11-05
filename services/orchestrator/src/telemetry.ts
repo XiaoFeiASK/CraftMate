@@ -36,6 +36,77 @@ const MAX_BUFFER = 160;
 const MAX_SUMMARY = 600;
 
 /**
+ * The bridge body is untrusted input. Its free-text `detail` and `phase` are
+ * kept in the durable decision/action evidence, but never copied into an
+ * operator telemetry summary. Known phases get fixed labels; unknown phases
+ * fall back to one generic label so arbitrary text cannot reach the console.
+ */
+const TASK_STATUS_LABELS = {
+  completed: "已完成",
+  failed: "失败",
+  timeout: "超时",
+  cancelled: "已取消",
+  preempted: "被顶替",
+} as const;
+
+export type TaskTerminalStatus = keyof typeof TASK_STATUS_LABELS;
+
+const PROGRESS_PHASE_LABELS: Readonly<Record<string, string>> = {
+  waiting: "等待",
+  turning: "转向",
+  walking: "移动",
+  replanning: "重新规划路线",
+  finding: "寻找目标",
+  target: "选定目标",
+  mining: "挖掘",
+  breaking: "破坏方块",
+  collecting: "收集物品",
+  opening: "打开容器",
+  finding_recipe: "查找配方",
+  submitting_recipe: "提交配方",
+  crafting: "合成",
+  taking_result: "取出产物",
+  placing_ingredients: "摆放材料",
+  transferring: "转移物品",
+  charging: "蓄力",
+  sleeping: "睡觉",
+  confirming: "确认结果",
+  eating: "进食",
+  placed: "已放置",
+  starting: "准备执行",
+};
+
+const INGRESS_DROP_REASON_LABELS: Readonly<Record<string, string>> = {
+  duplicate: "重复事件",
+  "rate limited": "超过速率限制",
+  "queue full": "队列已满",
+  "queue evicted": "队列腾位淘汰",
+  "relay buffer full": "转发缓冲已满",
+};
+
+/** A bounded summary composed only from a fixed status label. */
+export function taskSettledSummary(status: TaskTerminalStatus): string {
+  return status === "completed"
+    ? "任务已完成"
+    : `任务未完成：${TASK_STATUS_LABELS[status]}`;
+}
+
+/**
+ * Progress counts are structured numbers; the phase is body-controlled and
+ * must be mapped through the allowlist before it is broadcast or persisted.
+ */
+export function taskProgressSummary(
+  phase: string,
+  done: number,
+  total: number | null | undefined,
+): string {
+  const label = PROGRESS_PHASE_LABELS[phase] ?? "执行中";
+  return total === null || total === undefined
+    ? `${label}：${done}`
+    : `${label}：${done}/${total}`;
+}
+
+/**
  * The control plane's telemetry projection. It owns the bounded in-memory
  * window, the durable append, and the safe judgement summary. The UI never
  * derives an event or a health value on its own.
@@ -198,7 +269,11 @@ export function projectIngressFacts(
         stage: "dropped",
         status: "skipped",
         traceId: fact.id,
-        summary: `闸门丢弃 ${fact.kind}：${fact.reason || "未提供原因"}`,
+        // Drop reasons are a closed set produced by the gate. Map them to
+        // fixed labels instead of echoing any future free-text value.
+        summary: `闸门丢弃 ${fact.kind}：${
+          INGRESS_DROP_REASON_LABELS[fact.reason] ?? "未提供原因"
+        }`,
         errorCode: "E_INGRESS_DROPPED",
         source: "ingress",
       });
@@ -390,7 +465,9 @@ export function failDirectDispatch(input: {
     traceId: input.decision.eventId,
     taskId: input.error.taskId,
     status: "failed",
-    summary: `动作未下达：${input.error.message}`,
+    // A dispatch error can carry local/body text. The error code is the
+    // allowlisted operator fact; the message remains in server logs.
+    summary: "动作未下达",
     errorCode: input.error.code,
     source: "agent",
   });
