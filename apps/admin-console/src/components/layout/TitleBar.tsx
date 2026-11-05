@@ -1,21 +1,21 @@
 import type { ShowMode, ShowSettings, ShowSnapshot } from "@craftmate/contracts";
-import type { DrawerMode } from "../operations/OperationsDrawer.tsx";
+import type { WorkspaceView } from "../operations/OperationsPage.tsx";
 import type { WireState } from "../../lib/connection.ts";
 import mascotLogo from "../../assets/dafeiyu.png";
 
 const dragRegion = { "data-tauri-drag-region": true } as const;
 
 interface TitleBarProps {
-  readonly view: DrawerMode | null;
+  readonly view: WorkspaceView | null;
   readonly state: WireState;
   readonly mode: ShowMode;
   readonly settings: ShowSettings | null;
   readonly snapshot: ShowSnapshot;
-  readonly onSelect: (view: DrawerMode | null) => void;
+  readonly onSelect: (view: WorkspaceView | null) => void;
 }
 
 /** The sidebar is the only navigation; the title bar names where you are and how the show is running. */
-const VIEW_LABELS: Record<DrawerMode, string> = {
+const VIEW_LABELS: Record<WorkspaceView, string> = {
   decisions: "评论与决策",
   persona: "角色与人格",
   connections: "接入与语音",
