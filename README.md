@@ -1,10 +1,8 @@
 <p align="center">
-  <img src="docs/assets/craftmate-icon.png" width="112" alt="大肥鱼图标">
+  <img src="apps/admin-console/src/assets/dafeiyu.png" width="112" alt="大肥鱼图标">
 </p>
 
 <h1 align="center">CraftMate</h1>
-
-<hr>
 
 <p align="center">
   <strong>用 Agent 玩《我的世界》，把整个过程做成一场可以互动的直播。</strong>
