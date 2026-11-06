@@ -506,6 +506,99 @@ test("saving integrations persists through the control protocol and exposes only
   }
 });
 
+test("model discovery runs in the kernel and reports the fetched ids", async () => {
+  const show = new Show({ persona: dafeiyu });
+  let queried: { baseUrl: string; apiKey?: string } | null = null;
+  const server = createControlServer({
+    show,
+    port: 0,
+    ingressToken: TEST_TOKEN,
+    settings: {
+      saveSettings: (next) => show.updateSettings(next as ReturnType<Show["currentSettings"]>),
+      saveIntegrationSettings: () => null,
+      listModels: async (input) => {
+        queried = input;
+        return ["deepseek-chat", "deepseek-reasoner"];
+      },
+    },
+  });
+  try {
+    const socket = await openControl(await server.listening);
+    const result = new Promise<{
+      type: string;
+      payload: { ok: boolean; models: string[]; detail: string };
+    }>((resolve) => {
+      socket.on("message", (raw) => {
+        const frame = JSON.parse(raw.toString()) as {
+          type: string;
+          payload: { ok: boolean; models: string[]; detail: string };
+        };
+        if (frame.type === "models") resolve(frame);
+      });
+    });
+    socket.send(
+      JSON.stringify({
+        type: "modelList",
+        payload: { baseUrl: "https://www.yyapi.cloud/v1", apiKey: "typed-key" },
+      }),
+    );
+    const frame = await result;
+    socket.close();
+
+    assert.deepEqual(queried, { baseUrl: "https://www.yyapi.cloud/v1", apiKey: "typed-key" });
+    assert.equal(frame.payload.ok, true);
+    assert.deepEqual(frame.payload.models, ["deepseek-chat", "deepseek-reasoner"]);
+  } finally {
+    await server.close();
+  }
+});
+
+test("model discovery failures stay readable and do not leak the key", async () => {
+  const show = new Show({ persona: dafeiyu });
+  const server = createControlServer({
+    show,
+    port: 0,
+    ingressToken: TEST_TOKEN,
+    settings: {
+      saveSettings: (next) => show.updateSettings(next as ReturnType<Show["currentSettings"]>),
+      saveIntegrationSettings: () => null,
+      listModels: async () => {
+        throw new Error("API Key 无效或没有读取模型的权限（HTTP 401）");
+      },
+    },
+  });
+  try {
+    const socket = await openControl(await server.listening);
+    const result = new Promise<{
+      type: string;
+      payload: { ok: boolean; models: string[]; detail: string };
+    }>((resolve) => {
+      socket.on("message", (raw) => {
+        const frame = JSON.parse(raw.toString()) as {
+          type: string;
+          payload: { ok: boolean; models: string[]; detail: string };
+        };
+        if (frame.type === "models") resolve(frame);
+      });
+    });
+    socket.send(
+      JSON.stringify({
+        type: "modelList",
+        payload: { baseUrl: "https://relay.example/v1", apiKey: "super-secret" },
+      }),
+    );
+    const frame = await result;
+    socket.close();
+
+    assert.equal(frame.payload.ok, false);
+    assert.deepEqual(frame.payload.models, []);
+    assert.match(frame.payload.detail, /HTTP 401/);
+    assert.equal(JSON.stringify(frame).includes("super-secret"), false);
+  } finally {
+    await server.close();
+  }
+});
+
 function openIngress(port: number): Promise<WebSocket> {
   const socket = new WebSocket(`ws://127.0.0.1:${port}/ingress`);
   return new Promise((resolve, reject) => {

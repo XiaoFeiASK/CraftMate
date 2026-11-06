@@ -15,6 +15,8 @@ export function App(): React.JSX.Element {
     settings,
     integrations,
     integrationRevision,
+    modelCatalog,
+    modelCatalogPending,
     resetActivity,
     lastError,
     subtitles,
@@ -28,6 +30,7 @@ export function App(): React.JSX.Element {
     sendOperator,
     saveSettings,
     saveIntegrationSettings,
+    fetchModels,
     speak,
     approveMemory,
     rejectMemory,
@@ -89,12 +92,15 @@ export function App(): React.JSX.Element {
             settings={settings}
             integrations={integrations}
             integrationRevision={integrationRevision}
+            modelCatalog={modelCatalog}
+            modelCatalogPending={modelCatalogPending}
             preferences={preferences}
             onComment={sendComment}
             onOperator={sendOperator}
             onSpeak={speak}
             onSaveSettings={saveSettings}
             onSaveIntegrationSettings={saveIntegrationSettings}
+            onFetchModels={fetchModels}
             onPreferences={update}
             onResetPreferences={reset}
             ops={ops}

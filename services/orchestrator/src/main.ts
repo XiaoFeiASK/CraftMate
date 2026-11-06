@@ -444,6 +444,7 @@ const server = createControlServer({
     saveSettings: (next) => persistent.saveSettings(next),
     saveIntegrationSettings: (next) => persistent.saveIntegrationSettings(next),
     readIntegrations: () => persistent.readIntegrations(),
+    listModels: (input) => persistent.listModels(input),
     resetActivity: () => persistent.resetActivity(),
     // The save path applies title/goalMode and the runtime's own progress is
     // pushed through publishGoalSnapshot; a second projection here could race

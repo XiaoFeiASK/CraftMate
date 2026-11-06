@@ -1,6 +1,7 @@
 import type {
   IntegrationSettingsUpdate,
   IntegrationSettingsView,
+  ModelCatalog,
   OpsSnapshot,
   OperatorKind,
   ShowMode,
@@ -44,6 +45,8 @@ interface OperationsPageProps {
   readonly settings: ShowSettings | null;
   readonly integrations: IntegrationSettingsView | null;
   readonly integrationRevision: number;
+  readonly modelCatalog: ModelCatalog | null;
+  readonly modelCatalogPending: boolean;
   readonly preferences: Preferences;
   readonly onComment: (nickname: string, text: string) => void;
   readonly onOperator: (kind: OperatorKind, text?: string) => void;
@@ -53,6 +56,7 @@ interface OperationsPageProps {
     settings: ShowSettings,
     integrations: IntegrationSettingsUpdate,
   ) => void;
+  readonly onFetchModels: (baseUrl: string, apiKey: string) => void;
   readonly onPreferences: (patch: Partial<Preferences>) => void;
   readonly onResetPreferences: () => void;
   readonly ops: OpsSnapshot | null;
@@ -95,12 +99,15 @@ export function OperationsPage({
   settings,
   integrations,
   integrationRevision,
+  modelCatalog,
+  modelCatalogPending,
   preferences,
   onComment,
   onOperator,
   onSpeak,
   onSaveSettings,
   onSaveIntegrationSettings,
+  onFetchModels,
   onPreferences,
   onResetPreferences,
   ops,
@@ -183,9 +190,12 @@ export function OperationsPage({
               onSave={onSaveSettings}
               integrations={integrations}
               integrationRevision={integrationRevision}
+              modelCatalog={modelCatalog}
+              modelCatalogPending={modelCatalogPending}
               lastError={lastError}
               model={snapshot.model}
               onSaveIntegrations={onSaveIntegrationSettings}
+              onFetchModels={onFetchModels}
               goal={snapshot.goal}
               onSetGoal={onSetGoal}
               onPauseGoal={onPauseGoal}

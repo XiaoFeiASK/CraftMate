@@ -4,6 +4,7 @@ import {
   type ClientMessage,
   type IntegrationSettingsUpdate,
   type IntegrationSettingsView,
+  type ModelCatalog,
   type OpsRequest,
   type OpsSnapshot,
   type OperatorKind,
@@ -69,6 +70,8 @@ export interface ControlLink {
   readonly settings: ShowSettings | null;
   readonly integrations: IntegrationSettingsView | null;
   readonly integrationRevision: number;
+  readonly modelCatalog: ModelCatalog | null;
+  readonly modelCatalogPending: boolean;
   resetActivity(): void;
   readonly lastError: string | null;
   readonly subtitles: readonly VoiceSubtitle[];
@@ -83,6 +86,7 @@ export interface ControlLink {
   sendOperator(kind: OperatorKind, text?: string): void;
   saveSettings(next: ShowSettings): void;
   saveIntegrationSettings(settings: ShowSettings, integrations: IntegrationSettingsUpdate): void;
+  fetchModels(baseUrl: string, apiKey: string): void;
   speak(text: string): void;
   refreshOps(): void;
   approveMemory(candidateId: string): void;
@@ -110,6 +114,8 @@ export function useControlLink(): ControlLink {
   const [settings, setSettings] = useState<ShowSettings | null>(null);
   const [integrations, setIntegrations] = useState<IntegrationSettingsView | null>(null);
   const [integrationRevision, setIntegrationRevision] = useState(0);
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalog | null>(null);
+  const [modelCatalogPending, setModelCatalogPending] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [subtitles, setSubtitles] = useState<readonly VoiceSubtitle[]>([]);
   const [ops, setOps] = useState<OpsSnapshot | null>(null);
@@ -176,6 +182,10 @@ export function useControlLink(): ControlLink {
         case "integrations":
           setIntegrationRevision((value) => value + 1);
           setIntegrations(message.payload);
+          break;
+        case "models":
+          setModelCatalog(message.payload);
+          setModelCatalogPending(false);
           break;
         case "voice":
           setSnapshot((current) => ({ ...current, voiceStatus: message.payload }));
@@ -254,6 +264,7 @@ export function useControlLink(): ControlLink {
       socket.addEventListener("close", () => {
         if (disposed || socketRef.current !== socket) return;
         setTimelinePending(false);
+        setModelCatalogPending(false);
         setState("closed");
         reconnectTimer = window.setTimeout(connect, reconnectDelay(attempt));
         attempt = Math.min(attempt + 1, 4);
@@ -309,6 +320,22 @@ export function useControlLink(): ControlLink {
     (settings: ShowSettings, integrations: IntegrationSettingsUpdate) => {
       setLastError(null);
       send({ type: "settingsSave", payload: { settings, integrations } });
+    },
+    [send],
+  );
+  const fetchModels = useCallback(
+    (baseUrl: string, apiKey: string) => {
+      const trimmedUrl = baseUrl.trim();
+      if (trimmedUrl.length === 0) return;
+      setModelCatalog(null);
+      setModelCatalogPending(true);
+      send({
+        type: "modelList",
+        payload: {
+          baseUrl: trimmedUrl,
+          ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+        },
+      });
     },
     [send],
   );
@@ -390,6 +417,8 @@ export function useControlLink(): ControlLink {
       settings,
       integrations,
       integrationRevision,
+      modelCatalog,
+      modelCatalogPending,
       resetActivity,
       lastError,
       subtitles,
@@ -404,6 +433,7 @@ export function useControlLink(): ControlLink {
       sendOperator,
       saveSettings,
       saveIntegrationSettings,
+      fetchModels,
       speak,
       refreshOps,
       approveMemory,
@@ -425,6 +455,8 @@ export function useControlLink(): ControlLink {
       settings,
       integrations,
       integrationRevision,
+      modelCatalog,
+      modelCatalogPending,
       resetActivity,
       lastError,
       subtitles,
@@ -438,6 +470,7 @@ export function useControlLink(): ControlLink {
       sendOperator,
       saveSettings,
       saveIntegrationSettings,
+      fetchModels,
       speak,
       refreshOps,
       approveMemory,

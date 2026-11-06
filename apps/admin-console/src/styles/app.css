@@ -2508,6 +2508,17 @@
 .settings-view .input--area { resize: vertical; min-height: 54px; line-height: 1.6; }
 .settings-provider { display: grid; gap: 8px; }
 .settings-provider__caption { color: var(--ink-faint); font-size: calc(11px * var(--ui-scale)); }
+.settings-model { display: grid; gap: 8px; }
+.settings-model__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.settings-model__fetch { white-space: nowrap; }
+.settings-model__caption { color: var(--ink-faint); font-size: calc(11px * var(--ui-scale)); }
+.settings-model__status { font-size: calc(11px * var(--ui-scale)); }
+.settings-model__status[data-state="error"] { color: var(--danger, #b23a48); }
 
 .inline-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 

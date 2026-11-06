@@ -5,6 +5,7 @@ import {
   type IntegrationSettingsUpdate,
   type IntegrationSettingsView,
   type GoalProgress,
+  type ModelCatalog,
   type ShowSnapshot,
   type PersonaProfile,
   type ShowSettings,
@@ -18,6 +19,8 @@ import type { Accent, Preferences, TextScale, ThemeMode } from "../../lib/prefer
 interface SettingsViewProps {
   readonly settings: ShowSettings | null;
   readonly integrations: IntegrationSettingsView | null;
+  readonly modelCatalog: ModelCatalog | null;
+  readonly modelCatalogPending: boolean;
   readonly state: WireState;
   readonly integrationRevision: number;
   readonly lastError: string | null;
@@ -30,6 +33,7 @@ interface SettingsViewProps {
     settings: ShowSettings,
     integrations: IntegrationSettingsUpdate,
   ) => void;
+  readonly onFetchModels: (baseUrl: string, apiKey: string) => void;
   readonly goal: GoalProgress | null;
   readonly onSetGoal: (title: string, description: string) => void;
   readonly onPauseGoal: () => void;
@@ -42,6 +46,8 @@ const CUSTOM_PROVIDER = "__custom__";
 export function SettingsView({
   settings,
   integrations,
+  modelCatalog,
+  modelCatalogPending,
   state,
   integrationRevision,
   lastError,
@@ -51,6 +57,7 @@ export function SettingsView({
   onResetPreferences,
   onSave,
   onSaveIntegrations,
+  onFetchModels,
   goal,
   onSetGoal,
   onPauseGoal,
@@ -140,6 +147,18 @@ export function SettingsView({
     (integrationDraft.model.provider !== integrations.model.provider ||
       normalizeBaseUrl(integrationDraft.model.baseUrl) !==
         normalizeBaseUrl(integrations.model.baseUrl));
+  const catalogForEndpoint =
+    modelCatalog !== null &&
+    normalizeBaseUrl(modelCatalog.baseUrl) ===
+      normalizeBaseUrl(integrationDraft?.model.baseUrl ?? "")
+      ? modelCatalog
+      : null;
+  const modelUrlValid = isHttpUrl(integrationDraft?.model.baseUrl ?? "");
+  const canFetchModels =
+    modelUrlValid &&
+    !modelCatalogPending &&
+    state === "open" &&
+    (!modelTargetChanged || secrets.model.trim().length > 0);
   const canSave =
     !saving && state === "open" &&
     (dirty || integrationDirty || secrets.model.length > 0 || secrets.voice.length > 0) &&
@@ -512,19 +531,68 @@ export function SettingsView({
         </Field>
         <Field
           label="模型名称"
-          hint={providerPreset?.modelHint ?? "填写供应商提供的完整模型 ID"}
+          hint={
+            catalogForEndpoint?.ok
+              ? `已获取 ${catalogForEndpoint.models.length} 个模型，可在下方选择`
+              : providerPreset?.modelHint ?? "填写供应商提供的完整模型 ID"
+          }
         >
-          <div>
-            <input
-              className="input"
-              aria-label="模型名称"
-              value={integrationDraft.model.model}
-              maxLength={96}
-              placeholder="deepseek-flash"
-              onChange={(event) =>
-                setIntegrationsDraft({ model: { model: event.target.value } })
-              }
-            />
+          <div className="settings-model">
+            <div className="settings-model__row">
+              <input
+                className="input"
+                aria-label="模型名称"
+                value={integrationDraft.model.model}
+                maxLength={96}
+                placeholder="deepseek-flash"
+                onChange={(event) =>
+                  setIntegrationsDraft({ model: { model: event.target.value } })
+                }
+              />
+              <button
+                type="button"
+                className="action action--ghost settings-model__fetch"
+                disabled={!canFetchModels}
+                onClick={() =>
+                  onFetchModels(integrationDraft.model.baseUrl, secrets.model)
+                }
+              >
+                {modelCatalogPending ? "获取中…" : "获取模型"}
+              </button>
+            </div>
+            {catalogForEndpoint?.ok && catalogForEndpoint.models.length > 0 ? (
+              <select
+                className="input"
+                aria-label="选择已获取的模型"
+                value={
+                  catalogForEndpoint.models.includes(integrationDraft.model.model)
+                    ? integrationDraft.model.model
+                    : ""
+                }
+                onChange={(event) => {
+                  if (event.target.value.length === 0) return;
+                  setIntegrationsDraft({ model: { model: event.target.value } });
+                }}
+              >
+                <option value="">从列表中选择模型（共 {catalogForEndpoint.models.length} 个）</option>
+                {catalogForEndpoint.models.map((id) => (
+                  <option key={id} value={id}>
+                    {id}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            {catalogForEndpoint && !catalogForEndpoint.ok ? (
+              <small className="settings-model__status" data-state="error" role="status">
+                {catalogForEndpoint.detail}
+              </small>
+            ) : (
+              <small className="settings-model__caption">
+                {modelTargetChanged && secrets.model.trim().length === 0
+                  ? "地址已变更，请先输入 API Key 再获取模型。"
+                  : "先用当前 API 地址和 Key 读取模型列表；已保存的 Key 可以留空。"}
+              </small>
+            )}
           </div>
         </Field>
         <Field label="模型 API 地址">
@@ -779,4 +847,13 @@ function lines(value: string): string[] {
 
 function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/u, "");
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }

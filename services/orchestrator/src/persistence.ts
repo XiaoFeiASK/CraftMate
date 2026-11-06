@@ -35,6 +35,7 @@ import {
   type SessionContext,
 } from "@craftmate/storage";
 import type { SeasonGoal } from "@craftmate/contracts";
+import { fetchModelIds } from "./model-catalog.ts";
 
 export interface PersistentShow {
   readonly show: Show;
@@ -55,6 +56,10 @@ export interface PersistentShow {
     readonly runtime: ReturnType<RuntimeConfigStore["read"]>;
   } | null;
   readIntegrations(): ReturnType<typeof publicRuntimeConfig>;
+  listModels(input: {
+    readonly baseUrl: string;
+    readonly apiKey?: string;
+  }): Promise<readonly string[]>;
   /** Purges expired raw text and writes one audit row per source. */
   expireRawText(now?: number): number;
   /** Records a model call so the hourly budget is a query, not a counter. */
@@ -307,6 +312,13 @@ export function createPersistentShow(options: {
       return { settings: withModel, runtime: saved };
     },
     readIntegrations: () => publicRuntimeConfig(runtimeConfig.read()),
+    listModels: ({ baseUrl, apiKey }) => {
+      const current = runtimeConfig.read();
+      const sameEndpoint =
+        normalizeUrl(current.model.baseUrl) === normalizeUrl(baseUrl);
+      const key = apiKey?.trim() || (sameEndpoint ? current.model.apiKey : "");
+      return fetchModelIds({ baseUrl, apiKey: key });
+    },
     expireRawText: (now) => sources.expireRawText(now),
     recordCost: (providerId, model, cost) => {
       costs.record({ sessionId: context.sessionId, provider: providerId, model, cost });
@@ -320,6 +332,10 @@ function positiveInteger(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim().length === 0) return fallback;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function normalizeUrl(value: string): string {
+  return value.trim().replace(/\/+$/u, "");
 }
 
 /**

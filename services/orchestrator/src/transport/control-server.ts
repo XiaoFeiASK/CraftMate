@@ -44,6 +44,14 @@ export interface SettingsWriter {
     readonly runtime: RuntimeIntegrationConfig;
   } | null;
   readIntegrations?(): IntegrationSettingsView;
+  /**
+   * Lists models for an OpenAI-compatible endpoint. The key stays inside the
+   * kernel: the console never talks to the provider directly.
+   */
+  listModels?(input: {
+    readonly baseUrl: string;
+    readonly apiKey?: string;
+  }): Promise<readonly string[]>;
   resetActivity?(): void;
 }
 
@@ -726,6 +734,49 @@ export function createControlServer({
         settings.resetActivity();
         broadcast({ type: "snapshot", payload: show.snapshot() });
         publishAgentEvent({ stage: "settings_applied", status: "ok", summary: "统计与决策视图已重置，历史仍可回放", source: "control" });
+        return;
+      }
+
+      if (parsed.data.type === "modelList") {
+        const { baseUrl, apiKey } = parsed.data.payload;
+        if (!settings?.listModels) {
+          send(socket, {
+            type: "models",
+            payload: {
+              baseUrl,
+              ok: false,
+              models: [],
+              detail: "当前内核不支持读取模型列表，请手动填写模型名称",
+            },
+          });
+          return;
+        }
+        void Promise.resolve()
+          .then(() =>
+            settings.listModels!({
+              baseUrl,
+              ...(apiKey?.trim() ? { apiKey: apiKey.trim() } : {}),
+            }),
+          )
+          .then((models) => {
+            send(socket, {
+              type: "models",
+              payload: { baseUrl, ok: true, models, detail: "" },
+            });
+          })
+          .catch((error: unknown) => {
+            send(socket, {
+              type: "models",
+              payload: {
+                baseUrl,
+                ok: false,
+                models: [],
+                // Provider errors never echo request headers, so the key cannot
+                // be reflected back through this message.
+                detail: describeError(error),
+              },
+            });
+          });
         return;
       }
 

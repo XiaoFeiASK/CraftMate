@@ -44,6 +44,19 @@ export const modelConnectionSchema = z.object({
 });
 export type ModelConnection = z.infer<typeof modelConnectionSchema>;
 
+/**
+ * Discovery result for an OpenAI-compatible `/models` endpoint. The console
+ * asks the local kernel so the browser never has to make a cross-origin
+ * request with the operator's key.
+ */
+export const modelCatalogSchema = z.object({
+  baseUrl: z.string(),
+  ok: z.boolean(),
+  models: z.array(z.string().trim().min(1).max(200)).readonly(),
+  detail: z.string().default(""),
+});
+export type ModelCatalog = z.infer<typeof modelCatalogSchema>;
+
 export const operatorNoticeSchema = z.object({
   kind: operatorKindSchema,
   text: z.string(),
@@ -219,6 +232,17 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
     }),
   }),
   z.object({
+    type: z.literal("modelList"),
+    payload: z.object({
+      baseUrl: z.string().trim().url().max(240).refine(
+        (value) => ["http:", "https:"].includes(new URL(value).protocol),
+        "URL must use http: or https:",
+      ),
+      /** Omitted or blank means "use the key already saved for this URL". */
+      apiKey: z.string().trim().max(4_096).optional(),
+    }),
+  }),
+  z.object({
     type: z.literal("speak"),
     payload: z.object({ text: z.string().trim().min(1).max(2_000) }),
   }),
@@ -250,6 +274,7 @@ export const serverMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("source"), payload: sourceHealthSchema }),
   z.object({ type: z.literal("settings"), payload: showSettingsSchema }),
   z.object({ type: z.literal("integrations"), payload: integrationSettingsViewSchema }),
+  z.object({ type: z.literal("models"), payload: modelCatalogSchema }),
   z.object({ type: z.literal("voice"), payload: voiceStatusSchema }),
   z.object({ type: z.literal("subtitle"), payload: voiceSubtitleSchema }),
   z.object({ type: z.literal("bridge"), payload: bridgeHealthSchema }),
