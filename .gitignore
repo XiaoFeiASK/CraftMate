@@ -9,10 +9,13 @@ data/
 *.db
 *.db-wal
 *.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 .vite/
 apps/desktop/src-tauri/gen/
 apps/desktop-shell/src-tauri/gen/
-.tmp-db/
+.tmp-db
 
 # local game/log output
 logs/

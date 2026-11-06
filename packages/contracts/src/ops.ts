@@ -33,6 +33,7 @@ export const bridgeHealthSchema = z.object({
           "on_fire",
           "starving",
           "creeper",
+          "threat",
           "retreat",
           "blocked",
         ]),

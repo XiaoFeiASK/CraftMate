@@ -673,6 +673,43 @@ describe("bridge control ownership", () => {
     );
   });
 
+  test("a threat reflex does not cancel the attack that is fighting it", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    first.coordinator.issue({
+      ...sessionsCommand("r-attack"),
+      op: "attack",
+      args: { target: "minecraft:zombie" },
+    });
+    sessions.advance(50);
+    assert.equal(first.coordinator.health().running, 1);
+
+    first.coordinator.handle({
+      v: 1,
+      type: "event",
+      seq: 1,
+      tick: 1,
+      name: "reflex",
+      data: { kind: "threat", detail: "僵尸离你 3 格" },
+    });
+
+    // The fight is the recovery action. Keep the command alive so its own
+    // hit/approach state machine can finish instead of restarting forever.
+    assert.equal(first.coordinator.health().running, 1);
+    assert.equal(first.coordinator.health().incidents.length, 1);
+
+    first.coordinator.handle({
+      v: 1,
+      type: "event",
+      seq: 2,
+      tick: 2,
+      name: "reflex",
+      data: { kind: "lava", detail: "站在岩浆里" },
+    });
+    assert.equal(first.coordinator.health().running, 0);
+  });
+
   test("a body cannot use reflex events to cancel an operator's work", () => {
     const control = new ControlAuthority();
     const sessions = createSessions(control);
@@ -703,6 +740,7 @@ describe("bridge control ownership", () => {
         token: TOKEN,
         clock,
         scheduler,
+        skills: ["goto", "look_at", "mine_block", "wait", "attack"],
         ticksPerCommand: 20,
         autoComplete: false,
         send: (frame) => coordinator.handle(frame),

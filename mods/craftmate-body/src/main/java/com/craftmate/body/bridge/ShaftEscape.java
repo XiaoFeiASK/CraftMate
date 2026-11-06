@@ -11,6 +11,17 @@ final class ShaftEscape {
 	}
 
 	/**
+	 * Pillaring is a vertical-shaft escape, not a way to climb open sky. In a
+	 * cave the ceiling is solid; in a one-block hole the body is walled in.
+	 * With neither signal the body is simply standing at a cliff edge, and
+	 * placing a tower there burns every building block without going
+	 * anywhere. That is what produced the sky pillar in the live run.
+	 */
+	static boolean shouldStartPillar(boolean ceilingSolid, int horizontalWalls) {
+		return ceilingSolid || horizontalWalls >= 3;
+	}
+
+	/**
 	 * @param horizontalWalls number of solid horizontal neighbours
 	 * @param hasPickaxe true when a carried tool can harvest the wall
 	 */

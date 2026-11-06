@@ -9,7 +9,7 @@
 | Node.js | ≥ 22.5 | 必需 |
 | npm | 随 Node | 必需 |
 | Rust / Cargo | stable | 仅桌面窗口；无 Rust 用 `--web` |
-| Minecraft + Fabric | 1.20.1 / Loader 0.15.11 / API 0.92.2+1.20.1 | 仅游戏动作 |
+| Minecraft + Fabric | 1.20.1 / Loader ≥0.15.11 / API 0.92.2+1.20.1 | 仅游戏动作 |
 | OBS / BlackHole | — | 仅推流；当前手工配置 |
 
 ```bash
@@ -37,6 +37,34 @@ npm run dev:voice
 npm run dev:console
 npm run dev:desktop         # 只启动桌面宿主
 ```
+
+### 2.1 Minecraft 1.20.1 身体
+
+当前开发环境使用单独启动的 1.20.1 服务端和 Fabric 客户端，不把游戏进程塞进
+`start.command`：
+
+| 进程 | 本机示例 | 说明 |
+| --- | --- | --- |
+| CraftMate Orchestrator | `127.0.0.1:4321` | 控制面与 `/bridge` |
+| Minecraft 客户端 | `127.0.0.1:4324` | 可选录制/调试；不是 Agent 依赖 |
+| Minecraft 服务端 | `25599` | 当前测试世界，客户端用快速连接进入 |
+
+构建并更新客户端 Mod：
+
+```bash
+cd mods/craftmate-body
+./gradlew build
+cp build/libs/craftmate-body-0.1.0.jar \
+  "$HOME/MC/craftmate-1.20.1/mods/craftmate-body-0.1.0.jar"
+```
+
+客户端需要 Minecraft 1.20.1、Fabric Loader `>=0.15.11`（当前验证实例为 0.20.1）、
+Fabric API `0.92.2+1.20.1`。服务端可以是原版 1.20.1；技能由客户端 Mod 执行，
+但服务端仍负责最终方块、实体和容器结果。更新 jar 后必须重启客户端，不能只退出
+世界，否则旧类仍留在 JVM 中。
+
+服务端世界关闭“失焦暂停”，并使用专用存档；服务端端口、是否正版验证和世界名只
+属于现场配置，不写入 Bridge 契约。
 
 ## 3. 服务与端口
 
@@ -142,6 +170,28 @@ API Key 只出现在请求中，不进入广播、SQLite、日志或 telemetry�
 SQLite，用于本机审计。若需要外部录制，使用身体侧 `4324` 并显式连接；控制台不会
 自动订阅视频。
 
+### 5.4 自主目标模式
+
+「设置 → 目标模式」开启后，Agent 按身体事实持续推进阶段，不需要每条评论或每次
+手工指令。当前实现是确定性 `SurvivalGoalPlanner`，不会调用模型；模型额度不变
+并不表示目标运行时停摆。
+
+排查时先看：
+
+```bash
+sqlite3 -header -column "$HOME/.craftmate/craftmate.db" \
+  "select goal_json, enabled, progress_json from goal_runtime;"
+
+tail -f "$HOME/MC/craftmate-1.20.1/logs/latest.log"
+```
+
+- `[CraftMate] goto start ...`、`[CraftMate] goto · ...`：Agent 已下达技能。
+- `[CraftMate] idle action=...`：没有技能在跑，Mod 正在空闲观察/走路/捡东西。
+- `progress_json.nextTask` 为空且 `retryAt` 在未来：运行时在退避或等终态。
+- `consecutiveFailures` 持续增长：看 `decision_log` 的最后结果和地形日志。
+
+完整闭环、阶段和模型账本见[自主生存闭环](autonomy.md)。
+
 ## 6. 验证
 
 ```bash
@@ -166,6 +216,7 @@ cd mods/craftmate-body
 - 默认数据库：`~/.craftmate/craftmate.db`。
 - WAL 伴生文件：`craftmate.db-wal`、`craftmate.db-shm`。
 - 启动自动执行 `db/migrations/`。
+- `model_cost` 记录成功模型调用的价格与 token 用量；零价格调用也保留 token 证据。
 - 原始评论 24 小时后置空，保留哈希和结构化指标。
 - 日志不写弹幕原文、prompt 或模型输出。
 - `db/README.md` 已合并到[数据模型](../reference/data-model.md)。
@@ -191,6 +242,9 @@ cd mods/craftmate-body
 | Voice 无声 | 系统输出设备或路由问题 | 先查 Voice 日志；macOS 切换可用扬声器 |
 | Ingress `upstream=false` | 未连上 Orchestrator | 检查 4321 和 ingress token |
 | Bridge 未连接 | 游戏未启动、Mod 未安装或 token 不匹配 | 检查 Fabric 日志、版本和 bridge token |
+| 有目标但角色只随机看/走 | 身体处于 `idle action=...`，没有 Agent 任务 | 检查 `retryAt`、失败退避和 Bridge 终态，不要误判为随机寻路 |
+| 模型额度长期不变 | 目标模式走确定性规划器；或供应商请求失败 | 查 `model_cost` 是否有新行，再看 Stage C / 供应商错误 |
+| 供应商返回 502 | 上游模型服务不可用或模型名不支持 | 保留失败记录，切换模型/端点后再触发一次 Stage C；无成功请求不产生费用 |
 
 ## 10. 停止
 

@@ -52,6 +52,9 @@ export interface SnapshotView {
     readonly name: string;
     readonly type: string;
     readonly distance: number;
+    readonly x?: number;
+    readonly y?: number;
+    readonly z?: number;
   }[];
 }
 
@@ -150,6 +153,37 @@ export function hasCraftingTableProduct(facts: WorldFacts): boolean {
   return facts.inventory.some((slot) => craftedTool.test(slot.item));
 }
 
+/**
+ * Pickaxe tiers that satisfy "can mine stone". The earlier milestone required
+ * a wooden pickaxe specifically, so a body that already carried a stone or
+ * iron pickaxe could never complete it and the planner kept asking for a
+ * downgrade it could not craft.
+ */
+export function hasStoneCapablePickaxe(facts: WorldFacts): boolean {
+  return facts.inventory.some((slot) =>
+    /(^|:)(wooden|stone|iron|golden|diamond|netherite)_pickaxe$/u.test(slot.item),
+  );
+}
+
+/** Best pickaxe tier present, used to skip pointless lower-tier crafts. */
+export function pickaxeTier(facts: WorldFacts): number {
+  const ranks: Record<string, number> = {
+    wooden: 1,
+    golden: 1,
+    stone: 2,
+    iron: 3,
+    diamond: 4,
+    netherite: 5,
+  };
+  let best = 0;
+  for (const slot of facts.inventory) {
+    const match = /^minecraft:([a-z]+)_pickaxe$/u.exec(slot.item);
+    if (match === null) continue;
+    best = Math.max(best, ranks[match[1] ?? ""] ?? 0);
+  }
+  return best;
+}
+
 export function countAny(facts: WorldFacts, items: readonly string[]): number {
   return items.reduce((total, item) => total + inventoryCount(facts, item), 0);
 }
@@ -167,6 +201,36 @@ export function nearestEntity(
     .filter((entity) => pattern.test(entity.type) && entity.distance <= maxDistance)
     .sort((left, right) => left.distance - right.distance);
   return matches[0] ?? null;
+}
+
+/**
+ * A land mob can be inside the planar hunt window while standing on the
+ * surface directly above a cave. The body's bounded walker cannot climb that
+ * cliff, so issuing an attack only produces "no reachable route" and hides a
+ * real nearby opportunity (wood, food drops) behind a retry loop. Missing
+ * coordinates keep the old behavior because an older body may not report
+ * them.
+ */
+export function nearestEntityWithinHeight(
+  facts: WorldFacts,
+  pattern: RegExp,
+  maxDistance = Number.POSITIVE_INFINITY,
+  maxVertical = 12,
+): NearbyEntity | null {
+  const origin = facts.position;
+  return (
+    (facts.entities ?? [])
+      .filter(
+        (entity) =>
+          pattern.test(entity.type) &&
+          entity.distance <= maxDistance &&
+          (origin === undefined ||
+            origin === null ||
+            entity.y === undefined ||
+            Math.abs(entity.y - origin.y) <= maxVertical),
+      )
+      .sort((left, right) => left.distance - right.distance)[0] ?? null
+  );
 }
 
 export function dimensionOf(world: string | null | undefined): string {
@@ -259,6 +323,9 @@ function normalizeEntities(entities: SnapshotView["entities"]): readonly NearbyE
     name: entity.name,
     type: normalizeEntityType(entity.type),
     distance: entity.distance,
+    ...(entity.x === undefined ? {} : { x: entity.x }),
+    ...(entity.y === undefined ? {} : { y: entity.y }),
+    ...(entity.z === undefined ? {} : { z: entity.z }),
   }));
 }
 

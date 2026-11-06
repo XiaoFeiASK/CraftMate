@@ -29,14 +29,17 @@ final class ApproachRoute {
 	}
 
 	static Route to(Minecraft client, BlockPos target) {
-		Set<BoundedPathfinder.Cell> candidates = interactionCells(client, target);
+		Set<BoundedPathfinder.Cell> candidates = new HashSet<>(
+			openInteractionCells(client, target)
+		);
 		if (candidates.isEmpty()) return null;
 		BlockPos start = client.player.blockPosition();
 		BoundedPathfinder.Result found = BoundedPathfinder.find(
 			new BoundedPathfinder.Cell(start.getX(), start.getY(), start.getZ()),
 			new BoundedPathfinder.Cell(target.getX(), target.getY(), target.getZ()),
-			(x, y, z) -> GameActions.standingY(client, new BlockPos(x, y, z)) == y,
-			(x, y, z) -> candidates.contains(new BoundedPathfinder.Cell(x, y, z)),
+			(cell) -> candidates.contains(cell),
+			(x, y, z) -> GameActions.standableAt(client, new BlockPos(x, y, z)),
+			GameActions.traversal(client),
 			MAX_NODES,
 			MAX_RADIUS
 		);
@@ -67,8 +70,9 @@ final class ApproachRoute {
 		BoundedPathfinder.Result found = BoundedPathfinder.find(
 			new BoundedPathfinder.Cell(start.getX(), start.getY(), start.getZ()),
 			new BoundedPathfinder.Cell(center.getX(), center.getY(), center.getZ()),
-			(x, y, z) -> withinEntityReach(center, x, y, z),
-			(x, y, z) -> GameActions.standingY(client, new BlockPos(x, y, z)) == y,
+			(cell) -> withinEntityReach(center, cell.x(), cell.y(), cell.z()),
+			(x, y, z) -> GameActions.standableAt(client, new BlockPos(x, y, z)),
+			GameActions.traversal(client),
 			maxNodes,
 			maxRadius
 		);
@@ -143,7 +147,9 @@ final class ApproachRoute {
 	) {
 		BlockPos start = client.player.blockPosition();
 		List<BoundedPathfinder.Cell> candidates = openInteractionCells(client, target);
-		if (candidates.isEmpty()) return null;
+		if (candidates.isEmpty()) {
+			return null;
+		}
 		BoundedPathfinder.Cell startCell = new BoundedPathfinder.Cell(
 			start.getX(),
 			start.getY(),
@@ -162,9 +168,9 @@ final class ApproachRoute {
 			BoundedPathfinder.Result found = BoundedPathfinder.find(
 				startCell,
 				new BoundedPathfinder.Cell(target.getX(), target.getY(), target.getZ()),
-				(x, y, z) -> GameActions.standingY(client, new BlockPos(x, y, z)) == y,
-				(x, y, z) ->
-					x == cell.x() && y == cell.y() && z == cell.z(),
+				(candidate) -> candidate.equals(cell),
+				(x, y, z) -> GameActions.standableAt(client, new BlockPos(x, y, z)),
+				GameActions.traversal(client),
 				maxNodes,
 				maxRadius
 			);
@@ -190,7 +196,7 @@ final class ApproachRoute {
 			BlockPos level = target.above(dy);
 			for (Direction direction : Direction.Plane.HORIZONTAL) {
 				BlockPos spot = level.relative(direction);
-				if (GameActions.standingY(client, spot) != spot.getY()) continue;
+				if (!GameActions.standableAt(client, spot)) continue;
 				BlockState feet = client.level.getBlockState(spot);
 				if (!feet.getFluidState().isEmpty()) continue;
 				if (!client.level.getBlockState(spot.above()).getFluidState().isEmpty()) continue;
@@ -217,12 +223,15 @@ final class ApproachRoute {
 		BlockPos target
 	) {
 		List<BoundedPathfinder.Cell> cells = new ArrayList<>();
-		for (int dy = -2; dy <= 2; dy++) {
+		// A tree's lowest log can sit several blocks above the player when the
+		// trunk starts on a slope. Cover the standable ground under that
+		// column instead of only the log's own three-block band.
+		for (int dy = -4; dy <= 2; dy++) {
 			for (int dx = -2; dx <= 2; dx++) {
 				for (int dz = -2; dz <= 2; dz++) {
 					if (dx == 0 && dz == 0 && dy == 0) continue;
 					BlockPos spot = target.offset(dx, dy, dz);
-					if (GameActions.standingY(client, spot) != spot.getY()) continue;
+					if (!GameActions.standableAt(client, spot)) continue;
 					BlockState feet = client.level.getBlockState(spot);
 					if (!feet.getFluidState().isEmpty()) continue;
 					if (!client.level.getBlockState(spot.above()).getFluidState().isEmpty()) continue;
@@ -235,16 +244,24 @@ final class ApproachRoute {
 	}
 
 	private static boolean canTargetFrom(Minecraft client, BlockPos spot, BlockPos target) {
-		Vec3 center = Vec3.atCenterOf(target);
-		return InteractionReach.withinReach(
+		Vec3 eye = new Vec3(
 			spot.getX() + 0.5,
-			spot.getY(),
-			spot.getZ() + 0.5,
-			client.player.getEyeHeight(),
-			center.x,
-			center.y,
-			center.z,
-			4.5
+			spot.getY() + client.player.getEyeHeight(),
+			spot.getZ() + 0.5
 		);
+		// A block is hittable on any visible face, not only through its
+		// centre. A tall trunk's centre can be outside reach while its lower
+		// face is a normal ground-level hit; probing the centre made every
+		// tall tree look unreachable even from its base.
+		for (double y : new double[] { 0.2, 0.5, 0.8 }) {
+			if (InteractionReach.withinReach(
+				eye.x, spot.getY(), eye.z, client.player.getEyeHeight(),
+				target.getX() + 0.5, target.getY() + y, target.getZ() + 0.5, 4.5
+			)) {
+				return true;
+			}
+		}
+		return false;
 	}
+
 }

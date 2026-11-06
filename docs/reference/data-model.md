@@ -39,8 +39,10 @@
 | `0008_goal_runtime` | 目标运行时与观众提议收件箱 |
 | `0009_goal_runtime_failures` | 目标失败恢复历史 |
 | `0010_agent_event` | 管理端可观测事件投影 |
+| `0011_dashboard_activity` | 按场次记录工作台活动统计起点 |
+| `0012_model_usage` | 模型 token 用量，零价格调用也留证据 |
 
-当前校验器报告 31 个对象、29 个索引；新增迁移后以 `npm run db:check` 输出为准。
+当前校验器报告 32 个对象、29 个索引；新增迁移后以 `npm run db:check` 输出为准。
 
 ### 2.1 `agent_event`
 
@@ -62,6 +64,19 @@ duration_ms, summary, error_code, source, created_at_ms
 
 保留策略：事件作为运维证据按当前方案保留，不随 `source.raw_text` 的 24 小时
 清理删除。它本身不含原文，因此清理原文不会改变事件的可解释性。
+
+### 2.2 `model_cost`
+
+```text
+id, session_id, provider, model, cost,
+prompt_tokens, completion_tokens, occurred_at_ms
+```
+
+- 只有成功的模型调用才写行；失败、超时、未配置模型和供应商 5xx 都不计费。
+- `0012_model_usage` 增加 `prompt_tokens` / `completion_tokens`。即使运营者没有
+  配置每百万 token 单价、计算结果为 `cost = 0`，成功调用也会记录用量。
+- 这使“没有调用”“调用成功但本地价格为零”“调用失败”在账本里可以区分。
+- 小时预算按滚动 60 分钟查询 `cost`，不依赖重启后会清零的内存计数器。
 
 ## 3. 不变量
 

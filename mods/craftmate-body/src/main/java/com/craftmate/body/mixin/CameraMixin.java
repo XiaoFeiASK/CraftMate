@@ -4,7 +4,7 @@ import com.craftmate.body.bridge.CameraController;
 import net.minecraft.client.Camera;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.level.Level;
+import net.minecraft.world.level.BlockGetter;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -21,7 +21,7 @@ public abstract class CameraMixin {
 
 	@Inject(method = "setup", at = @At("RETURN"))
 	private void craftmate$applyDisplayRotation(
-		Level level,
+		BlockGetter level,
 		Entity entity,
 		boolean detachedCamera,
 		boolean thirdPerson,

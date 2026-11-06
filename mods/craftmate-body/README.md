@@ -36,8 +36,15 @@ executor.
 - Commands execute only while the server's most recent `welcome`/`ownership`
   state grants `agent` control.
 - The local watchdog stops movement and mining after a missed heartbeat.
-- `goto` is a bounded straight-line walk with collision-aware stop and a hard
-  timeout; it is not a full world-scale pathfinder.
+- `goto` uses a bounded A* over standable, non-liquid cells (4000 nodes). It
+  follows the returned waypoints with a `12°/tick` turn limit, checks actual
+  displacement for progress, and replans at most three times after three
+  seconds without progress. Exploration may pass up to eight candidate
+  headings and accept a proven partial route as a new observation area;
+  ordinary movement still must reach its exact target.
+- Terrain handling includes one-block stair climbing, canopy descent, shaft
+  escape, and verified bridging across short gaps. Each bridge block must
+  appear in the world before the next one is submitted.
 - Unsupported or unsafe actions fail with a typed bridge error instead of
   pretending to succeed.
 - Commands require a loaded client level, local player, connection, and game
@@ -57,14 +64,34 @@ executor.
   the normal stop-sleeping command instead of leaving the body in bed.
 - `place_block` accepts a bed item and checks both cells before submitting,
   trying each horizontal heading so the second half has room.
+- `pillar_up` jumps, looks down, and places one confirmed block under the
+  body at a time, up to 16 blocks.
+- `attack` approaches distant targets before swinging, verifies damage or
+  death on the same entity, waits for attack charge, and can collect drops.
+
+The current body advertises 16 skills: `goto`, `look_at`, `mine_block`,
+`chop_tree`, `collect_items`, `craft`, `deposit`, `say`, `wait`, `attack`,
+`equip`, `eat`, `use_block`, `place_block`, `pillar_up`, and `sleep`.
+
+Camera rendering and player interaction are separate. `CameraController` and
+`CameraMixin` smooth the displayed camera with clamped angular speed; aiming
+still uses the real player rotation and line-of-sight raycast. Walking uses
+`ViewSlew`, so the body never snaps its heading between waypoints.
+
+When no command is active and the agent owns control, `IdleWander` may look
+around, take a short safe walk, or pick up a nearby drop. It never mines,
+opens containers, or competes with a bridge command; an incoming task resets
+it immediately.
 
 ## Observation
 
 Each heartbeat world snapshot includes the full non-empty `inventory`
 (`hotbar` 0–8, `main` 9–35, `armor` 36–39, `offhand` 40) with optional
-durability, plus `timeOfDay` (0–23999), `day` and `sleeping`. The older
-`hotbar` array stays for compatibility, but it is no longer the only view of
-the backpack.
+durability, plus `timeOfDay` (0–23999), `day`, `sleeping`, crafting-table
+facts, reachable block, and nearby entity coordinates. Session facts retain
+confirmed food and table state across a long connection so consumed evidence
+does not make a milestone regress. The older `hotbar` array stays for
+compatibility, but it is no longer the only view of the backpack.
 
 ## Acceptance
 

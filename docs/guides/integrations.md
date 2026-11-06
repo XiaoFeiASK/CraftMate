@@ -28,6 +28,11 @@ CRAFTMATE_MODEL_TIMEOUT_MS=20000
 
 模型输出只能产生 `speech` 和声明过的技能；观众文本不进入系统提示。
 
+模型调用只有成功后才写 `model_cost`。从 `0012_model_usage.sql` 起，没有配置单价
+的成功请求也会记录 prompt/completion token（`cost = 0`）。目标模式使用确定性
+`SurvivalGoalPlanner`，正常不会产生模型调用，因此额度长期不变是可能且预期的。
+若供应商返回 `502`，先核对端点和模型名；失败请求同样不会扣本地预算。
+
 ## 2. 豆包 Seeduplex 实时语音
 
 Voice 只使用端到端实时语音 WebSocket；一次性 TTS HTTP 接口已删除。
@@ -100,11 +105,11 @@ Ingress 健康检查：`http://127.0.0.1:4322/health`。
 ## 4. Minecraft：Fabric 身体
 
 当前身体是仓库内 `mods/craftmate-body`，目标版本为 Minecraft 1.20.1 与 Fabric
-Loader 0.15.11。
+Loader `≥0.15.11`（当前验证实例为 0.20.1）。
 
 ### 安装
 
-1. 准备 Minecraft 1.20.1、Fabric Loader 0.15.11 和 Fabric API 0.92.2+1.20.1 实例；开发验证使用 HMCL。
+1. 准备 Minecraft 1.20.1、Fabric Loader `≥0.15.11` 和 Fabric API 0.92.2+1.20.1 实例；开发验证使用 HMCL。
 2. 构建：
 
    ```bash
@@ -120,6 +125,10 @@ Loader 0.15.11。
 观众评论或操作员操作。开启后由 GoalRuntime 一次下达一个任务，等待身体终态后
 再重新观察；接管、急停和暂停会取消当前命令。评论进入「观众提议」收件箱，
 经过安全、目标与执行三层闸门，票数不会覆盖安全拒绝。
+
+当前目标规划器是确定性的，不调用大模型；它只使用身体快照中的已观测事实。角色在
+两个命令之间仍可能随机观察、短距离行走或捡掉落物，这是 Mod 的 `IdleWander`，不是
+Agent 失去控制。完整分工见[自主生存闭环](../operations/autonomy.md)。
 
 ### 验证
 

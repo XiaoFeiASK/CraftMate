@@ -8,7 +8,13 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.monster.Creeper;
+import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.projectile.AbstractArrow;
+import net.minecraft.world.item.AxeItem;
+import net.minecraft.world.item.DiggerItem;
+import net.minecraft.world.item.SwordItem;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
 
 /**
  * The body's own danger sense. A human player lets go of the mouse and steps
@@ -26,7 +32,17 @@ final class Reflexes {
 	private static final int REPORT_COOLDOWN_TICKS = 20 * 3;
 	/** One block from lava means the next step can be fatal. */
 	private static final int LAVA_LOOKAHEAD = 2;
-	private static final double CREEPER_DISTANCE_SQR = 3.0 * 3.0;
+	/**
+	 * A hostile already in bow range ends the current skill. The response is
+	 * deliberately short: a reflex is allowed to dodge, not to freeze the
+	 * body for the rest of the fight. After this window the planner gets to
+	 * choose attack or retreat with a fresh observation.
+	 */
+	private static final int THREAT_RESPONSE_TICKS = 20 * 2;
+	private static final int THREAT_RETRY_TICKS = 20 * 4;
+	private static final double THREAT_DISTANCE = 7.0;
+	private static final double ARROW_DISTANCE = 10.0;
+	private static final double MELEE_DISTANCE = 3.25;
 	private static final float LOW_HEALTH = 6.0f;
 	/**
 	 * Low health is a condition, not an event. Re-reporting it every report
@@ -53,6 +69,8 @@ final class Reflexes {
 	private int ticks;
 	private boolean retreated;
 	private boolean lowHealthReported;
+	private int threatResponseUntil;
+	private int nextThreatAt;
 
 	Reflexes(Consumer<JsonObject> send) {
 		this.send = send;
@@ -106,19 +124,42 @@ final class Reflexes {
 			dangerous = true;
 			report(Kind.STARVING, "饿到快掉血了", player);
 		}
-		Entity creeper = nearestCreeper(client, player);
-		if (creeper != null) {
-			double distance = Math.sqrt(creeper.distanceToSqr(player));
+		Entity threat = nearestThreat(client, player);
+		AbstractArrow arrow = incomingArrow(client, player);
+		if ((threat != null || arrow != null) && ticks >= nextThreatAt) {
+			threatResponseUntil = ticks + THREAT_RESPONSE_TICKS;
+			nextThreatAt = ticks + THREAT_RETRY_TICKS;
+			if (threat != null) {
+				double distance = Math.sqrt(threat.distanceToSqr(player));
+				report(
+					Kind.THREAT,
+					threat.getName().getString() + "离你 " + Math.round(distance) + " 格",
+					player
+				);
+			} else if (arrow != null) {
+				report(
+					Kind.THREAT,
+					"箭矢朝你飞来，距离 " + Math.round(Math.sqrt(arrow.distanceToSqr(player))) + " 格",
+					player
+				);
+			}
+		}
+		if (ticks < threatResponseUntil) {
 			dangerous = true;
-			report(Kind.CREEPER, "苦力怕离你 " + Math.round(distance) + " 格", player);
 		}
 
 		if (dangerous) {
 			releaseInputs(player);
-			escape(client, player);
+			if (ticks < threatResponseUntil) {
+				evade(client, player, threat, arrow);
+			} else {
+				escape(client, player);
+			}
 			retreated = true;
 		} else if (retreated) {
 			retreated = false;
+			client.options.keyJump.setDown(false);
+			if (player.input != null) player.input.tick(false, 1.0f);
 		}
 		return dangerous;
 	}
@@ -151,9 +192,70 @@ final class Reflexes {
 	 * choice and a reflex that guesses can walk off a cliff.
 	 */
 	private static void escape(Minecraft client, LocalPlayer player) {
-		if (player.isInLava() || player.isEyeInFluid(FluidTags.WATER)) {
-			if (player.onGround()) player.jumpFromGround();
+		// `jumpFromGround` only works on solid ground. A body that fell into
+		// water has no ground to jump from, so the old escape released every
+		// key and sank until it drowned. Vanilla swims upward while the jump
+		// key is held; keep it held every dangerous tick and the normal input
+		// path will carry the body to the surface.
+		if (player.isInWater() || player.isEyeInFluid(FluidTags.WATER)) {
+			client.options.keyJump.setDown(true);
+			if (player.input != null) player.input.tick(false, 1.0f);
+			return;
 		}
+		if (player.isInLava() || player.isEyeInFluid(FluidTags.LAVA)) {
+			client.options.keyJump.setDown(true);
+			if (player.input != null) player.input.tick(false, 1.0f);
+		}
+	}
+
+	/**
+	 * Keep the crosshair on the attacker so a close mob can be punched while
+	 * the body strafes. A creeper and incoming arrow are never traded against:
+	 * those two signals always ask for lateral or backward movement.
+	 */
+	private void evade(
+		Minecraft client,
+		LocalPlayer player,
+		Entity threat,
+		AbstractArrow arrow
+	) {
+		int side = (ticks / 20) % 2 == 0 ? 1 : -1;
+		boolean retreat = player.getHealth() < 12.0f || threat instanceof Creeper;
+		if (threat != null) {
+			int weapon = bestWeaponSlot(player);
+			if (weapon >= 0) player.getInventory().selected = weapon;
+			double distance = Math.sqrt(threat.distanceToSqr(player));
+			Vec3 target = threat.getBoundingBox().getCenter();
+			Vec3 direction = target.subtract(player.getEyePosition()).normalize();
+			player.setYRot((float) Math.toDegrees(Math.atan2(-direction.x, direction.z)));
+			player.setXRot(
+				(float) Math.toDegrees(-Math.asin(Math.max(-1.0, Math.min(1.0, direction.y))))
+			);
+			if (
+				!retreat
+					&& distance <= MELEE_DISTANCE
+					&& player.getAttackStrengthScale(0.5f) >= 0.9f
+			) {
+				client.gameMode.attack(player, threat);
+				player.swing(net.minecraft.world.InteractionHand.MAIN_HAND);
+			}
+			// A healthy body closes the gap while strafing instead of orbiting
+			// forever at 3.7 blocks. Skeletons are weakest at melee range and
+			// the old reflex only attacked inside 3.25, so it paced in bow
+			// range until it was shot. Retreat/creeper still backs away.
+			GameActions.setCombatMove(
+				client,
+				side,
+				retreat,
+				!retreat && distance > MELEE_DISTANCE * 0.85,
+				true
+			);
+			if (player.horizontalCollision && player.onGround()) player.jumpFromGround();
+			return;
+		}
+		// An arrow is dodged sideways, not by backing into its previous path.
+		GameActions.setCombatMove(client, side, false, false, true);
+		if (player.horizontalCollision && player.onGround()) player.jumpFromGround();
 	}
 
 	private static boolean nearLava(Minecraft client, LocalPlayer player) {
@@ -168,11 +270,58 @@ final class Reflexes {
 		return false;
 	}
 
-	private static Entity nearestCreeper(Minecraft client, LocalPlayer player) {
+	private static int bestWeaponSlot(LocalPlayer player) {
+		int best = -1;
+		int bestScore = 0;
+		for (int slot = 0; slot < 9; slot++) {
+			var stack = player.getInventory().getItem(slot);
+			if (stack.isEmpty()) continue;
+			int score = stack.getItem() instanceof SwordItem
+				? 100
+				: stack.getItem() instanceof AxeItem
+					? 80
+					: stack.getItem() instanceof DiggerItem
+						? 40
+						: 0;
+			if (score > bestScore) {
+				bestScore = score;
+				best = slot;
+			}
+		}
+		return best;
+	}
+
+	private static Entity nearestThreat(Minecraft client, LocalPlayer player) {
 		return client.level
-			.getEntitiesOfClass(Creeper.class, player.getBoundingBox().inflate(CREEPER_DISTANCE_SQR))
+			.getEntitiesOfClass(
+				Monster.class,
+				player.getBoundingBox().inflate(THREAT_DISTANCE)
+			)
 			.stream()
-			.filter(creeper -> creeper.isAlive() && creeper.distanceToSqr(player) <= CREEPER_DISTANCE_SQR)
+			.filter(entity ->
+				entity.isAlive()
+					&& entity.distanceToSqr(player) <= THREAT_DISTANCE * THREAT_DISTANCE
+					&& player.hasLineOfSight(entity)
+			)
+			.findFirst()
+			.orElse(null);
+	}
+
+	private static AbstractArrow incomingArrow(Minecraft client, LocalPlayer player) {
+		Vec3 chest = player.position().add(0, 1, 0);
+		return client.level
+			.getEntitiesOfClass(
+				AbstractArrow.class,
+				player.getBoundingBox().inflate(ARROW_DISTANCE)
+			)
+			.stream()
+			.filter(arrow ->
+				arrow.isAlive()
+					&& !arrow.onGround()
+					&& arrow.getOwner() != player
+					&& arrow.distanceToSqr(player) <= ARROW_DISTANCE * ARROW_DISTANCE
+					&& arrow.getDeltaMovement().dot(chest.subtract(arrow.position())) > 0
+			)
 			.findFirst()
 			.orElse(null);
 	}
@@ -191,7 +340,7 @@ final class Reflexes {
 		DROWNING("drowning"),
 		ON_FIRE("on_fire"),
 		STARVING("starving"),
-		CREEPER("creeper");
+		THREAT("threat");
 
 		final String wire;
 

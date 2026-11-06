@@ -11,8 +11,17 @@ import net.minecraft.world.phys.Vec3;
  * audience-facing camera follows an explicit intent through a bounded slew.
  */
 public final class CameraController {
-	private static final float MAX_SPEED_DEGREES = 150.0f;
-	private static final float MAX_ACCELERATION_DEGREES = 600.0f;
+	/**
+	 * Spring limits, in degrees per second. Yaw may lead pitch because a
+	 * horizontal look is the common case; pitch stays slower so scanning a
+	 * hillside does not feel like a headless camera. The per-frame cap keeps
+	 * a long render stall (or a debugger pause) from consuming a second of
+	 * backlog in one frame, which is exactly the jump the audience sees.
+	 */
+	private static final float MAX_YAW_SPEED_DEGREES = 220.0f;
+	private static final float MAX_PITCH_SPEED_DEGREES = 150.0f;
+	private static final float MAX_ACCELERATION_DEGREES = 1_200.0f;
+	private static final float MAX_FRAME_STEP_DEGREES = 26.0f;
 	private static final float DEFAULT_FRAME_SECONDS = 1.0f / 60.0f;
 	private static final float MAX_FRAME_SECONDS = 0.1f;
 	private static final float RELEASE_TOLERANCE = 0.35f;
@@ -141,10 +150,18 @@ public final class CameraController {
 		}
 		float yawError = Mth.wrapDegrees(desiredYaw - displayYaw);
 		float pitchError = desiredPitch - displayPitch;
-		yawVelocity = approach(yawVelocity, yawError, dt);
-		pitchVelocity = approach(pitchVelocity, pitchError, dt);
-		displayYaw = Mth.wrapDegrees(displayYaw + yawVelocity * dt);
-		displayPitch = Mth.clamp(displayPitch + pitchVelocity * dt, -90.0f, 90.0f);
+		yawVelocity = approach(yawVelocity, yawError, dt, MAX_YAW_SPEED_DEGREES);
+		pitchVelocity = approach(pitchVelocity, pitchError, dt, MAX_PITCH_SPEED_DEGREES);
+		displayYaw = Mth.wrapDegrees(
+			displayYaw +
+				Mth.clamp(yawVelocity * dt, -MAX_FRAME_STEP_DEGREES, MAX_FRAME_STEP_DEGREES)
+		);
+		displayPitch = Mth.clamp(
+			displayPitch +
+				Mth.clamp(pitchVelocity * dt, -MAX_FRAME_STEP_DEGREES, MAX_FRAME_STEP_DEGREES),
+			-90.0f,
+			90.0f
+		);
 
 		if (
 			releasing
@@ -185,11 +202,16 @@ public final class CameraController {
 	 * bounded so a low-frame-rate recovery cannot consume a backlog in one
 	 * frame and look like a snap.
 	 */
-	private static float approach(float velocity, float error, float dt) {
+	private static float approach(
+		float velocity,
+		float error,
+		float dt,
+		float maxSpeedDegrees
+	) {
 		float desiredVelocity = Mth.clamp(
-			error * 12.0f,
-			-MAX_SPEED_DEGREES,
-			MAX_SPEED_DEGREES
+			error * 14.0f,
+			-maxSpeedDegrees,
+			maxSpeedDegrees
 		);
 		float maxDelta = MAX_ACCELERATION_DEGREES * dt;
 		return velocity + Mth.clamp(desiredVelocity - velocity, -maxDelta, maxDelta);

@@ -16,7 +16,15 @@ import java.util.Set;
  * has a hard node budget.
  */
 public final class BoundedPathfinder {
-	private static final int MAX_VERTICAL = 8;
+	/**
+	 * A placed station commonly sits one hillside or tree level above the
+	 * body. Eight blocks was an arbitrary search-width guard, but it also
+	 * rejected a real route to a crafting table thirteen blocks above the
+	 * player, so every approach returned "no route" and the body froze while
+	 * the planner retried the same craft. Sixteen still bounds the search;
+	 * the node budget and radius remain the expensive guards.
+	 */
+	private static final int MAX_VERTICAL = 16;
 	private static final int[][] HORIZONTAL = {
 		{ 1, 0 },
 		{ -1, 0 },
@@ -44,9 +52,24 @@ public final class BoundedPathfinder {
 		boolean standable(int x, int y, int z);
 	}
 
+	/**
+	 * Extra geometry the plain standability grid cannot express. A cell can be
+	 * perfectly standable and still be impossible to enter: vanilla resolves
+	 * horizontal movement per axis, so a diagonal through a closed corner
+	 * wedges the body, and a one-block drop into a covered column stops the
+	 * body against the lip. Both produced routes that were "valid" on paper
+	 * while the player jumped against a wall forever.
+	 */
+	@FunctionalInterface
+	public interface Traversal {
+		boolean allowed(Cell from, Cell to);
+
+		Traversal ANY = (from, to) -> true;
+	}
+
 	@FunctionalInterface
 	public interface Goal {
-		boolean reached(int x, int y, int z);
+		boolean reached(Cell cell);
 	}
 
 	/**
@@ -62,9 +85,33 @@ public final class BoundedPathfinder {
 		int maxNodes,
 		double maxRadius
 	) {
+		return find(start, goalCell, goal, grid, Traversal.ANY, maxNodes, maxRadius);
+	}
+
+	/**
+	 * Same search with a movement predicate. Keeping the overload preserves
+	 * the pure grid signature for tests and callers that only need
+	 * standability.
+	 */
+	public static Result find(
+		Cell start,
+		Cell goalCell,
+		Goal goal,
+		Grid grid,
+		Traversal traversal,
+		int maxNodes,
+		double maxRadius
+	) {
 		if (maxNodes <= 0) return null;
-		if (!grid.standable(start.x, start.y, start.z)) return null;
-		if (goal.reached(start.x, start.y, start.z)) {
+		// The start is where the body already stands, not a cell it plans to
+		// enter, so it is never rejected. Requiring it to be standable meant a
+		// body on a leaf canopy, a slab, or a ledge failed every search on its
+		// first check and could not take a single step: navigation froze while
+		// the planner kept re-issuing goto from the same position. Every
+		// neighbour still passes the standability grid, so path index zero may
+		// be a non-standable cell and callers must treat it as "where we are"
+		// rather than as a destination.
+		if (goal.reached(start)) {
 			return new Result(List.of(start), true, 1);
 		}
 
@@ -95,7 +142,7 @@ public final class BoundedPathfinder {
 				bestRemaining = remaining;
 				best = current.cell;
 			}
-			if (goal.reached(current.cell.x, current.cell.y, current.cell.z)) {
+			if (goal.reached(current.cell)) {
 				return new Result(reconstruct(parent, current.cell), true, expanded);
 			}
 
@@ -113,6 +160,7 @@ public final class BoundedPathfinder {
 						continue;
 					}
 					if (!grid.standable(x, y, z)) continue;
+					if (!traversal.allowed(current.cell, next)) continue;
 
 					double moveCost =
 						(direction[0] != 0 && direction[1] != 0 ? 1.414 : 1.0)

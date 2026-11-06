@@ -2,9 +2,11 @@ import {
   hasAny,
   hasCraftingTableProduct,
   hasItem,
+  hasStoneCapablePickaxe,
   inventoryCount,
   isNight,
   nearbyHas,
+  pickaxeTier,
 } from "./facts.ts";
 import { STAGE_ORDER, type GoalId, type Milestone, type MilestoneStatus, type SeasonGoal, type Stage, type WorldFacts } from "./types.ts";
 
@@ -27,10 +29,19 @@ export const STAGES: readonly Stage[] = [
     milestone(
       "have-log",
       "已获得木头",
-      "inventory contains a log/wood/stem/hyphae, planks, a crafting table or a wooden tool",
+      "inventory contains wood products, or a reachable crafting table proves earlier wood work",
       (facts) => {
         // An empty inventory is an observation ("nothing"), not a missing one.
         if (facts.inventory.length === 0) return "incomplete";
+        // A placed table physically proves logs were gathered. Leaving this
+        // milestone incomplete while the table sat right next to the body made
+        // the planner walk off looking for a log it had already spent.
+        if (
+          facts.craftingTableNearby === true ||
+          nearbyHas(facts, /crafting_table$/u) !== null
+        ) {
+          return "complete";
+        }
         return facts.inventory.some(
           (slot) =>
             WOOD_ITEMS.test(slot.item) ||
@@ -67,16 +78,16 @@ export const STAGES: readonly Stage[] = [
       "背包或附近有工作台",
       "inventory has crafting_table or a nearby crafting_table block exists",
       (facts) => {
-        if (facts.craftingTableCrafted === true || facts.craftingTablePlaced === true) {
-          // The agent already built a table. Walking away does not undo that
-          // fact, and the 48-block observation radius must not cause the goal
-          // to fall back to wood gathering after the table is out of view.
-          return "complete";
+        // A crafted table still in the backpack is not a station. Keep this
+        // milestone incomplete until it has actually been placed (or a table
+        // is visible) so a rejected placement cannot advance to stone tools.
+        if (facts.craftingTablePlaced === true) return "complete";
+        if (facts.craftingTableCrafted === true && hasItem(facts, "minecraft:crafting_table")) {
+          return "incomplete";
         }
         if (facts.craftingTableNearby === true) return "complete";
         if (facts.inventory.length === 0 && facts.nearbyBlocks === undefined) return "unverified";
-        return hasItem(facts, "minecraft:crafting_table") ||
-          nearbyHas(facts, /crafting_table$/u) !== null ||
+        return nearbyHas(facts, /crafting_table$/u) !== null ||
           hasCraftingTableProduct(facts)
           ? "complete"
           : "incomplete";
@@ -86,9 +97,13 @@ export const STAGES: readonly Stage[] = [
   stage("stone-tools", 1, "木镐与石镐", "取得石头并升级到石质工具", ["wood-and-table"], [
     milestone(
       "have-wooden-pickaxe",
-      "背包有木镐",
-      "inventory contains wooden_pickaxe",
-      (facts) => hasAny(facts, ["minecraft:wooden_pickaxe"]) ? "complete" : "incomplete",
+      "拥有能挖石头的镐",
+      "inventory contains a wooden or better pickaxe",
+      // A stone or iron pickaxe already satisfies the capability this
+      // milestone describes. Requiring wooden_pickaxe specifically trapped a
+      // body that had upgraded past it: the milestone never completed and the
+      // planner kept asking for a downgrade it could not craft.
+      (facts) => hasStoneCapablePickaxe(facts) ? "complete" : "incomplete",
     ),
     milestone(
       "have-cobblestone",
@@ -98,9 +113,9 @@ export const STAGES: readonly Stage[] = [
     ),
     milestone(
       "have-stone-pickaxe",
-      "背包有石镐",
-      "inventory contains stone_pickaxe",
-      (facts) => hasAny(facts, ["minecraft:stone_pickaxe"]) ? "complete" : "incomplete",
+      "拥有石镐或更好的镐",
+      "inventory contains a stone or better pickaxe",
+      (facts) => pickaxeTier(facts) >= 2 ? "complete" : "incomplete",
     ),
   ]),
   stage("food", 2, "食物", "获得并吃下食物，避免饥饿中断采集", ["stone-tools"], [
@@ -119,15 +134,33 @@ export const STAGES: readonly Stage[] = [
     ),
     milestone(
       "fed",
-      "已真正进食",
-      "this body session confirmed consuming a food item",
+      "食物充足",
+      "a meal was confirmed, or hunger is already full while food is available",
       (facts) => {
-        // An eaten stack can disappear, and full hunger is the spawn state,
-        // not a meal. Only the body's confirmed consumption proves `fed`.
         if (facts.foodConsumed === true) return "complete";
+        // Vanilla does not consume ordinary food at 20/20 hunger. Treating
+        // that state as "must eat" makes the body retry an impossible use
+        // forever. Full hunger with a food item in reserve is already safe
+        // for the next gathering trip; the planner must not claim a meal
+        // that never happened, hence the distinct milestone title.
+        if (
+          facts.food === 20 &&
+          facts.inventory.some((slot) => FOOD.test(slot.item))
+        ) {
+          return "complete";
+        }
+        // Without a body-reported hunger value the planner cannot prove that
+        // eating is legal, but a stocked backpack still makes the stage
+        // actionable. Do not leave it as the terminal "unverified" milestone
+        // when the body can simply eat later.
+        if (facts.food === undefined || facts.food === null) {
+          return facts.inventory.some((slot) => FOOD.test(slot.item))
+            ? "complete"
+            : "unverified";
+        }
         if (facts.foodConsumed === false) return "incomplete";
-        // Older bodies do not report the session fact. Hunger and inventory
-        // cannot substitute for it, so the meal stays unverified.
+        // Older bodies do not report the session fact. Hunger alone is not
+        // proof of a meal, so this stays unverified without a reserve.
         return "unverified";
       },
     ),

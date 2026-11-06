@@ -1,9 +1,13 @@
 package com.craftmate.body.bridge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.AABB;
 import org.junit.jupiter.api.Test;
 
 class PlacementTargetTest {
@@ -29,5 +33,23 @@ class PlacementTargetTest {
 	void acceptsAFaceInsideReach() {
 		Candidate near = new Candidate("near", 4.0, true);
 		assertEquals("near", PlacementTarget.choose(List.of(near)).name());
+	}
+
+	@Test
+	void rejectsACellInsideThePlayerHitbox() {
+		AABB player = new AABB(-31.3, 66.0, 176.3, -30.7, 67.8, 177.7);
+		assertTrue(PlacementTarget.overlapsPlayer(player, -32, 66, 177));
+		assertFalse(PlacementTarget.overlapsPlayer(player, -33, 66, 177));
+		assertFalse(PlacementTarget.overlapsPlayer(player, -31, 68, 177));
+	}
+
+	@Test
+	void protectsTheCurrentColumnAndItsFloor() {
+		BlockPos feet = new BlockPos(-31, 66, 177);
+		assertTrue(PlacementTarget.overlapsStandingCell(feet, -31, 66, 177));
+		assertTrue(PlacementTarget.overlapsStandingCell(feet, -31, 65, 177));
+		assertTrue(PlacementTarget.overlapsStandingCell(feet, -31, 64, 177));
+		assertFalse(PlacementTarget.overlapsStandingCell(feet, -31, 67, 177));
+		assertFalse(PlacementTarget.overlapsStandingCell(feet, -32, 66, 177));
 	}
 }

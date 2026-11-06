@@ -533,6 +533,14 @@ export class BodySession {
     const detail = parsed.data.detail;
     this.rememberIncident(parsed.data.kind, detail);
     for (const record of this.queue.active()) {
+      // A threat reflex means "fight or flee now". Cancelling the attack
+      // command that is already doing exactly that made every close-range
+      // fight impossible: the planner re-issued attack, the next threat
+      // event cancelled it, and the body never got a full swing window.
+      // Lava, falling, drowning and low health still outrank an attack.
+      if (parsed.data.kind === "threat" && record.command.op === "attack") {
+        continue;
+      }
       const reachedBody = record.status === "running" || this.sentCommands.has(record.command.id);
       this.settle(record, "failed", "E_PRECONDITION", `safety: ${detail}`, true);
       if (reachedBody) {

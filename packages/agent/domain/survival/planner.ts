@@ -29,6 +29,10 @@ export function planSurvival(
   const newId = context.clock?.newId ?? (() => crypto.randomUUID());
   const stages = buildStages(goal, facts);
   const targetIndex = Math.max(0, STAGE_ORDER.indexOf(goal.target));
+  // Only stages up to the operator's target are in scope. Within that scope,
+  // the first stage without complete evidence is current. When all of them
+  // are complete the target itself is done; the caller must not manufacture
+  // another task for the last stage.
   let active: StageResult | null = null;
   for (const stage of stages) {
     if (stage.index > targetIndex) break;
@@ -41,12 +45,21 @@ export function planSurvival(
     active = stages.find((stage) => stage.index === targetIndex) ?? stages[0] ?? null;
   }
   const stage: Stage = active === null ? FIRST_STAGE : stageById(active.id);
-  let built = nextTaskForStage({
-    stage: stage.id,
-    facts,
-    newId,
-  });
   const pendingMilestone = nextMilestone(stage, facts);
+  // A stage whose milestones are all complete has no task by definition.
+  // Asking its task builder anyway can return null, which `applyBlocked`
+  // would misreport as a blocked stage and strand the goal before the next
+  // stage is selected.
+  const scopeComplete = stages
+    .filter((entry) => entry.index <= targetIndex)
+    .every((entry) => entry.status === "complete");
+  let built = pendingMilestone === null || scopeComplete
+    ? null
+    : nextTaskForStage({
+        stage: stage.id,
+        facts,
+        newId,
+      });
   if (built !== null && isTask(built) && pendingMilestone !== null) {
     const alignedTitle = taskMilestoneAlignment(built, pendingMilestone.milestone.id);
     if (alignedTitle !== null) built = { ...built, title: alignedTitle };

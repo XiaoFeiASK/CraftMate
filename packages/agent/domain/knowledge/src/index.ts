@@ -102,6 +102,25 @@ export function queryRecipe(item: string, recipeId?: string): CraftingRecipe | n
 }
 
 export function compareRecipes(left: CraftingRecipe, right: CraftingRecipe): number {
+  // A transformation recipe (dyeing a bed, recoloring wool) consumes another
+  // finished item of the same family. It must not outrank the base recipe
+  // that builds the item from raw materials. Comparing every craftable input
+  // would also flag planks, which are normal building material here.
+  const outputFamily = (item: string): string => item.replace(/^.*:/u, "");
+  const transformationRank = (recipe: CraftingRecipe): number => {
+    const family = outputFamily(recipe.output.item).replace(/^[a-z_]+_/u, "");
+    return recipe.ingredients.some((ingredient) =>
+      ingredient.choices.some((choice) => {
+        const candidate = outputFamily(choice);
+        return recipesByOutput.has(choice) && candidate.endsWith(family);
+      }),
+    )
+      ? 1
+      : 0;
+  };
+  const byDependency =
+    transformationRank(left) - transformationRank(right);
+  if (byDependency !== 0) return byDependency;
   const groupRank = (recipe: CraftingRecipe): number =>
     recipe.group?.endsWith("_dye") === true ? 1 : 0;
   const byGroup = groupRank(left) - groupRank(right);

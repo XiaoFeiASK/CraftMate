@@ -27,4 +27,17 @@ class ShaftEscapeTest {
 		assertFalse(ShaftEscape.canBreakWall(false, true));
 		assertFalse(ShaftEscape.canBreakWall(true, false));
 	}
+
+	@Test
+	void openSkyAtACliffIsNotAPillarSite() {
+		assertFalse(ShaftEscape.shouldStartPillar(false, 0));
+		assertFalse(ShaftEscape.shouldStartPillar(false, 2));
+	}
+
+	@Test
+	void aCeilingOrThreeWallsMakePillaringLegitimate() {
+		assertTrue(ShaftEscape.shouldStartPillar(true, 0));
+		assertTrue(ShaftEscape.shouldStartPillar(false, 3));
+		assertTrue(ShaftEscape.shouldStartPillar(false, 4));
+	}
 }

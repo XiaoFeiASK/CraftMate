@@ -48,7 +48,16 @@ const next = recover({ plan, facts, failure });
 ### `recover(input)`
 
 传入失败任务和历史。首次失败返回同阶段下一个候选；同一阶段连续两次失败后
-返回 `task: null` 并在 `avoid` 中列出应避免的策略，运行时据此暂停而不是循环。
+返回 `task: null` 并在 `avoid` 中列出应避免的策略。GoalRuntime 不因此永久暂停：
+移动类失败会换区域重新观察，非移动失败会在退避后重新读取身体事实；只有操作员
+接管、急停或目标完成才会停止目标运行时。
+
+### `worldFactsFromSnapshot(input)`
+
+只复制身体实际上报的字段。背包、时间、饥饿、睡眠、工作台和实体坐标都可用；
+缺失值保持缺失，不能用默认值制造 `complete`。本体会话还会上报
+`foodAcquired` / `foodConsumed` / `craftingTableCrafted` / `craftingTablePlaced`
+等事实，避免吃光食物或走出工作台观察范围后里程碑回退。
 
 ## 阶段
 

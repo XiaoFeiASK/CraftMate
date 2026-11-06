@@ -213,6 +213,30 @@ describe("replay timeline", () => {
 });
 
 describe("cost budget", () => {
+  test("records token usage even when the configured price is zero", () => {
+    withDb((db, context) => {
+      const costs = new CostStore(db);
+      costs.record({
+        sessionId: context.sessionId,
+        provider: "deepseek",
+        model: "m",
+        cost: 0,
+        promptTokens: 41,
+        completionTokens: 2,
+      });
+
+      const row = db
+        .prepare(
+          "SELECT cost, prompt_tokens, completion_tokens FROM model_cost LIMIT 1",
+        )
+        .get() as { cost: number; prompt_tokens: number; completion_tokens: number };
+      assert.equal(row.cost, 0);
+      assert.equal(row.prompt_tokens, 41);
+      assert.equal(row.completion_tokens, 2);
+      assert.equal(costs.spentSince(0), 0);
+    });
+  });
+
   test("crossing the hourly limit asks for a degradation", () => {
     withDb((db, context) => {
       const costs = new CostStore(db);

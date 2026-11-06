@@ -7,6 +7,7 @@ package com.craftmate.body.bridge;
  */
 final class PlacementTarget {
 	private static final double MAX_EYE_DISTANCE = 4.5;
+	private static final double EPSILON = 1.0e-6;
 
 	interface Surface {
 		/** Distance from the eye to the block's nearest point, not its center. */
@@ -38,5 +39,41 @@ final class PlacementTarget {
 
 	static boolean withinReach(double distanceSqr) {
 		return distanceSqr <= MAX_EYE_DISTANCE * MAX_EYE_DISTANCE;
+	}
+
+	/**
+	 * The server rejects a full block that intersects the player hitbox. A
+	 * successful client ray is therefore not a legal placement attempt.
+	 */
+	static boolean overlapsPlayer(
+		net.minecraft.world.phys.AABB playerBounds,
+		int x,
+		int y,
+		int z
+	) {
+		return playerBounds.intersects(
+			x + EPSILON,
+			y + EPSILON,
+			z + EPSILON,
+			x + 1.0 - EPSILON,
+			y + 1.0 - EPSILON,
+			z + 1.0 - EPSILON
+		);
+	}
+
+	/**
+	 * The body's current column and the blocks directly below it are its
+	 * footing. Placing there would remove the floor the next walk depends on.
+	 */
+	static boolean overlapsStandingCell(
+		net.minecraft.core.BlockPos feet,
+		int x,
+		int y,
+		int z
+	) {
+		return x == feet.getX()
+			&& z == feet.getZ()
+			&& y >= feet.getY() - 2
+			&& y <= feet.getY();
 	}
 }

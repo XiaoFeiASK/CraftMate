@@ -17,12 +17,17 @@ export class CostStore {
     readonly provider: string;
     readonly model: string;
     readonly cost: number;
+    readonly promptTokens?: number;
+    readonly completionTokens?: number;
     readonly at?: number;
   }): void {
     this.db
       .prepare(
-        `INSERT INTO model_cost (id, session_id, provider, model, cost, occurred_at_ms)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO model_cost (
+           id, session_id, provider, model, cost,
+           prompt_tokens, completion_tokens, occurred_at_ms
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         crypto.randomUUID(),
@@ -30,6 +35,8 @@ export class CostStore {
         entry.provider,
         entry.model,
         entry.cost,
+        entry.promptTokens ?? 0,
+        entry.completionTokens ?? 0,
         entry.at ?? Date.now(),
       );
   }

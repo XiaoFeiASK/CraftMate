@@ -31,6 +31,9 @@ export interface NearbyEntity {
   readonly name: string;
   readonly type: string;
   readonly distance: number;
+  readonly x?: number;
+  readonly y?: number;
+  readonly z?: number;
 }
 
 export interface Position {

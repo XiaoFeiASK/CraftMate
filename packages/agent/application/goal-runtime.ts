@@ -15,6 +15,7 @@ import {
   type WorldSnapshot,
 } from "@craftmate/contracts";
 import {
+  explore,
   nextTaskForStage,
   normalizedTaskId,
   planSurvival,
@@ -142,10 +143,28 @@ interface GoalRuntimeOptions {
   readonly maxConsecutiveFailures?: number;
 }
 
-const DEFAULT_FAILURE_BASE_MS = 4_000;
-const DEFAULT_FAILURE_MAX_MS = 60_000;
+const DEFAULT_FAILURE_BASE_MS = 2_500;
+/**
+ * A minute of silence after a terrain failure reads as a frozen agent: the
+ * console shows an active goal and an empty `nextTask`, and the body stands
+ * still for the whole wait. Six seconds is still far below the body's task
+ * timeout, so it cannot hammer a failing skill, while the next decision
+ * observes a changed world (animals move, night ends, a drop becomes
+ * reachable) soon enough to look continuous. The idle wanderer owns the body
+ * during this window, so the pause is a short observation beat, not a freeze.
+ */
+const DEFAULT_FAILURE_MAX_MS = 6_000;
 const DEFAULT_TASK_TIMEOUT_MS = 90_000;
 const DEFAULT_MAX_FAILURES = 5;
+/**
+ * A reflex owns the body only long enough to take its hand off the mouse and
+ * step away. Holding the planner for ten seconds after that was the freeze
+ * operators saw as "one command, then the body stands there", especially
+ * while a pillager kept shooting. The body blocks unsafe skills itself for
+ * as long as the hazard is still present; the planner only needs a brief
+ * hand-off window to choose the recovery task.
+ */
+const REFLEX_HANDOFF_MS = 2_500;
 
 /**
  * Goal mode executor. It produces at most one skill at a time and waits for
@@ -482,23 +501,14 @@ export class GoalRuntime {
       normalizedStrategy(this.lastFailureStrategy) === normalizedStrategy(strategyKey) &&
       this.consecutiveFailures >= 2
     ) {
-      // `lastFailure` may already be a runtime-level stop reason (for
-      // example a planner block). Prefixing it again would grow the same
-      // sentence on every re-plan and hide the real body failure.
-      const detail = this.lastFailure ?? "原因未知";
-      const reason = detail.startsWith("同一策略已连续失败两次且没有安全替代")
-        ? detail
-        : `同一策略已连续失败两次且没有安全替代：${detail}`;
-      this.lastFailure = reason;
-      this.progress = {
-        ...this.progress,
-        status: "blocked",
-        nextTask: "",
-        lastFailure: reason,
-        updatedAt: this.clock.now(),
-      };
-      this.persist();
-      return null;
+      // A repeated strategy after a real body failure is not proof the goal
+      // is impossible: terrain changes, the body may have moved, and the
+      // next observation can open a route. Keep the whole run autonomous by
+      // allowing the planner's own alternative ordering and the existing
+      // exponential backoff to handle it instead of parking the goal.
+      this.lastFailure = `同一策略已连续失败 ${this.consecutiveFailures} 次，继续退避后重试：${
+        this.lastFailure ?? "原因未知"
+      }`;
     }
     const skill = skillCallSchema.safeParse(plan.nextTask.skill);
     if (!skill.success) {
@@ -685,20 +695,24 @@ export class GoalRuntime {
       });
       if (this.failures.length > 20) this.failures.splice(0, this.failures.length - 20);
     }
-    const delay = Math.min(
-      this.failureBaseMs * 2 ** (this.consecutiveFailures - 1),
-      this.failureMaxMs,
-    );
+    // Once the run has burned through the normal retry budget, keep trying
+    // but at the longest delay. This preserves the operator's ability to see
+    // a persistent obstacle without silently ending the autonomous goal.
+    const delay =
+      this.consecutiveFailures >= this.maxConsecutiveFailures
+        ? this.failureMaxMs
+        : Math.min(
+            this.failureBaseMs * 2 ** (this.consecutiveFailures - 1),
+            this.failureMaxMs,
+          );
     this.retryAt = at + delay;
     if (this.progress !== null) {
       this.progress = {
         ...this.progress,
-        status:
-          this.consecutiveFailures >= this.maxConsecutiveFailures
-            ? "blocked"
-            : this.progress.status === "paused"
-              ? "paused"
-              : "active",
+        // The goal stays active. Reaching the failure cap only selects the
+        // longest backoff: an open world can change under the body, and a
+        // permanent block would end the autonomous run for good.
+        status: this.progress.status === "paused" ? "paused" : "active",
         nextTask: "",
         lastFailure: detail,
         consecutiveFailures: this.consecutiveFailures,
@@ -706,9 +720,6 @@ export class GoalRuntime {
           status === "cancelled" || status === "preempted" ? null : this.retryAt,
         updatedAt: at,
       };
-    }
-    if (this.goal !== null && this.consecutiveFailures >= this.maxConsecutiveFailures) {
-      this.goal = { ...this.goal, status: "blocked" };
     }
     if (status === "cancelled" || status === "preempted") {
       this.retryAt = at;
@@ -805,6 +816,10 @@ function goalReachesTarget(goal: SeasonGoal, stage: string): boolean {
   );
 }
 
+function stageIndexOf(stage: string): number {
+  return GOAL_STAGE_ORDER.indexOf(stage as (typeof GOAL_STAGE_ORDER)[number]);
+}
+
 /**
  * Adapter over #42's pure survival planner. It forwards only observed facts;
  * a missing snapshot stays missing, so progress cannot be fabricated.
@@ -840,12 +855,58 @@ export class SurvivalGoalPlanner implements GoalPlanner {
           normalizedTaskId(entry.taskId) === normalizedTaskId(currentKey),
       ).length;
       if (currentKey === failureKey && failedCount >= 2) {
+        if (
+          normalizedCurrent.kind === "combat" ||
+          normalizedCurrent.kind === "navigate" ||
+          (normalizedCurrent.kind === "gather" &&
+            /deadline|timeout|no progress|reach|route|超时|寻路|接近|没有安全/u.test(
+              failure.detail,
+            )) ||
+          (normalizedCurrent.kind === "craft" &&
+            /approach|route|walk|reach|no progress|超时|接近|寻路/iu.test(
+              failure.detail,
+            ))
+        ) {
+          // Replaying the exact same movement third time is not "recovery",
+          // it is the loop an operator sees as "one command, then the body
+          // stands there". Move to a new area and re-observe instead; the
+          // detour is real movement, not an invented success.
+          // A food-stage animal that failed twice is usually still the
+          // nearest entity in the 40-block hunt window. Moving only 24–36
+          // blocks leaves it visible, so the next plan selects the same
+          // unreachable chicken and the loop restarts. Step outside that
+          // observation window before re-planning; other stages keep the
+          // cheaper local detour.
+          const foodRetry = plan.stage === "food";
+          const detour = explore(
+            facts,
+            plan.stage,
+            "换一片区域重新观察",
+            "目标",
+            1,
+            () => crypto.randomUUID(),
+            foodRetry ? 48 : 8,
+            foodRetry ? 60 : 16,
+            true,
+          );
+          return projectPlan(
+            plan,
+            facts,
+            withStableTaskId(detour),
+            null,
+            plan.blocked,
+            true,
+          );
+        }
+        // Non-movement failures (a craft menu, a placement) can genuinely
+        // recover from a fresh observation, so keep the retry.
         return projectPlan(
           plan,
           facts,
+          normalizedCurrent,
           null,
-          `同一策略已连续失败 ${failedCount} 次且没有安全替代：${input.lastFailure ?? failure.detail}`,
           plan.blocked,
+          true,
         );
       }
       if (currentKey === failureKey && failedCount === 1) {
@@ -921,9 +982,12 @@ function projectPlan(
     milestones: [...completed, ...pending],
     verified: plan.completedMilestones > 0,
     complete:
-      plan.stage === plan.goal.target &&
+      task === null &&
       plan.milestone === null &&
-      task === null,
+      plan.stages.every(
+        (stage) =>
+          stage.index > stageIndexOf(plan.goal.target) || stage.status === "complete",
+      ),
     blockedReason,
     ...(task === null ? {} : { strategyKey: taskSignature(task) }),
   };
@@ -1091,13 +1155,16 @@ function pauseReason(
     return { status: "paused", reason: "角色死亡，等待重生后再观察" };
   }
   const danger = (bridge.incidents ?? []).find(
-    (incident) => now - incident.at < 10_000 && incident.kind !== "retreat",
+    (incident) =>
+      now - incident.at < REFLEX_HANDOFF_MS &&
+      incident.kind !== "retreat" &&
+      // A threat is handed back to the same planner that can choose attack
+      // or retreat. Pausing here blocked immediateSafetyTask for the whole
+      // hand-off window, so a body in bow range only walked and was shot.
+      incident.kind !== "threat",
   );
   if (danger !== undefined) {
     return { status: "paused", reason: `安全反射触发：${danger.detail}` };
-  }
-  if (bridge.queued > 0 || bridge.running > 0) {
-    return { status: "paused", reason: "身体队列忙，等待当前任务结束" };
   }
   return null;
 }

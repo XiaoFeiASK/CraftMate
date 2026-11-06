@@ -477,150 +477,50 @@
       "entity": "minecraft:sheep",
       "drops": [
         {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/black",
-      "drops": [
-        {
           "item": "minecraft:black_wool",
           "min": 1,
           "max": 1
         },
-        {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/blue",
-      "drops": [
         {
           "item": "minecraft:blue_wool",
           "min": 1,
           "max": 1
         },
         {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/brown",
-      "drops": [
-        {
           "item": "minecraft:brown_wool",
           "min": 1,
           "max": 1
         },
-        {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/cyan",
-      "drops": [
         {
           "item": "minecraft:cyan_wool",
           "min": 1,
           "max": 1
         },
         {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/gray",
-      "drops": [
-        {
           "item": "minecraft:gray_wool",
           "min": 1,
           "max": 1
         },
-        {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/green",
-      "drops": [
         {
           "item": "minecraft:green_wool",
           "min": 1,
           "max": 1
         },
         {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/light_blue",
-      "drops": [
-        {
           "item": "minecraft:light_blue_wool",
           "min": 1,
           "max": 1
         },
-        {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/light_gray",
-      "drops": [
         {
           "item": "minecraft:light_gray_wool",
           "min": 1,
           "max": 1
         },
         {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/lime",
-      "drops": [
-        {
           "item": "minecraft:lime_wool",
           "min": 1,
           "max": 1
         },
-        {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/magenta",
-      "drops": [
         {
           "item": "minecraft:magenta_wool",
           "min": 1,
@@ -630,91 +530,31 @@
           "item": "minecraft:mutton",
           "min": 1,
           "max": 2
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/orange",
-      "drops": [
-        {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
         },
         {
           "item": "minecraft:orange_wool",
           "min": 1,
           "max": 1
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/pink",
-      "drops": [
-        {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
         },
         {
           "item": "minecraft:pink_wool",
           "min": 1,
           "max": 1
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/purple",
-      "drops": [
-        {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
         },
         {
           "item": "minecraft:purple_wool",
           "min": 1,
           "max": 1
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/red",
-      "drops": [
-        {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
         },
         {
           "item": "minecraft:red_wool",
           "min": 1,
           "max": 1
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/white",
-      "drops": [
-        {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
         },
         {
           "item": "minecraft:white_wool",
           "min": 1,
           "max": 1
-        }
-      ]
-    },
-    {
-      "entity": "minecraft:sheep/yellow",
-      "drops": [
-        {
-          "item": "minecraft:mutton",
-          "min": 1,
-          "max": 2
         },
         {
           "item": "minecraft:yellow_wool",

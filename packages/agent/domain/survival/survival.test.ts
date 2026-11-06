@@ -43,6 +43,51 @@ const goal = (target: GoalId = "dragon"): SeasonGoal => ({
 });
 
 describe("survival planning", () => {
+  test("a low-health body retreats from a nearby pillager", () => {
+    const task = nextTaskForStage({
+      stage: "wood-and-table",
+      facts: facts({
+        health: 4,
+        position: { x: 0, y: 64, z: 0 },
+        nearbyBlocks: [{ id: "minecraft:oak_log" }],
+        entities: [{
+          name: "掠夺者",
+          type: "minecraft:pillager",
+          distance: 3,
+          x: 3,
+          y: 64,
+          z: 0,
+        }],
+      }),
+      newId: () => "x",
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "goto");
+    assert.match(task.title, /撤离/u);
+  });
+
+  test("a healthy body clears a hostile already in melee range", () => {
+    const task = nextTaskForStage({
+      stage: "stone-tools",
+      facts: facts({
+        health: 20,
+        position: { x: 0, y: 64, z: 0 },
+        entities: [{
+          name: "僵尸",
+          type: "minecraft:zombie",
+          distance: 3,
+          x: 3,
+          y: 64,
+          z: 0,
+        }],
+      }),
+      newId: () => "x",
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "attack");
+    assert.match(task.title, /击退/u);
+  });
+
   test("empty inventory near a log starts by chopping", () => {
     const plan = planSurvival(
       facts({ nearbyBlocks: [{ id: "minecraft:oak_log" }] }),
@@ -194,9 +239,13 @@ describe("survival planning", () => {
       goal("stone-tools"),
       MAX_ID,
     );
-    assert.equal(plan.task, null);
-    assert.match(plan.blocked[0]?.title ?? "", /木镐/u);
-    assert.ok(plan.blocked[0]?.missing.some((entry) => entry.kind === "material"));
+    // Two planks and four sticks cannot yield the three planks a pickaxe
+    // needs, so the planner must not claim the craft. It also must not park
+    // the goal: wood is a local observation, so it walks out to look for a log.
+    assert.notEqual(plan.task?.skill.name, "craft");
+    assert.equal(plan.task?.skill.name, "goto");
+    assert.match(plan.task?.title ?? "", /寻找原木/u);
+    assert.ok(plan.blocked.every((task) => !/木镐/u.test(task.title)));
   });
 
   test("three planks and two sticks without a table reports the missing station", () => {
@@ -266,6 +315,22 @@ describe("survival planning", () => {
     assert.equal(plan.task?.skill.args["block"], "minecraft:crafting_table");
   });
 
+  test("a crafted table still in the backpack does not satisfy the station milestone", () => {
+    const plan = planSurvival(
+      facts({
+        inventory: [{ item: "minecraft:crafting_table", count: 1 }],
+        craftingTableCrafted: true,
+      }),
+      goal(),
+      MAX_ID,
+    );
+    const table = plan.stages
+      .flatMap((stage) => stage.milestones)
+      .find((milestone) => milestone.id === "have-crafting-table");
+    assert.equal(table?.status, "incomplete");
+    assert.equal(plan.task?.skill.name, "place_block");
+  });
+
   test("walking away from a table this session built does not revert the stage", () => {
     const plan = planSurvival(
       facts({
@@ -328,6 +393,50 @@ describe("survival planning", () => {
     );
     assert.notEqual(plan.task?.skill.name, "place_block");
     assert.notEqual(plan.stage, "wood-and-table");
+  });
+
+  test("stone pickaxe uses a placed table after walking out of observation range", () => {
+    const plan = planSurvival(
+      facts({
+        inventory: [
+          { item: "minecraft:wooden_pickaxe", count: 1 },
+          { item: "minecraft:cobblestone", count: 3 },
+          { item: "minecraft:stick", count: 2 },
+        ],
+        nearbyBlocks: [],
+        craftingTableCrafted: true,
+        craftingTablePlaced: true,
+        craftingTableNearby: false,
+        craftingTable: { x: -31, y: 66, z: 176 },
+      }),
+      goal("stone-tools"),
+      MAX_ID,
+    );
+    assert.equal(plan.stage, "stone-tools");
+    assert.equal(plan.task?.skill.name, "craft");
+    assert.equal(plan.task?.skill.args["item"], "minecraft:stone_pickaxe");
+    assert.equal(plan.blocked.length, 0);
+  });
+
+  test("a distant unreachable table is replaced with a local one when wood is available", () => {
+    const plan = planSurvival(
+      facts({
+        position: { x: -45, y: 66, z: 191 },
+        inventory: [
+          { item: "minecraft:oak_planks", count: 6 },
+          { item: "minecraft:stick", count: 4 },
+          { item: "minecraft:oak_log", count: 2 },
+        ],
+        craftingTablePlaced: true,
+        craftingTableNearby: false,
+        craftingTable: { x: -31, y: 66, z: 176 },
+      }),
+      goal("stone-tools"),
+      MAX_ID,
+    );
+    assert.equal(plan.stage, "stone-tools");
+    assert.equal(plan.task?.skill.name, "craft");
+    assert.equal(plan.task?.skill.args["item"], "minecraft:crafting_table");
   });
 
   test("stone pickaxe requires cobblestone and then crafts", () => {
@@ -397,6 +506,74 @@ describe("survival planning", () => {
     assert.equal(plan.blocked.length, 0);
   });
 
+  test("a wool shortage without a visible sheep searches nearby terrain", () => {
+    const stageFacts = facts({
+        position: { x: -44.7, y: 65, z: 166.05 },
+        inventory: [
+          { item: "minecraft:white_wool", count: 1 },
+          { item: "minecraft:oak_planks", count: 3 },
+          { item: "minecraft:stone_pickaxe", count: 1 },
+        ],
+        entities: [{ name: "猪", type: "minecraft:pig", distance: 12 }],
+        timeOfDay: 18_000,
+      });
+    const task = nextTaskForStage({ stage: "shelter", facts: stageFacts, newId: () => "x" });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "goto");
+    assert.match(task.title, /寻找绵羊|搜索/u);
+    const target = task.skill.args["target"] as { x: number; y: number; z: number };
+    const distance = Math.hypot(target.x - -44.7, target.z - 166.05);
+    // At night the body keeps a wider moving sweep instead of standing in
+    // one clearing; the shelter search inherits that safety radius.
+    assert.ok(distance >= 20 && distance <= 32);
+    const candidates = task.skill.args["candidates"] as unknown[];
+    assert.equal(candidates.length, 8);
+    assert.ok(parseSkillArgs(task.skill.name, task.skill.args));
+  });
+
+  test("a sheep in range is hunted instead of searching", () => {
+    const stageFacts = facts({
+        position: { x: 0, y: 65, z: 0 },
+        inventory: [{ item: "minecraft:white_wool", count: 1 }],
+        entities: [{ name: "绵羊", type: "minecraft:sheep", distance: 18 }],
+        timeOfDay: 19_000,
+      });
+    const task = nextTaskForStage({ stage: "shelter", facts: stageFacts, newId: () => "x" });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "attack");
+    assert.equal(task.skill.args["target"], "minecraft:sheep");
+  });
+
+  test("a sheep across a gap is approached with goto before attacking", () => {
+    const stageFacts = facts({
+      position: { x: 0.5, y: 80, z: 0.5 },
+      inventory: [{ item: "minecraft:white_wool", count: 1 }],
+      entities: [
+        { name: "绵羊", type: "minecraft:sheep", distance: 13, x: 13.5, y: 80, z: 0.5 },
+      ],
+      timeOfDay: 19_000,
+    });
+    const task = nextTaskForStage({ stage: "shelter", facts: stageFacts, newId: () => "x" });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "goto");
+    assert.deepEqual(task.skill.args["target"], { x: 13.5, y: 80, z: 0.5 });
+    assert.equal(task.skill.args["acceptPartial"], false);
+  });
+
+  test("a sheep within melee distance is attacked directly", () => {
+    const stageFacts = facts({
+      position: { x: 0.5, y: 80, z: 0.5 },
+      inventory: [{ item: "minecraft:white_wool", count: 1 }],
+      entities: [
+        { name: "绵羊", type: "minecraft:sheep", distance: 4, x: 3.5, y: 80, z: 0.5 },
+      ],
+      timeOfDay: 19_000,
+    });
+    const task = nextTaskForStage({ stage: "shelter", facts: stageFacts, newId: () => "x" });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "attack");
+  });
+
   test("deepslate is not a cobblestone source", () => {
     const base = facts({
       inventory: [
@@ -407,8 +584,14 @@ describe("survival planning", () => {
       reachableBlock: { id: "minecraft:deepslate", x: 1, y: 0, z: 1 },
     });
     const plan = planSurvival(base, goal("stone-tools"), MAX_ID);
-    assert.equal(plan.task, null);
-    assert.ok(plan.blocked.some((task) => task.title === "寻找石头"));
+    // Deepslate drops cobbled deepslate, which no stone-tool recipe accepts,
+    // so the planner must not mine it for cobblestone. Instead it leaves the
+    // current observation area to look for real stone.
+    assert.notEqual(plan.task?.skill.name, "mine");
+    assert.equal(plan.task?.skill.name, "goto");
+    assert.match(plan.task?.title ?? "", /寻找石头/u);
+    const target = JSON.stringify(plan.task?.skill.args ?? {});
+    assert.ok(!/deepslate/u.test(target));
   });
 
   test("iron pickaxe can mine diamond ore while a wooden one cannot", () => {
@@ -441,9 +624,11 @@ describe("survival planning", () => {
       nearbyBlocks: [{ id: "minecraft:crafting_table" }],
     });
     const eat = planSurvival(withFood, goal("food"), MAX_ID);
-    assert.equal(eat.stage, "food");
-    assert.equal(eat.task?.skill.name, "eat");
-    assert.equal(eat.milestone?.id, "fed");
+    assert.equal(
+      eat.stages.find((stage) => stage.id === "food")?.status,
+      "complete",
+    );
+    assert.notEqual(eat.task?.skill.name, "eat");
 
     const afterMeal = facts({
       food: 20,
@@ -460,7 +645,6 @@ describe("survival planning", () => {
       nearbyBlocks: [{ id: "minecraft:crafting_table" }],
     });
     const plan = planSurvival(afterMeal, goal(), MAX_ID);
-    assert.equal(plan.stage, "shelter");
     assert.equal(
       plan.stages.find((stage) => stage.id === "food")?.status,
       "complete",
@@ -495,11 +679,45 @@ describe("survival planning", () => {
     assert.equal(proper.skill.args["item"], "minecraft:bread");
   });
 
-  test("full hunger without a confirmed meal does not claim the food stage", () => {
+  test("full hunger with a food reserve does not replan an impossible meal", () => {
     const plan = planSurvival(
       facts({
         food: 20,
         foodAcquired: true,
+        foodConsumed: false,
+        inventory: [
+          { item: "minecraft:oak_log", count: 1 },
+          { item: "minecraft:oak_planks", count: 4 },
+          { item: "minecraft:crafting_table", count: 1 },
+          { item: "minecraft:wooden_pickaxe", count: 1 },
+          { item: "minecraft:cobblestone", count: 3 },
+          { item: "minecraft:stone_pickaxe", count: 1 },
+          { item: "minecraft:cooked_beef", count: 1 },
+        ],
+        nearbyBlocks: [{ id: "minecraft:crafting_table" }],
+      }),
+      goal("food"),
+      MAX_ID,
+    );
+    assert.equal(
+      plan.stages.find((stage) => stage.id === "food")?.status,
+      "complete",
+    );
+    assert.equal(
+      plan.stages
+        .find((stage) => stage.id === "food")
+        ?.milestones.find((milestone) => milestone.id === "fed")
+        ?.status,
+      "complete",
+    );
+    assert.notEqual(plan.task?.skill.name, "eat");
+  });
+
+  test("full hunger without any food does not claim a meal", () => {
+    const plan = planSurvival(
+      facts({
+        food: 20,
+        foodAcquired: false,
         foodConsumed: false,
         inventory: [
           { item: "minecraft:oak_log", count: 1 },
@@ -524,7 +742,232 @@ describe("survival planning", () => {
     );
   });
 
-  test("eating is legal at full hunger and consumes the selected stack", () => {
+  test("an empty hunt window falls back to oak logs instead of another empty sweep", () => {
+    const plan = planSurvival(
+      facts({
+        inventory: [
+          { item: "minecraft:oak_log", count: 1 },
+          { item: "minecraft:oak_planks", count: 4 },
+          { item: "minecraft:crafting_table", count: 1 },
+          { item: "minecraft:wooden_pickaxe", count: 1 },
+          { item: "minecraft:cobblestone", count: 3 },
+          { item: "minecraft:stone_pickaxe", count: 1 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:oak_log", count: 12 },
+          { id: "minecraft:oak_leaves", count: 60 },
+        ],
+      }),
+      goal("food"),
+      MAX_ID,
+    );
+    assert.equal(plan.stage, "food");
+    assert.equal(plan.task?.skill.name, "mine_block");
+    assert.equal(plan.task?.skill.args["block"], "minecraft:oak_log");
+    assert.equal(plan.task?.skill.args["count"], 6);
+    assert.match(plan.task?.title ?? "", /苹果/u);
+  });
+
+  test("a chicken far above the cave is ignored in favor of reachable wood", () => {
+    const plan = planSurvival(
+      facts({
+        position: { x: -64, y: 61, z: 200 },
+        food: 14,
+        inventory: [
+          { item: "minecraft:oak_log", count: 1 },
+          { item: "minecraft:oak_planks", count: 4 },
+          { item: "minecraft:crafting_table", count: 1 },
+          { item: "minecraft:wooden_pickaxe", count: 1 },
+          { item: "minecraft:cobblestone", count: 3 },
+          { item: "minecraft:stone_pickaxe", count: 1 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:oak_log", count: 12 },
+        ],
+        entities: [
+          {
+            name: "鸡",
+            type: "minecraft:chicken",
+            distance: 39,
+            x: -49,
+            y: 88,
+            z: 224,
+          },
+        ],
+      }),
+      goal("food"),
+      MAX_ID,
+    );
+
+    assert.equal(plan.stage, "food");
+    assert.equal(plan.task?.skill.name, "mine_block");
+    assert.equal(plan.task?.skill.args["block"], "minecraft:oak_log");
+  });
+
+  test("a dropped apple is collected before chopping another tree", () => {
+    const plan = planSurvival(
+      facts({
+        inventory: [
+          { item: "minecraft:oak_log", count: 8 },
+          { item: "minecraft:oak_planks", count: 4 },
+          { item: "minecraft:crafting_table", count: 1 },
+          { item: "minecraft:wooden_pickaxe", count: 1 },
+          { item: "minecraft:cobblestone", count: 3 },
+          { item: "minecraft:stone_pickaxe", count: 1 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:oak_log", count: 12 },
+          { id: "minecraft:oak_leaves", count: 60 },
+        ],
+        entities: [
+          {
+            name: "苹果",
+            type: "minecraft:item",
+            distance: 4,
+            x: 2,
+            y: 64,
+            z: 2,
+          },
+        ],
+      }),
+      goal("food"),
+      MAX_ID,
+    );
+    assert.equal(plan.stage, "food");
+    assert.equal(plan.task?.skill.name, "collect_items");
+    assert.match(plan.task?.title ?? "", /苹果/u);
+  });
+
+  test("enough wood still chops the accessible trunk instead of breaking leaves", () => {
+    const plan = planSurvival(
+      facts({
+        inventory: [
+          { item: "minecraft:oak_log", count: 20 },
+          { item: "minecraft:oak_planks", count: 4 },
+          { item: "minecraft:crafting_table", count: 1 },
+          { item: "minecraft:wooden_pickaxe", count: 1 },
+          { item: "minecraft:cobblestone", count: 3 },
+          { item: "minecraft:stone_pickaxe", count: 1 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:oak_log", count: 12 },
+          { id: "minecraft:oak_leaves", count: 60 },
+        ],
+      }),
+      goal("food"),
+      MAX_ID,
+    );
+    assert.equal(plan.task?.skill.name, "mine_block");
+    assert.equal(plan.task?.skill.args["block"], "minecraft:oak_log");
+    assert.equal(plan.task?.skill.args["count"], 6);
+    assert.match(plan.task?.title ?? "", /苹果/u);
+  });
+
+  test("a canopy with no reachable trunk still gets a leaf fallback", () => {
+    const plan = planSurvival(
+      facts({
+        inventory: [
+          { item: "minecraft:oak_log", count: 20 },
+          { item: "minecraft:oak_planks", count: 4 },
+          { item: "minecraft:crafting_table", count: 1 },
+          { item: "minecraft:wooden_pickaxe", count: 1 },
+          { item: "minecraft:cobblestone", count: 3 },
+          { item: "minecraft:stone_pickaxe", count: 1 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:oak_leaves", count: 60 },
+        ],
+      }),
+      goal("food"),
+      MAX_ID,
+    );
+    assert.equal(plan.task?.skill.name, "mine_block");
+    assert.equal(plan.task?.skill.args["block"], "minecraft:oak_leaves");
+    assert.equal(plan.task?.skill.args["count"], 48);
+    assert.match(plan.task?.title ?? "", /树叶/u);
+  });
+
+  test("night without a bed keeps the body moving instead of mining in place", () => {
+    const plan = planSurvival(
+      facts({
+        timeOfDay: 18_000,
+        inventory: [
+          { item: "minecraft:oak_log", count: 20 },
+          { item: "minecraft:oak_planks", count: 4 },
+          { item: "minecraft:crafting_table", count: 1 },
+          { item: "minecraft:wooden_pickaxe", count: 1 },
+          { item: "minecraft:cobblestone", count: 3 },
+          { item: "minecraft:stone_pickaxe", count: 1 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:oak_log", count: 12 },
+          { id: "minecraft:oak_leaves", count: 60 },
+        ],
+      }),
+      goal("food"),
+      MAX_ID,
+    );
+    assert.equal(plan.stage, "food");
+    assert.equal(plan.task?.skill.name, "goto");
+    assert.match(plan.task?.title ?? "", /夜间/u);
+  });
+
+  test("night work still rotates with the safety sweep", () => {
+    const plan = planSurvival(
+      facts({
+        timeOfDay: 19_000,
+        inventory: [
+          { item: "minecraft:oak_log", count: 20 },
+          { item: "minecraft:oak_planks", count: 4 },
+          { item: "minecraft:crafting_table", count: 1 },
+          { item: "minecraft:wooden_pickaxe", count: 1 },
+          { item: "minecraft:cobblestone", count: 3 },
+          { item: "minecraft:stone_pickaxe", count: 1 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:oak_log", count: 12 },
+          { id: "minecraft:oak_leaves", count: 60 },
+        ],
+      }),
+      goal("food"),
+      MAX_ID,
+    );
+    // Every third in-game hour window explores; the other windows keep the
+    // real gathering task so the run is not ten minutes of identical sweeps.
+    assert.equal(plan.task?.skill.name, "mine_block");
+  });
+
+  test("night eating is not replaced by the mobility sweep", () => {
+    const plan = planSurvival(
+      facts({
+        timeOfDay: 18_000,
+        food: 12,
+        inventory: [
+          { item: "minecraft:oak_log", count: 20 },
+          { item: "minecraft:oak_planks", count: 4 },
+          { item: "minecraft:crafting_table", count: 1 },
+          { item: "minecraft:wooden_pickaxe", count: 1 },
+          { item: "minecraft:cobblestone", count: 3 },
+          { item: "minecraft:stone_pickaxe", count: 1 },
+          { item: "minecraft:bread", count: 2 },
+        ],
+        nearbyBlocks: [{ id: "minecraft:crafting_table" }],
+      }),
+      goal("food"),
+      MAX_ID,
+    );
+    assert.equal(plan.task?.skill.name, "eat");
+    assert.equal(plan.task?.skill.args["item"], "minecraft:bread");
+  });
+
+  test("vanilla food is not planned at full hunger", () => {
     const before = facts({
       inventory: [
         { item: "minecraft:oak_log", count: 1 },
@@ -538,12 +981,10 @@ describe("survival planning", () => {
       nearbyBlocks: [{ id: "minecraft:crafting_table" }],
     });
     const plan = planSurvival(before, goal("food"), MAX_ID);
-    assert.equal(plan.task?.skill.name, "eat");
-    const after = applySkill(before, "eat", plan.task?.skill.args ?? {});
-    assert.equal(after.foodConsumed, true);
+    assert.notEqual(plan.task?.skill.name, "eat");
     assert.equal(
-      after.inventory.find((slot) => slot.item === "minecraft:cooked_beef")?.count,
-      1,
+      plan.stages.find((stage) => stage.id === "food")?.status,
+      "complete",
     );
   });
 

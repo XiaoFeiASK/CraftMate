@@ -37,8 +37,15 @@ import com.mojang.blaze3d.platform.NativeImage;
 public final class FrameServer implements AutoCloseable {
 	private static final String HOST = "127.0.0.1";
 	private static final int DEFAULT_PORT = 4324;
-	/** 20 fps: the console wants a live monitor, not a slideshow. */
-	private static final long CAPTURE_PERIOD_MS = 50L;
+	/**
+	 * The frame source is diagnostics, not gameplay telemetry. Reading the
+	 * main framebuffer and running a full Java2D/JPEG encode at 20 fps can
+	 * starve the client tick on a real GPU; the bridge then misses its task
+	 * deadline while the agent is actually still moving. One frame per
+	 * second is enough for an operator to inspect the world and leaves the
+	 * render thread to the game.
+	 */
+	private static final long CAPTURE_PERIOD_MS = 1_000L;
 	private static final int MAX_WIDTH = 960;
 	/** The desktop shell and loopback dev servers are the only readers. */
 	private static final java.util.Set<String> ALLOWED_ORIGINS = java.util.Set.of(

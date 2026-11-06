@@ -23,6 +23,7 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.player.KeyboardInput;
 import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
 import net.minecraft.network.protocol.game.ServerboundClientCommandPacket;
+import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -30,13 +31,16 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.monster.EnderMan;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.StackedContents;
 import net.minecraft.world.item.BedItem;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -58,6 +62,7 @@ import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.AABB;
 
 /**
  * Commands are state machines advanced by the client thread. A task remains
@@ -66,7 +71,7 @@ import net.minecraft.world.phys.Vec3;
 public final class GameActions {
 	private static final List<String> SKILLS = List.of(
 		"goto", "look_at", "mine_block", "chop_tree", "collect_items", "craft", "deposit", "say", "wait", "attack",
-		"equip", "eat", "use_block", "place_block", "sleep"
+		"equip", "eat", "use_block", "place_block", "pillar_up", "sleep"
 	);
 	private static final List<String> CAPABILITIES = List.of(
 		"sensor", "move", "mine", "container", "attack", "use", "build", "camera", "hud"
@@ -89,6 +94,13 @@ public final class GameActions {
 	private static final int COLLECT_SEARCH_RADIUS = 16;
 	private static final int COLLECT_STALL_TICKS = 20 * 4;
 	private static final int CONTAINER_SEARCH_RADIUS = 16;
+	/**
+	 * A body can walk away from the station it built, and a client restart
+	 * clears process memory. Recover the station from the loaded world so a
+	 * real table is not reported as missing merely because it is outside the
+	 * small nearby-block observation cube.
+	 */
+	private static final int STATION_RECOVERY_RADIUS = 32;
 	private static final int CONTAINER_TRANSFER_TIMEOUT = 20 * 5;
 	private static final int CONTAINER_TOTAL_TIMEOUT = 20 * 60;
 	/** Let one predicted menu update settle long enough to be rolled back. */
@@ -126,6 +138,7 @@ public final class GameActions {
 	 */
 	private static volatile boolean foodAcquired;
 	private static volatile boolean foodConsumed;
+	private static LocalPlayer observedPlayer;
 	/** True once this session crafted a crafting table. */
 	private static volatile boolean craftingTableCrafted;
 	/** True once this session placed a crafting table in the world. */
@@ -137,6 +150,8 @@ public final class GameActions {
 	 * that the table no longer exists.
 	 */
 	private static volatile BlockPos placedCraftingTable;
+	/** Throttle the recovery scan; the observation path runs every tick. */
+	private static int nextStationRecoveryTick;
 
 	private GameActions() {
 	}
@@ -175,12 +190,21 @@ public final class GameActions {
 			// a night skip, or food acquired in a previous run.
 			foodAcquired = false;
 			foodConsumed = false;
+			observedPlayer = null;
 			sleptThroughNight = false;
 			placedCraftingTable = null;
 			craftingTableCrafted = false;
 			craftingTablePlaced = false;
 			return world;
 		}
+		// A respawn creates a fresh body with an empty inventory. Keeping the
+		// old "food acquired" bit made the planner believe the food stage was
+		// satisfied forever and skip hunting after every death.
+		if (SessionFacts.resetConsumables(player.isAlive(), observedPlayer == player)) {
+			foodAcquired = false;
+			foodConsumed = false;
+		}
+		observedPlayer = player;
 		world.addProperty("world", client.level.dimension().location().toString());
 		JsonObject position = new JsonObject();
 		position.addProperty("x", round(player.getX()));
@@ -198,9 +222,24 @@ public final class GameActions {
 		world.addProperty("foodConsumed", foodConsumed);
 		world.addProperty("craftingTableCrafted", craftingTableCrafted);
 		world.addProperty("craftingTablePlaced", craftingTablePlaced);
+		if (placedCraftingTable == null && tick(client) >= nextStationRecoveryTick) {
+			nextStationRecoveryTick = tick(client) + 20 * 5;
+			BlockPos recovered = nearbyBlockPosition(client, player, Blocks.CRAFTING_TABLE, STATION_RECOVERY_RADIUS);
+			if (recovered != null) {
+				placedCraftingTable = recovered;
+				craftingTablePlaced = true;
+			}
+		} else if (placedCraftingTable != null
+			&& !client.level.getBlockState(placedCraftingTable).is(Blocks.CRAFTING_TABLE)) {
+			// The remembered block was broken or replaced. Keep the fact that
+			// this run built a table, but do not claim a station that is gone.
+			placedCraftingTable = null;
+		}
 		world.addProperty(
 			"craftingTableNearby",
-			(placedCraftingTable != null && client.level.getBlockState(placedCraftingTable).is(Blocks.CRAFTING_TABLE))
+			(placedCraftingTable != null
+				&& client.level.getBlockState(placedCraftingTable).is(Blocks.CRAFTING_TABLE)
+				&& player.distanceToSqr(Vec3.atCenterOf(placedCraftingTable)) <= 8.0 * 8.0)
 				|| nearbyBlocksContain(client, player, Blocks.CRAFTING_TABLE)
 		);
 		if (placedCraftingTable != null) {
@@ -219,8 +258,12 @@ public final class GameActions {
 		world.addProperty("sleeping", player.isSleeping());
 		world.addProperty("sleptThroughNight", sleptThroughNight);
 		world.addProperty("screenOpen", client.screen != null);
-		BlockPos feet = player.blockPosition();
-		BlockState floor = client.level.getBlockState(feet.below());
+		world.addProperty(
+			"screen",
+			client.screen == null ? null : client.screen.getClass().getSimpleName()
+		);
+		SupportBlock support = supportBlock(client, player);
+		BlockState floor = support.state();
 		world.addProperty(
 			"floor",
 			floor.isAir() ? null : BuiltInRegistries.BLOCK.getKey(floor.getBlock()).toString()
@@ -258,6 +301,9 @@ public final class GameActions {
 				entry.addProperty("name", entity.getName().getString());
 				entry.addProperty("type", BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString());
 				entry.addProperty("distance", round(Math.sqrt(entity.distanceToSqr(player))));
+				entry.addProperty("x", round(entity.getX()));
+				entry.addProperty("y", round(entity.getY()));
+				entry.addProperty("z", round(entity.getZ()));
 				entities.add(entry);
 			});
 		world.add("entities", entities);
@@ -393,6 +439,11 @@ public final class GameActions {
 				case "eat" -> new EatTask(id, optional(args, "item"));
 				case "use_block" -> new UseBlockTask(id, optional(args, "block"));
 				case "place_block" -> new PlaceTask(id, required(args, "block"), integer(args, "count", 1));
+				case "pillar_up" -> new PillarTask(
+					id,
+					optional(args, "block"),
+					integer(args, "height", 3)
+				);
 				case "sleep" -> new SleepTask(id);
 				default -> null;
 			};
@@ -460,6 +511,7 @@ public final class GameActions {
 		LocalPlayer player = client.player;
 		if (player != null && player.input != null) player.input.tick(false, 1.0f);
 		releaseInputs(client);
+		IdleWander.reset(client);
 		MultiPlayerGameMode mode = client.gameMode;
 		if (mode != null && mode.isDestroying()) {
 			mode.stopDestroyBlock();
@@ -478,7 +530,7 @@ public final class GameActions {
 		// input a task would otherwise press again, and so a task that is
 		// already underway cannot finish the tick by walking into lava.
 		if (reflexes == null || !reflexes.tick(client)) {
-			advanceTasks(client);
+			advanceTasks(client, agentControlled);
 		}
 	}
 
@@ -508,7 +560,7 @@ public final class GameActions {
 		showStatus(client, "正在重生");
 	}
 
-	private static void advanceTasks(Minecraft client) {
+	private static void advanceTasks(Minecraft client, boolean agentControlled) {
 		// A screen the player opened pauses the agent instead of being closed.
 		// Tasks that need a menu mark it with `keepScreen` and keep working.
 		boolean keepScreen = TASKS.values().stream()
@@ -518,6 +570,9 @@ public final class GameActions {
 			releaseMiningInput(client);
 			return;
 		}
+		// Real work always wins over idling. Reset before ticking so a task's
+		// own key press in this tick is not immediately released again.
+		if (!TASKS.isEmpty()) IdleWander.reset(client);
 		for (Task task : new ArrayList<>(TASKS.values())) {
 			if (!task.started || !TASKS.containsKey(task.id)) continue;
 			try {
@@ -526,7 +581,10 @@ public final class GameActions {
 				finish(task.id, "failed", "E_INTERNAL", message(error));
 			}
 		}
-		if (TASKS.isEmpty() && !CameraController.retained()) CameraController.release();
+		if (TASKS.isEmpty()) {
+			if (!CameraController.retained()) CameraController.release();
+			IdleWander.tick(client, agentControlled);
+		}
 	}
 
 	private static void finish(String id, String status, String code, String detail) {
@@ -691,7 +749,17 @@ public final class GameActions {
 		@Override
 		void tick(Minecraft client) {
 			remaining--;
-			if (remaining <= 0) finish(id, "completed", null, null);
+			if (remaining <= 0) {
+				JsonObject evidence = new JsonObject();
+				evidence.addProperty("summary", "waited " + total + " ticks");
+				JsonArray changes = new JsonArray();
+				JsonObject change = new JsonObject();
+				change.addProperty("kind", "action_completed");
+				change.addProperty("detail", "wait");
+				changes.add(change);
+				evidence.add("changes", changes);
+				finish(id, "completed", null, null, evidence);
+			}
 		}
 	}
 
@@ -709,7 +777,15 @@ public final class GameActions {
 			// to a local-only message: that would falsely claim speech on the
 			// server.
 			client.player.connection.sendChat(text);
-			finish(id, "completed", null, null);
+			JsonObject evidence = new JsonObject();
+			evidence.addProperty("summary", "sent chat message");
+			JsonArray changes = new JsonArray();
+			JsonObject change = new JsonObject();
+			change.addProperty("kind", "action_completed");
+			change.addProperty("detail", "say");
+			changes.add(change);
+			evidence.add("changes", changes);
+			finish(id, "completed", null, null, evidence);
 		}
 
 		@Override
@@ -761,7 +837,15 @@ public final class GameActions {
 			settledTicks = CameraController.settled(2.0f) ? settledTicks + 1 : 0;
 			if (settledTicks >= 3) {
 				CameraController.retain();
-				finish(id, "completed", null, null);
+				JsonObject evidence = new JsonObject();
+				evidence.addProperty("summary", "camera settled on the target");
+				JsonArray changes = new JsonArray();
+				JsonObject change = new JsonObject();
+				change.addProperty("kind", "action_completed");
+				change.addProperty("detail", "look_at");
+				changes.add(change);
+				evidence.add("changes", changes);
+				finish(id, "completed", null, null, evidence);
 			} else if (age > 20 * 4) {
 				finish(id, "failed", "E_TIMEOUT", "camera did not settle on the target");
 			}
@@ -789,7 +873,24 @@ public final class GameActions {
 		private static final double ARRIVE_HEIGHT = 1.25;
 		private static final int MAX_PATH_NODES = 4_000;
 		private static final double MAX_PATH_RADIUS = 64.0;
-		private final Vec3 target;
+		/** A partial leg this long still moved the observer somewhere new. */
+		private static final double PARTIAL_PROGRESS = 8.0;
+		/**
+		 * Cross-task memory for exploration only. A mountain corridor offers
+		 * exactly two complete routes: one up the slope and one back down.
+		 * Each fresh task only saw its own terrain and picked the single
+		 * complete heading, so the body walked the same forty metres in
+		 * reverse forever. Remembering where the last explore leg ended lets
+		 * the next one try another heading first.
+		 */
+		private static final java.util.ArrayDeque<Vec3> exploreTrail =
+			new java.util.ArrayDeque<>();
+		private static final int EXPLORE_TRAIL = 3;
+		private static final double OSCILLATION_RADIUS = 8.0;
+		private final List<Vec3> requests;
+		private final boolean acceptPartial;
+		private Vec3 target;
+		private Vec3 startedAt;
 		private List<Vec3> waypoints = List.of();
 		private int waypointIndex;
 		private Vec3 destination;
@@ -800,7 +901,103 @@ public final class GameActions {
 		private int stuckTicks;
 		private int replans;
 		private int nextReplanAt;
+		/**
+		 * A bounded A* can return an incomplete path whose last standable cell
+		 * is the body's own one-block aisle. Walking half a block and then
+		 * calling the task finished used to consume the whole plan without
+		 * moving the body, while the coordinator reissued the same heading
+		 * every few seconds. Track the best distance reached by any partial
+		 * leg so a retry cannot count the same endpoint as progress twice.
+		 */
+		private double bestPartialTargetDistance = Double.POSITIVE_INFINITY;
 		private BlockPos escapeWall;
+		/** Temporary perpendicular cell used only to leave a wedged lip. */
+		private Vec3 detour;
+		private int detourTicks;
+		/**
+		 * A one-block pillar or a hilltop can have no standable A* neighbour
+		 * at all. Falling one to four blocks onto a proven floor is still a
+		 * safe way out; without it the body stands on the peak forever and
+		 * the planner keeps producing the same impossible route.
+		 */
+		private Vec3 ledgeTarget;
+		private int ledgeStartY;
+		private int ledgeTicks;
+		private double ledgeLastDistance;
+		/** A canopy has no standable neighbour, so descend before planning. */
+		private boolean escapingCanopy;
+		/**
+		 * A cave with no standable route is not a dead end. A player mines a
+		 * one-block staircase toward the surface: clear the two head cells in
+		 * front, jump onto the remaining floor block, repeat. Keep this state
+		 * alive across ticks so the body actually completes several steps.
+		 */
+		private boolean escapingNoRoute;
+		private BlockPos climbStep;
+		private BlockPos climbHead;
+		private BlockPos climbAbove;
+		private BlockPos climbMining;
+		/**
+		 * The first block hit by the eye ray while trying to clear a
+		 * staircase cell. Adjacent cave corners often hide the intended cell
+		 * behind one exposed block. Mining that blocker keeps the same goto
+		 * alive instead of failing in a single tick and making the planner
+		 * reissue the same unreachable route forever.
+		 */
+		private BlockPos climbObstruction;
+		private Direction climbDirection;
+		private int climbStartY;
+		private int climbStepAt;
+		private int climbSteps;
+		/**
+		 * Last-resort vertical escape: mine the ceiling, jump, and place the
+		 * block that was under the feet back into the freed cell. In an open
+		 * cave there is no adjacent step to staircase, and the body may still
+		 * have building blocks.
+		 */
+		private boolean ceilingActive;
+		private BlockPos ceilingMine;
+		private boolean ceilingPlacing;
+		private int ceilingBase;
+		private int ceilingStepAt;
+		/** Water has no standable cells, so it needs a swim-to-shore state. */
+		private Vec3 swimTarget;
+		private int swimTicks;
+		private Vec3 swimLastPosition;
+		private int swimStalledTicks;
+		private double swimBestDistance = Double.POSITIVE_INFINITY;
+		private int swimPillarAt = -1;
+		/**
+		 * Terrain commands often arrive during an idle jump. The old escape
+		 * decision only had a three-second window and could sample nothing
+		 * but the jump apex, then report "no way out" even though the body
+		 * landed a few ticks later. Track the last grounded tick so every
+		 * decision is made from a frame that can actually jump, mine or
+		 * place.
+		 */
+		private int lastGroundedAge = -1;
+		private int airborneSinceAge = -1;
+		/**
+		 * Gap crossing state. A body with dirt or cobblestone can extend a
+		 * floor one block at a time, just like a player holding sneak and
+		 * right-clicking the side of the block underfoot.
+		 */
+		private boolean bridging;
+		private Direction bridgeDirection;
+		private BlockPos bridgeSupport;
+		private BlockPos bridgePlace;
+		private BlockPos bridgeTarget;
+		private int bridgeStartedAt;
+		private int bridgeSubmittedAt = -1;
+		private int bridgeBlocks;
+		private int bridgeGap;
+		/**
+		 * A one-block lip is the most common terrain feature in this world.
+		 * The old rule only jumped while `stuckTicks < 4`, so by the time the
+		 * body was visibly blocked it had already disabled the one input that
+		 * could climb the step. Keep a small cooldown instead of a stall gate.
+		 */
+		private int lastStepJumpAt = -100;
 
 		/**
 		 * A body can end up in a one-block shaft it dug itself. A* cannot
@@ -814,55 +1011,297 @@ public final class GameActions {
 			BlockPos feet = player.blockPosition();
 			int walls = 0;
 			for (Direction direction : Direction.Plane.HORIZONTAL) {
-				if (client.level.getBlockState(feet.relative(direction)).blocksMotion()) walls++;
+				if (
+					client.level.getBlockState(feet.relative(direction)).blocksMotion()
+						|| client.level.getBlockState(feet.above().relative(direction))
+							.blocksMotion()
+				) {
+					walls++;
+				}
 			}
 			int pickaxeSlot = -1;
 			BlockState stone = Blocks.STONE.defaultBlockState();
 			for (int slot = 0; slot < 9; slot++) {
 				ItemStack stack = player.getInventory().getItem(slot);
 				if (stack.isEmpty() || !stack.isCorrectToolForDrops(stone)) continue;
-				pickaxeSlot = slot;
+				if (
+					pickaxeSlot < 0
+						|| stack.getDestroySpeed(stone)
+							> player.getInventory().getItem(pickaxeSlot).getDestroySpeed(stone)
+				) {
+					pickaxeSlot = slot;
+				}
 			}
-			if (!ShaftEscape.shouldDigOut(walls, pickaxeSlot >= 0)) return false;
+			boolean softWallAvailable = false;
+			boolean handBreakable = false;
+			for (Direction direction : Direction.Plane.HORIZONTAL) {
+				BlockState state = client.level.getBlockState(feet.relative(direction));
+				if (softWall(state)) {
+					softWallAvailable = true;
+				}
+				float hardness = state.getDestroySpeed(client.level, feet.relative(direction));
+				if (hardness >= 0.0f && hardness <= 3.0f) handBreakable = true;
+				BlockState head = client.level.getBlockState(feet.above().relative(direction));
+				if (softWall(head)) {
+					softWallAvailable = true;
+				}
+				float headHardness = head.getDestroySpeed(
+					client.level,
+					feet.above().relative(direction)
+				);
+				if (headHardness >= 0.0f && headHardness <= 3.0f) handBreakable = true;
+			}
+			if (!ShaftEscape.shouldDigOut(walls, pickaxeSlot >= 0 || softWallAvailable || handBreakable)) {
+				return false;
+			}
 			for (Direction direction : Direction.Plane.HORIZONTAL) {
 				BlockPos wall = feet.relative(direction);
-				BlockState state = client.level.getBlockState(wall);
-				if (!state.blocksMotion()) continue;
-				Vec3 centre = Vec3.atCenterOf(wall);
-				MineTask.aimAt(player, centre);
-				BlockHitResult hit = MineTask.clip(client, player, centre);
-				if (!ShaftEscape.canBreakWall(
-					state.blocksMotion(),
-					hit.getBlockPos().equals(wall)
-				)) continue;
-				escapeWall = wall;
-				player.getInventory().selected = pickaxeSlot;
-				client.gameMode.startDestroyBlock(wall, hit.getDirection());
-				if (player.onGround()) player.jumpFromGround();
-				return true;
+				BlockPos headWall = feet.above().relative(direction);
+				boolean feetOpen = !client.level.getBlockState(wall).blocksMotion();
+				boolean headSolid = client.level.getBlockState(headWall).blocksMotion();
+				// A one-high opening is not walkable. If the feet cell is
+				// already open, finish the doorway by clearing the head cell
+				// instead of mining an unrelated wall.
+				if (feetOpen && headSolid) {
+					if (breakEscapeWall(client, player, headWall, pickaxeSlot)) return true;
+					continue;
+				}
+				if (!feetOpen) {
+					if (breakEscapeWall(client, player, wall, pickaxeSlot)) return true;
+				}
 			}
 			return false;
 		}
 
+		/**
+		 * Start destroying one escape cell. The body may have no pickaxe;
+		 * stone is still breakable by hand, just slowly, and refusing it
+		 * trapped the body in a self-dug shaft forever.
+		 */
+		private boolean breakEscapeWall(
+			Minecraft client,
+			LocalPlayer player,
+			BlockPos wall,
+			int pickaxeSlot
+		) {
+			BlockState state = client.level.getBlockState(wall);
+			if (!state.blocksMotion()) return false;
+			float hardness = state.getDestroySpeed(client.level, wall);
+			boolean canBreakByHand = hardness >= 0.0f && hardness <= 3.0f;
+			if (pickaxeSlot < 0 && !canBreakByHand) return false;
+			Vec3 centre = Vec3.atCenterOf(wall);
+			MineTask.aimAt(player, centre);
+			BlockHitResult hit = MineTask.clip(client, player, centre);
+			if (!ShaftEscape.canBreakWall(state.blocksMotion(), hit.getBlockPos().equals(wall))) {
+				return false;
+			}
+			escapeWall = wall;
+			if (pickaxeSlot >= 0) player.getInventory().selected = pickaxeSlot;
+			client.gameMode.startDestroyBlock(wall, hit.getDirection());
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate escape wall target={} state={} face={} player={}",
+				wall,
+				state,
+				hit.getDirection(),
+				player.position()
+			);
+			return true;
+		}
+
+		private static boolean softWall(BlockState state) {
+			return state.is(Blocks.DIRT)
+				|| state.is(Blocks.GRASS_BLOCK)
+				|| state.is(Blocks.SAND)
+				|| state.is(Blocks.GRAVEL)
+				|| state.is(Blocks.CLAY)
+				|| state.is(Blocks.SNOW_BLOCK)
+				|| state.is(Blocks.COARSE_DIRT)
+				|| state.is(Blocks.ROOTED_DIRT);
+		}
+
 		GotoTask(String id, JsonObject args) {
 			super(id);
-			this.target = vec(args);
+			List<Vec3> requested = new ArrayList<>();
+			requested.add(vec(args));
+			if (args.has("candidates") && args.get("candidates").isJsonArray()) {
+				for (var entry : args.getAsJsonArray("candidates")) {
+					if (!entry.isJsonObject()) continue;
+					Vec3 candidate = vec(entry.getAsJsonObject());
+					if (requested.stream().noneMatch(seen -> seen.equals(candidate))) {
+						requested.add(candidate);
+					}
+				}
+			}
+			this.requests = List.copyOf(requested);
+			this.target = this.requests.get(0);
+			this.acceptPartial =
+				args.has("acceptPartial")
+					&& args.get("acceptPartial").isJsonPrimitive()
+					&& args.get("acceptPartial").getAsBoolean();
+		}
+
+		/**
+		 * A one-block pillar, a tree stump or a hilltop can have no standable
+		 * A* neighbour in any direction. The body does not need a path to step
+		 * off a small ledge; it needs one proven floor within a survivable
+		 * drop. Four blocks costs only half a heart and cannot be lava or
+		 * water, so this is always safer than freezing on the peak.
+		 */
+		private static Vec3 safeLedge(Minecraft client, LocalPlayer player) {
+			if (!player.onGround()) return null;
+			BlockPos feet = player.blockPosition();
+			Vec3 best = null;
+			double bestScore = Double.POSITIVE_INFINITY;
+			for (int radius = 1; radius <= 4; radius++) {
+				for (int dx = -radius; dx <= radius; dx++) {
+					for (int dz = -radius; dz <= radius; dz++) {
+						if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) continue;
+						if (dx == 0 && dz == 0) continue;
+						int x = feet.getX() + dx;
+						int z = feet.getZ() + dz;
+						for (int drop = 1; drop <= 4; drop++) {
+							BlockPos landing = new BlockPos(x, feet.getY() - drop, z);
+							if (!standableAt(client, landing)) continue;
+							if (!bodySpaceAt(client, landing)) continue;
+							// The target must be open all the way up to the
+							// body. A plateau has standable cells *inside* the
+							// hill at lower Y, but walking toward one only
+							// paces along the surface; it is not a ledge.
+							boolean openAbove = true;
+							for (int y = landing.getY() + 1; y <= feet.getY(); y++) {
+								if (
+									client.level.getBlockState(new BlockPos(x, y, z))
+										.blocksMotion()
+								) {
+									openAbove = false;
+									break;
+								}
+							}
+							if (!openAbove) continue;
+							if (!client.level.getBlockState(landing).getFluidState().isEmpty()) continue;
+							if (!client.level.getBlockState(landing.above()).getFluidState().isEmpty()) continue;
+							if (
+								client.level.getBlockState(landing.below())
+									.getFluidState()
+									.is(FluidTags.LAVA)
+							) continue;
+							double score = drop * 10.0 + Math.hypot(dx, dz);
+							if (score < bestScore) {
+								bestScore = score;
+								best = new Vec3(x + 0.5, landing.getY(), z + 0.5);
+							}
+						}
+					}
+				}
+			}
+			return best;
+		}
+
+		private void beginLedge(Minecraft client, LocalPlayer player, Vec3 target) {
+			ledgeTarget = target;
+			ledgeStartY = player.blockPosition().getY();
+			ledgeTicks = 0;
+			ledgeLastDistance = player.position().distanceTo(target);
+			releaseWalkInput(client);
+			send.accept(progress(id, "descend", 0, 1));
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate goto ledge from={} target={}",
+				player.position(),
+				target
+			);
+		}
+
+		private void tickLedge(Minecraft client, LocalPlayer player) {
+			Vec3 target = ledgeTarget;
+			if (target == null) return;
+			ledgeTicks++;
+			if (ledgeTicks % 20 == 0) {
+				double distance = Math.hypot(
+					target.x - player.getX(),
+					target.z - player.getZ()
+				);
+				if (distance + 0.1 >= ledgeLastDistance) {
+					ledgeTarget = null;
+					releaseWalkInput(client);
+					if (!digOut(client)) {
+						finish(
+							id,
+							"failed",
+							"E_PRECONDITION",
+							"ledge approach made no progress"
+						);
+					}
+					return;
+				}
+				ledgeLastDistance = distance;
+			}
+			boolean landed =
+				player.onGround() && player.getY() <= ledgeStartY - 0.5;
+			if (landed) {
+				ledgeTarget = null;
+				releaseWalkInput(client);
+				Route route = firstSafeRoute(client, player);
+				if (route == null) {
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"no safe route after stepping off the ledge"
+					);
+					return;
+				}
+				destination = route.destination();
+				routeComplete = route.complete();
+				waypoints = route.waypoints();
+				waypointIndex = waypoints.size() > 1 ? 1 : 0;
+				lastWaypointIndex = waypointIndex;
+				lastWaypointDistance = playerDistance(player);
+				nextReplanAt = 0;
+				send.accept(progress(id, "walking", 0, 1));
+				return;
+			}
+			if (ledgeTicks > 20 * 6) {
+				ledgeTarget = null;
+				releaseWalkInput(client);
+				finish(id, "failed", "E_TIMEOUT", "could not step safely off the ledge");
+				return;
+			}
+			double dx = target.x - player.getX();
+			double dz = target.z - player.getZ();
+			float heading = (float) Math.toDegrees(Math.atan2(-dx, dz));
+			boolean aligned = turnTowards(player, heading);
+			CameraController.steerHeading(
+				player,
+				player.getYRot(),
+				CameraController.displayPitch(player)
+			);
+			// Once airborne, keep the forward key held even if the body has not
+			// finished turning; otherwise a jump straight up drops back onto
+			// the same pillar.
+			setWalkInput(client, aligned || !player.onGround());
+			if (player.onGround()) player.jumpFromGround();
 		}
 
 		@Override
 		void start(Minecraft client) {
 			destination = target;
+			startedAt = client.player.position();
+			bestPartialTargetDistance = Math.hypot(
+				target.x - client.player.getX(),
+				target.z - client.player.getZ()
+			);
 			// A recovered respawn may carry a stale fallDistance from the
 			// death tick. Reset it only when the body is actually on ground;
 			// an airborne body must keep the real fall for the safety reflex.
 			if (client.player.onGround()) client.player.resetFallDistance();
-			Route route = safeRouteEnd(client, client.player);
-			if (route == null) {
-				if (digOut(client)) {
-					send.accept(progress(id, "unstick", 0, 1));
-					return;
-				}
-				finish(id, "failed", "E_PRECONDITION", "no safe route from the current position");
+			if (onCanopy(client)) {
+				escapingCanopy = true;
+				send.accept(progress(id, "unstick", 0, 1));
+				return;
+			}
+			Route route = firstSafeRoute(client, client.player);
+			if (route == null || !routeMovesBody(route, client.player)) {
+				startEscape(client, client.player);
 				return;
 			}
 			destination = route.destination();
@@ -873,41 +1312,1444 @@ public final class GameActions {
 			lastWaypointDistance = playerDistance(client.player);
 			nextReplanAt = 0;
 			CraftMateBodyClient.LOGGER.info(
-				"CraftMate goto start target={} destination={} position={}",
+				"CraftMate goto start target={} destination={} position={} points={} complete={} distance={}",
 				target,
 				destination,
-				client.player.position()
+				client.player.position(),
+				waypoints.size(),
+				route.complete(),
+				Math.hypot(
+					destination.x - client.player.getX(),
+					destination.z - client.player.getZ()
+				)
 			);
 			send.accept(progress(id, "walking", 0, 1));
+		}
+
+		private void startEscape(Minecraft client, LocalPlayer player) {
+			escapingNoRoute = true;
+			climbSteps = 0;
+			releaseWalkInput(client);
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate goto escape no useful route position={} target={}",
+				player.position(),
+				target
+			);
+			send.accept(progress(id, "unstick", 0, 1));
+			tickEscape(client, player);
+		}
+
+		/**
+		 * A complete route is always usable. An incomplete one is useful only
+		 * if it actually leaves the body's current cell; the bounded search
+		 * often ends one half-block away when the body is boxed in, and
+		 * following that route makes the task look finished while nothing
+		 * moved.
+		 */
+		private boolean routeMovesBody(Route route, LocalPlayer player) {
+			if (route.complete()) return true;
+			Vec3 end = route.destination();
+			double moved = Math.hypot(end.x - player.getX(), end.z - player.getZ());
+			// Explore legs are allowed to stop at a safe observation point,
+			// but a two-block partial leg is not an exploration. Following it
+			// burned the command, failed the eight-block progress check, and
+			// supplied the runtime with the same heading again every retry.
+			return moved >= (acceptPartial ? PARTIAL_PROGRESS : 2.0);
+		}
+
+		/**
+		 * The body cannot path out of a cave whose only exit is upward. Try
+		 * the cheap escapes first, then mine a staircase toward the requested
+		 * target. Progress frames keep the bridge deadline open while several
+		 * blocks are being cleared.
+		 */
+		private void tickEscape(Minecraft client, LocalPlayer player) {
+			if (ceilingActive) {
+				tickCeilingPillar(client, player);
+				return;
+			}
+			if (bridging) {
+				tickBridge(client, player);
+				return;
+			}
+			if (climbStep != null) {
+				tickClimb(client, player);
+				return;
+			}
+			boolean inWater =
+				player.isInWater() || player.isEyeInFluid(FluidTags.WATER);
+			// Swimming is a valid non-grounded mode, not a physics desync.
+			// Counting those ticks as airborne made the body fail a fraction
+			// of a second after it finally mined out of a flooded shaft, then
+			// the bridge disconnected on an error code the wire schema did not
+			// know. Water resets the airborne clock just like solid ground.
+			if (player.onGround() || inWater) {
+				lastGroundedAge = age;
+				airborneSinceAge = -1;
+			} else if (airborneSinceAge < 0) {
+				airborneSinceAge = age;
+			}
+			if (age > 20 * 55) {
+				stop(client);
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate escape timeout pos={} feet={} onGround={} water={} delta={} target={}",
+					player.position(),
+					player.blockPosition(),
+					player.onGround(),
+					player.isInWater(),
+					player.getDeltaMovement(),
+					target
+				);
+				finish(id, "failed", "E_TIMEOUT", "could not mine out of the current position");
+				return;
+			}
+			if (age % 20 == 0) {
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate escape state pos={} feet={} onGround={} water={} delta={} hcoll={} climb={} bridge={} ceiling={} ledge={} wall={}",
+					player.position(),
+					player.blockPosition(),
+					player.onGround(),
+					player.isInWater(),
+					player.getDeltaMovement(),
+					player.horizontalCollision,
+					climbStep,
+					bridgeDirection,
+					ceilingActive,
+					ledgeTarget,
+					escapeWall
+				);
+			}
+			if (inWater) {
+				tickSwim(client, player);
+				return;
+			}
+			// Bobbing at a water surface alternates `isInWater` between true
+			// and false every few ticks. Clearing the swim state on each dry
+			// frame reset its timer before it could ever mine the pocket, so
+			// only an actual landing clears it (see tickSwim).
+			// A command frequently arrives on the same tick as an idle jump or
+			// while the player is still settling after a respawn. Every escape
+			// below needs solid footing, so deciding "impossible" from an
+			// airborne frame made a perfectly walkable cave look like a dead
+			// end and alternated goto/attack every few seconds.
+			if (!player.onGround() && age < 20 * 3) {
+				releaseWalkInput(client);
+				if (age % 20 == 0) {
+					CraftMateBodyClient.LOGGER.info(
+						"CraftMate escape airborne age={} pos={} delta={} onGround={} fall={} flying={} mayfly={} fallFlying={} passenger={} vehicle={} noGravity={} jumpKey={} inputJump={} paused={} gameTime={} below={} above={} spectator={} dead={} noPhysics={} tickCount={} box={}",
+						age,
+						player.position(),
+						player.getDeltaMovement(),
+						player.onGround(),
+						player.fallDistance,
+						player.getAbilities().flying,
+						player.getAbilities().mayfly,
+						player.isFallFlying(),
+						player.isPassenger(),
+						player.getVehicle() == null
+							? "none"
+							: player.getVehicle().getType().toString(),
+						player.isNoGravity(),
+						client.options.keyJump.isDown(),
+						player.input != null && player.input.jumping,
+						client.isPaused(),
+						client.level.getGameTime(),
+						client.level.getBlockState(player.blockPosition().below()),
+						client.level.getBlockState(player.blockPosition().above()),
+						player.isSpectator(),
+						player.isDeadOrDying(),
+						player.noPhysics,
+						player.tickCount,
+						player.getBoundingBox()
+					);
+					send.accept(progress(id, "landing", 0, 1));
+				}
+				return;
+			}
+			// Every escape below needs a grounded body. A jump apex is not a
+			// dead end, it is simply the wrong frame to decide from. Wait for
+			// the next landing instead of failing on a 20-tick sampling
+			// boundary. The only exception is a body that has genuinely
+			// hovered for seconds: that is a physics desync, not terrain.
+			if (!player.onGround()) {
+				int airborneFor = airborneSinceAge < 0 ? 0 : age - airborneSinceAge;
+				if (airborneFor < 20 * 6) {
+					releaseWalkInput(client);
+					if (age % 20 == 0) {
+						send.accept(progress(id, "landing", 0, 1));
+						CraftMateBodyClient.LOGGER.info(
+							"CraftMate escape waiting for landing airborneFor={} age={} pos={} delta={} support={} feet={} head={}",
+							airborneFor,
+							age,
+							player.position(),
+							player.getDeltaMovement(),
+							supportBlock(client, player).state(),
+							client.level.getBlockState(player.blockPosition()),
+							client.level.getBlockState(player.blockPosition().above())
+						);
+					}
+					return;
+				}
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate stale airborne pos={} airborneFor={} tickCount={} spectator={} dead={} noPhysics={} delta={} box={} feet={} below={} above={}",
+					player.position(),
+					airborneFor,
+					player.tickCount,
+					player.isSpectator(),
+					player.isDeadOrDying(),
+					player.noPhysics,
+					player.getDeltaMovement(),
+					player.getBoundingBox(),
+					client.level.getBlockState(player.blockPosition()),
+					client.level.getBlockState(player.blockPosition().below()),
+					client.level.getBlockState(player.blockPosition().above())
+				);
+				stop(client);
+				finish(
+					id,
+					"failed",
+					"E_TIMEOUT",
+					"body stayed airborne without water or flight; terrain state is desynchronised"
+				);
+				return;
+			}
+			Route route = firstSafeRoute(client, player);
+			if (age % 20 == 0) {
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate escape route found={} complete={} destination={} distance={} target={}",
+					route != null,
+					route != null && route.complete(),
+					route == null ? null : route.destination(),
+					route == null
+						? -1
+						: Math.hypot(
+							route.destination().x - player.getX(),
+							route.destination().z - player.getZ()
+						),
+					target
+				);
+			}
+			if (route != null && routeMovesBody(route, player)) {
+				escapingNoRoute = false;
+				followRoute(client, player, route);
+				return;
+			}
+			if (digOut(client)) {
+				send.accept(progress(id, "unstick", 0, 1));
+				return;
+			}
+			if (beginClimbStep(client, player)) {
+				send.accept(progress(id, "climbing", climbSteps, 16));
+				return;
+			}
+			if (beginBridgeStep(client, player)) {
+				send.accept(progress(id, "bridging", bridgeBlocks, 4));
+				return;
+			}
+			if (beginCeilingPillar(client, player)) {
+				send.accept(progress(id, "climbing", climbSteps, 16));
+				return;
+			}
+			Vec3 ledge = safeLedge(client, player);
+			if (ledge != null) {
+				beginLedge(client, player, ledge);
+				return;
+			}
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate escape failed pos={} feet={} feetBlock={} above={} above2={} ground={} ceiling={} buildingSlot={} onGround={} delta={} fall={} hcoll={} vcoll={} water={}",
+				player.position(),
+				player.blockPosition(),
+				client.level.getBlockState(player.blockPosition()),
+				client.level.getBlockState(player.blockPosition().above()),
+				client.level.getBlockState(player.blockPosition().above(2)),
+				client.level.getBlockState(player.blockPosition().below()),
+				client.level.getBlockState(player.blockPosition().above(2)),
+				buildingSlot(player),
+				player.onGround(),
+				player.getDeltaMovement(),
+				player.fallDistance,
+				player.horizontalCollision,
+				player.verticalCollision,
+				player.isInWater()
+			);
+			stop(client);
+			finish(
+				id,
+				"failed",
+				"E_PRECONDITION",
+				"no safe route and no mineable or bridgeable way out"
+			);
+		}
+
+		/**
+		 * Extend the floor across a same-level gap. The body must stand on a
+		 * solid edge block, face the gap, and right-click the side of the
+		 * support block underfoot. Each confirmed placement is followed by
+		 * one deliberate step onto the new block; the body never walks into
+		 * an unconfirmed air cell.
+		 */
+		private boolean beginBridgeStep(Minecraft client, LocalPlayer player) {
+			if (!player.onGround() || buildingSlot(player) < 0) return false;
+			BlockPos feet = player.blockPosition();
+			BlockPos feetSupport = feet.below();
+			BlockPos support = client.level.getBlockState(feetSupport).blocksMotion()
+				? feetSupport
+				: supportBlock(client, player).pos();
+			if (!client.level.getBlockState(support).blocksMotion()) return false;
+			Vec3 toward = target.subtract(player.position());
+			double horizontal = Math.hypot(toward.x, toward.z);
+			if (horizontal < 2.0) return false;
+			Direction best = null;
+			int bestGap = 0;
+			BlockPos bestFar = null;
+			double bestScore = Double.POSITIVE_INFINITY;
+			for (Direction direction : Direction.Plane.HORIZONTAL) {
+				double alignment =
+					(direction.getStepX() * toward.x + direction.getStepZ() * toward.z)
+						/ horizontal;
+				if (alignment < 0.35) continue;
+				BlockPos first = feet.relative(direction);
+				if (standableAt(client, first)) continue;
+				BlockPos floor = first.below();
+				if (!client.level.getBlockState(floor).canBeReplaced()) continue;
+				if (!client.level.getBlockState(floor).getFluidState().isEmpty()) continue;
+				if (!bodySpaceAt(client, first)) continue;
+				BlockPos far = null;
+				int gap = 0;
+				// A river or a ravine is often wider than the four-block
+				// window the first bridge prototype used. The body crosses
+				// one confirmed block at a time, so the scan can look much
+				// farther without ever stepping onto unproven air.
+				for (int step = 1; step <= 12; step++) {
+					BlockPos cell = feet.relative(direction, step);
+					if (!bodySpaceAt(client, cell)) break;
+					BlockPos cellFloor = cell.below();
+					if (!client.level.getBlockState(cellFloor).canBeReplaced()) break;
+					if (!client.level.getBlockState(cellFloor).getFluidState().isEmpty()) break;
+					gap = step;
+					BlockPos landing = feet.relative(direction, step + 1);
+					if (standableAt(client, landing) && bodySpaceAt(client, landing)) {
+						far = landing;
+						break;
+					}
+				}
+				if (far == null || gap < 1 || gap > 12) continue;
+				double score = -alignment + gap * 0.05;
+				if (score < bestScore) {
+					bestScore = score;
+					best = direction;
+					bestGap = gap;
+					bestFar = far;
+				}
+			}
+			if (best == null) return false;
+			bridgeDirection = best;
+			bridgeSupport = support;
+			bridgePlace = feet.relative(best).below();
+			bridgeGap = bestGap;
+			bridgeTarget = bestFar;
+			bridgeStartedAt = age;
+			bridgeSubmittedAt = -1;
+			bridgeBlocks = 0;
+			bridging = true;
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate bridge start feet={} direction={} gap={} far={} place={} support={}",
+				feet,
+				best,
+				bestGap,
+				bestFar,
+				bridgePlace,
+				bridgeSupport
+			);
+			showStatus(client, "前方有缺口，开始垫方块");
+			return true;
+		}
+
+		private void tickBridge(Minecraft client, LocalPlayer player) {
+			if (bridgeDirection == null || bridgeSupport == null || bridgePlace == null) {
+				bridgeAbort(client, "bridge state is incomplete");
+				return;
+			}
+			if (age - bridgeStartedAt > 20 * 6) {
+				bridgeAbort(client, "bridge did not finish in time");
+				return;
+			}
+			if (!client.level.getBlockState(bridgePlace).canBeReplaced()) {
+				// The prediction is solid, but only a step onto its top proves
+				// the server accepted it. Walk forward while staying aligned.
+				Vec3 center = new Vec3(
+					bridgePlace.getX() + 0.5,
+					bridgePlace.getY() + 1.0,
+					bridgePlace.getZ() + 0.5
+				);
+				double dx = center.x - player.getX();
+				double dz = center.z - player.getZ();
+				float heading = (float) Math.toDegrees(Math.atan2(-dx, dz));
+				boolean aligned = turnTowards(player, heading);
+				CameraController.steerHeading(
+					player,
+					player.getYRot(),
+					CameraController.displayPitch(player)
+				);
+				setWalkInput(client, aligned);
+				if (aligned && Math.hypot(dx, dz) < 0.45 && player.onGround()) {
+					bridgeBlocks++;
+					releaseWalkInput(client);
+					bridgeSubmittedAt = -1;
+					send.accept(progress(id, "bridging", bridgeBlocks, 4));
+					Route route = firstSafeRoute(client, player);
+					// A partial route still stops at the next edge. Follow it
+					// only when it actually finishes the walk; otherwise keep
+					// laying floor so a multi-block gap is crossed in one
+					// bridge run instead of one block per planner decision.
+					if (route != null && route.complete()) {
+						bridging = false;
+						bridgeClear();
+						escapingNoRoute = false;
+						followRoute(client, player, route);
+						return;
+					}
+					if (bridgeTarget != null && player.blockPosition().equals(bridgeTarget)) {
+						bridging = false;
+						bridgeClear();
+						escapingNoRoute = false;
+						tickEscape(client, player);
+						return;
+					}
+					bridgeDirection = null;
+					bridgeSupport = null;
+					bridgePlace = null;
+					bridgeTarget = null;
+					bridging = false;
+					if (beginBridgeStep(client, player)) return;
+					bridgeAbort(client, "no adjacent gap remains on the bridge line");
+				}
+				return;
+			}
+			if (bridgeSubmittedAt >= 0 && age - bridgeSubmittedAt > 20 * 2) {
+				bridgeAbort(client, "the server rejected the bridge placement");
+				return;
+			}
+			if (!player.onGround()) {
+				releaseWalkInput(client);
+				return;
+			}
+			releaseWalkInput(client);
+			Vec3 faceCenter = new Vec3(
+				bridgeSupport.getX() + 0.5 + bridgeDirection.getStepX() * 0.5,
+				bridgeSupport.getY() + 0.35,
+				bridgeSupport.getZ() + 0.5 + bridgeDirection.getStepZ() * 0.5
+			);
+			MineTask.aimAt(player, faceCenter);
+			CameraController.steerHeading(
+				player,
+				player.getYRot(),
+				CameraController.displayPitch(player)
+			);
+			// The support block is directly underfoot, so a look ray from the
+			// eye enters through its top face and never reaches the side face.
+			// The body still looks at the edge, but the interaction names the
+			// side explicitly. The server validates reach and the adjacent
+			// replaceable cell, which is what a human bridging click does.
+			if (!client.level.getBlockState(bridgePlace).canBeReplaced()) {
+				return;
+			}
+			BlockHitResult hit = new BlockHitResult(
+				faceCenter,
+				bridgeDirection,
+				bridgeSupport,
+				false
+			);
+			int slot = buildingSlot(player);
+			if (slot < 0) {
+				bridgeAbort(client, "ran out of building blocks while bridging");
+				return;
+			}
+			player.getInventory().selected = slot;
+			client.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+			bridgeSubmittedAt = age;
+			send.accept(progress(id, "bridging", bridgeBlocks, 4));
+		}
+
+		private void bridgeAbort(Minecraft client, String reason) {
+			releaseWalkInput(client);
+			bridgeClear();
+			bridging = false;
+			finish(id, "failed", "E_PRECONDITION", reason);
+		}
+
+		private void bridgeClear() {
+			bridgeDirection = null;
+			bridgeSupport = null;
+			bridgePlace = null;
+			bridgeTarget = null;
+			bridgeSubmittedAt = -1;
+		}
+
+		/**
+		 * A land pathfinder deliberately refuses water, and `safeRouteEnd`
+		 * refuses to start while the player is airborne. In water those two
+		 * rules combine into a permanent "no safe route": the body bobs at the
+		 * surface until the command expires. Swim upward, aim at the nearest
+		 * dry standable cell, and let the normal route planner take over once
+		 * the body has solid ground again.
+		 */
+		private void tickSwim(Minecraft client, LocalPlayer player) {
+			swimTicks++;
+			swimLastPosition = player.position();
+			if (swimTarget == null || !standableAt(
+				client,
+				BlockPos.containing(swimTarget)
+			)) {
+				swimTarget = findShore(client, player);
+				swimBestDistance = Double.POSITIVE_INFINITY;
+			}
+			if (swimTarget == null) {
+				client.options.keyJump.setDown(true);
+				setSwimInput(client, false);
+				if (swimTicks % 20 == 0) send.accept(progress(id, "swimming", 0, 1));
+				if (swimTicks > 20 * 20) {
+					finish(id, "failed", "E_PRECONDITION", "could not find a nearby shore");
+				}
+				return;
+			}
+			// Bobbing at the surface changes the raw position every tick while
+			// making no progress at all. Measure the distance that matters:
+			// how close the body is to the dry cell it is trying to reach.
+			double dx = swimTarget.x - player.getX();
+			double dz = swimTarget.z - player.getZ();
+			double targetDistance = Math.hypot(dx, dz)
+				+ Math.max(0.0, swimTarget.y - player.getY()) * 0.5;
+			if (targetDistance + 0.2 < swimBestDistance) {
+				swimBestDistance = targetDistance;
+				swimStalledTicks = 0;
+			} else {
+				swimStalledTicks++;
+			}
+			if (swimTicks % 20 == 0) {
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate swim state pos={} target={} distance={} best={} ticks={} stalled={} delta={} hcoll={} eyeWater={}",
+					player.position(),
+					swimTarget,
+					targetDistance,
+					swimBestDistance,
+					swimTicks,
+					swimStalledTicks,
+					player.getDeltaMovement(),
+					player.horizontalCollision,
+					player.isEyeInFluid(FluidTags.WATER)
+				);
+			}
+			// Being in water is not enough to guarantee a way out. A body can
+			// sit in a one-cell flooded shaft with a solid ceiling and walls:
+			// swimming presses into the wall forever while the shore search
+			// keeps returning a target it cannot reach. A human would mine the
+			// wall or ceiling. Do that after one second without displacement,
+			// then let the escape-wall branch finish the destroy and swim
+			// through the opening.
+			if (swimStalledTicks >= 40) {
+				// A flooded shaft has no ledge to swim onto. Jump, then place
+				// the block under the feet at the apex; repeat to rise one
+				// block at a time. This is the water version of pillaring and
+				// is much more reliable than bobbing against a four-block-high
+				// bank.
+				if (pillarInWater(client, player)) {
+					swimStalledTicks = 0;
+					swimBestDistance = Double.POSITIVE_INFINITY;
+					send.accept(progress(id, "bridging", 0, 1));
+					return;
+				}
+				if (digSwimOut(client, player)) {
+					swimStalledTicks = 0;
+					swimBestDistance = Double.POSITIVE_INFINITY;
+					send.accept(progress(id, "unstick", 0, 1));
+					return;
+				}
+			}
+			float heading = (float) Math.toDegrees(Math.atan2(-dx, dz));
+			boolean aligned = turnTowards(player, heading);
+			CameraController.steerHeading(player, player.getYRot(), 0.0f);
+			setSwimInput(client, aligned);
+			if (player.onGround() && !player.isInWater()) {
+				swimTarget = null;
+				swimTicks = 0;
+				swimLastPosition = null;
+				swimStalledTicks = 0;
+				swimBestDistance = Double.POSITIVE_INFINITY;
+				releaseWalkInput(client);
+				return;
+			}
+			if (swimTicks % 20 == 0) send.accept(progress(id, "swimming", 0, 1));
+		}
+
+		/**
+		 * Water pillaring. The target is the replaceable water cell directly
+		 * below the feet; clicking the top face of the solid block beneath it
+		 * places a floor under the body while it is above the cell. The body
+		 * lands on that floor, jumps again, and repeats.
+		 */
+		private boolean pillarInWater(Minecraft client, LocalPlayer player) {
+			if (age - swimPillarAt < 10) return false;
+			int slot = buildingSlot(player);
+			if (slot < 0) return false;
+			BlockPos feet = player.blockPosition();
+			BlockPos target = feet.below();
+			BlockState cell = client.level.getBlockState(target);
+			if (!cell.canBeReplaced() && cell.getFluidState().isEmpty()) return false;
+			BlockPos support = target.below();
+			if (!client.level.getBlockState(support).blocksMotion()) return false;
+			if (player.getY() < target.getY() + 1.06) return false;
+			player.getInventory().selected = slot;
+			Vec3 centre = Vec3.atCenterOf(support);
+			player.setXRot(90.0f);
+			CameraController.steerHeading(player, player.getYRot(), 80.0f);
+			BlockHitResult hit = MineTask.clip(client, player, centre);
+			if (!hit.getBlockPos().equals(support) || hit.getDirection() != Direction.UP) {
+				return false;
+			}
+			client.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+			swimPillarAt = age;
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate swim pillar target={} support={} feet={} y={} slot={}",
+				target,
+				support,
+				feet,
+				player.getY(),
+				slot
+			);
+			return true;
+		}
+
+		/**
+		 * Open one cell out of a flooded pocket. Horizontal walls are tried
+		 * first because they preserve the water surface and let the body swim
+		 * toward land; the ceiling is the last resort for a vertical shaft.
+		 */
+		private boolean digSwimOut(Minecraft client, LocalPlayer player) {
+			BlockPos feet = player.blockPosition();
+			Vec3 toward = target.subtract(player.position());
+			double horizontal = Math.hypot(toward.x, toward.z);
+			// A flooded shaft often has a dry ledge several blocks above the
+			// water. In that geometry mining another side wall just moves the
+			// bubble sideways; open the ceiling first and rise toward daylight.
+			if (
+				swimTarget != null
+					&& swimTarget.y - player.getY() > 1.0
+					&& mineSwimCeiling(client, player, feet)
+			) {
+				return true;
+			}
+			List<Direction> directions = new ArrayList<>();
+			for (Direction direction : Direction.Plane.HORIZONTAL) {
+				directions.add(direction);
+			}
+			directions.sort(
+				(left, right) -> Double.compare(
+					alignment(right, toward, horizontal),
+					alignment(left, toward, horizontal)
+				)
+			);
+			for (Direction direction : directions) {
+				BlockPos wall = feet.relative(direction);
+				BlockPos headWall = wall.above();
+				if (
+					client.level.getBlockState(wall).blocksMotion()
+						&& breakEscapeWall(client, player, wall, bestToolSlot(
+							player,
+							client.level.getBlockState(wall)
+						))
+				) {
+					CraftMateBodyClient.LOGGER.info(
+						"CraftMate swim dig wall={} direction={} state={} player={}",
+						wall,
+						direction,
+						client.level.getBlockState(wall),
+						player.position()
+					);
+					return true;
+				}
+				if (
+					client.level.getBlockState(headWall).blocksMotion()
+						&& breakEscapeWall(client, player, headWall, bestToolSlot(
+							player,
+							client.level.getBlockState(headWall)
+						))
+				) {
+					CraftMateBodyClient.LOGGER.info(
+						"CraftMate swim dig headWall={} direction={} state={} player={}",
+						headWall,
+						direction,
+						client.level.getBlockState(headWall),
+						player.position()
+					);
+					return true;
+				}
+			}
+			return mineSwimCeiling(client, player, feet);
+		}
+
+		private boolean mineSwimCeiling(
+			Minecraft client,
+			LocalPlayer player,
+			BlockPos feet
+		) {
+			BlockPos ceiling = feet.above(2);
+			BlockState state = client.level.getBlockState(ceiling);
+			if (state.blocksMotion() && breakEscapeWall(
+				client,
+				player,
+				ceiling,
+				bestToolSlot(player, state)
+			)) {
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate swim dig ceiling={} state={} player={}",
+					ceiling,
+					state,
+					player.position()
+				);
+				return true;
+			}
+			return false;
+		}
+
+		private static double alignment(Direction direction, Vec3 toward, double horizontal) {
+			if (horizontal < 1.0e-4) return 0.0;
+			return (
+				direction.getStepX() * toward.x + direction.getStepZ() * toward.z
+			) / horizontal;
+		}
+
+		/**
+		 * The nearest dry block column the body can stand in after surfacing.
+		 * Scanning a small horizontal ring keeps the search bounded and gives
+		 * a river or pond an obvious exit instead of a random swim direction.
+		 */
+		private static Vec3 findShore(Minecraft client, LocalPlayer player) {
+			BlockPos feet = player.blockPosition();
+			Vec3 best = null;
+			double bestScore = Double.POSITIVE_INFINITY;
+			for (int radius = 1; radius <= 10; radius++) {
+				for (int dx = -radius; dx <= radius; dx++) {
+					for (int dz = -radius; dz <= radius; dz++) {
+						if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) continue;
+						for (int dy = 0; dy <= 5; dy++) {
+							BlockPos candidate = feet.offset(dx, dy, dz);
+							if (!standableAt(client, candidate)) continue;
+							double score = Math.hypot(dx, dz) + dy * 0.2;
+							if (score < bestScore) {
+								bestScore = score;
+								best = new Vec3(
+									candidate.getX() + 0.5,
+									candidate.getY(),
+									candidate.getZ() + 0.5
+								);
+							}
+						}
+					}
+				}
+			}
+			return best;
+		}
+
+		private void followRoute(Minecraft client, LocalPlayer player, Route route) {
+			destination = route.destination();
+			routeComplete = route.complete();
+			waypoints = route.waypoints();
+			waypointIndex = waypoints.size() > 1 ? 1 : 0;
+			lastWaypointIndex = waypointIndex;
+			lastWaypointDistance = playerDistance(player);
+			nextReplanAt = 0;
+			escapingNoRoute = false;
+			send.accept(progress(id, "walking", 0, 1));
+		}
+
+		/**
+		 * Pick a direction whose floor block can become the next stair step,
+		 * and whose two cells above it can be cleared. Prefer the direction
+		 * that points at the requested target so the staircase is not a
+		 * random spiral.
+		 */
+		private boolean beginClimbStep(Minecraft client, LocalPlayer player) {
+			if (!player.onGround()) return false;
+			BlockPos feet = player.blockPosition();
+			Vec3 toward = target.subtract(player.position());
+			double horizontal = Math.hypot(toward.x, toward.z);
+			if (horizontal < 1.0e-4) horizontal = 1.0;
+			Direction best = null;
+			double bestScore = Double.POSITIVE_INFINITY;
+			for (Direction direction : Direction.Plane.HORIZONTAL) {
+				BlockPos step = feet.relative(direction);
+				BlockState stepState = client.level.getBlockState(step);
+				if (!stepState.blocksMotion()) continue;
+				if (!stepState.getFluidState().isEmpty()) continue;
+				if (stepState.getDestroySpeed(client.level, step) < 0.0f) continue;
+				if (removesCurrentSupport(player, step)) continue;
+				BlockPos head = step.above();
+				BlockPos above = head.above();
+				if (!climbCellBreakable(client, head)) continue;
+				if (!climbCellBreakable(client, above)) continue;
+				if (fluidWithin(client, above, 3)) continue;
+				double alignment =
+					(direction.getStepX() * toward.x + direction.getStepZ() * toward.z)
+						/ horizontal;
+				double score = -alignment;
+				if (score < bestScore) {
+					bestScore = score;
+					best = direction;
+				}
+			}
+			if (best == null) return false;
+			climbDirection = best;
+			climbStep = feet.relative(best);
+			climbHead = climbStep.above();
+			climbAbove = climbHead.above();
+			climbMining = null;
+			climbStartY = feet.getY();
+			climbStepAt = age;
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate stair up from={} step={} direction={}",
+				player.position(),
+				climbStep,
+				best
+			);
+			return true;
+		}
+
+		private static boolean climbCellBreakable(Minecraft client, BlockPos pos) {
+			BlockState state = client.level.getBlockState(pos);
+			return state.getFluidState().isEmpty()
+				&& state.getDestroySpeed(client.level, pos) >= 0.0f;
+		}
+
+		private static boolean fluidWithin(Minecraft client, BlockPos pos, int depth) {
+			for (int offset = 1; offset <= depth; offset++) {
+				if (!client.level.getBlockState(pos.above(offset)).getFluidState().isEmpty()) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		private void tickClimb(Minecraft client, LocalPlayer player) {
+			if (age - climbStepAt > 20 * 12) {
+				abortClimb(client, "staircase step made no progress");
+				return;
+			}
+			if (player.blockPosition().getY() > climbStartY && player.onGround()) {
+				climbStep = null;
+				climbHead = null;
+				climbAbove = null;
+				climbMining = null;
+				climbObstruction = null;
+				climbSteps++;
+				releaseWalkInput(client);
+				send.accept(progress(id, "climbing", climbSteps, 16));
+				return;
+			}
+			if (
+				climbObstruction != null
+					&& !StairEscape.obstructionNeedsWork(
+						client.level.getBlockState(climbObstruction).isAir()
+					)
+			) {
+				if (client.gameMode.isDestroying()) client.gameMode.stopDestroyBlock();
+				climbMining = null;
+				climbObstruction = null;
+			}
+			BlockPos aim = climbObstruction;
+			if (aim == null && !client.level.getBlockState(climbHead).isAir()) {
+				aim = climbHead;
+			} else if (aim == null && !client.level.getBlockState(climbAbove).isAir()) {
+				aim = climbAbove;
+			}
+			if (aim != null) {
+				mineClimbBlock(client, player, aim);
+				if (age % 20 == 0) {
+					send.accept(progress(id, "climbing", climbSteps, 16));
+				}
+				return;
+			}
+			// Both head cells are open. Jump and walk onto the one-block step.
+			Vec3 center = Vec3.atCenterOf(climbStep);
+			double dx = center.x - player.getX();
+			double dz = center.z - player.getZ();
+			float heading = (float) Math.toDegrees(Math.atan2(-dx, dz));
+			boolean aligned = turnTowards(player, heading);
+			CameraController.steerHeading(
+				player,
+				player.getYRot(),
+				CameraController.displayPitch(player)
+			);
+			setWalkInput(client, aligned);
+			if (player.onGround()) player.jumpFromGround();
+			if (age % 20 == 0) {
+				send.accept(progress(id, "climbing", climbSteps, 16));
+			}
+		}
+
+		private void mineClimbBlock(Minecraft client, LocalPlayer player, BlockPos pos) {
+			BlockState state = client.level.getBlockState(pos);
+			if (state.isAir()) {
+				climbMining = null;
+				if (pos.equals(climbObstruction)) climbObstruction = null;
+				return;
+			}
+			if (!state.getFluidState().isEmpty()) {
+				abortClimb(client, "staircase exposed fluid");
+				return;
+			}
+			int tool = -1;
+			if (state.requiresCorrectToolForDrops()) {
+				tool = bestToolSlot(player, state);
+				if (tool < 0) {
+					abortClimb(client, "no carried tool can mine the staircase");
+					return;
+				}
+				player.getInventory().selected = tool;
+			}
+			Vec3 center = Vec3.atCenterOf(pos);
+			MineTask.aimAt(player, center);
+			BlockHitResult hit = MineTask.clip(client, player, center);
+			if (!hit.getBlockPos().equals(pos)) {
+				if (retargetClimbObstruction(client, player, pos, hit)) return;
+				abortClimb(
+					client,
+					"staircase target is obstructed at " + hit.getBlockPos()
+				);
+				return;
+			}
+			// Keep a retargeted blocker as the active mining target until it
+			// turns into air. Clearing it here made the next tick aim back at
+			// the hidden staircase cell, reset destroy progress, and alternate
+			// forever without ever breaking the roof block.
+			if (pos.equals(climbObstruction)) {
+				mineClimbHit(client, player, pos, hit);
+				return;
+			}
+			climbObstruction = null;
+			mineClimbHit(client, player, pos, hit);
+		}
+
+		/**
+		 * The eye ray is the authority on what the body can actually destroy.
+		 * If it hits a breakable neighbour instead of the intended head cell,
+		 * clear that neighbour first. This is the same choice a player makes
+		 * at a diagonal cave corner and avoids a terminal failure caused only
+		 * by the shape of the terrain.
+		 */
+		private boolean retargetClimbObstruction(
+			Minecraft client,
+			LocalPlayer player,
+			BlockPos intended,
+			BlockHitResult hit
+		) {
+			if (hit.getType() != HitResult.Type.BLOCK) return false;
+			BlockPos blocker = hit.getBlockPos();
+			if (blocker.equals(intended)) return false;
+			BlockState blockerState = client.level.getBlockState(blocker);
+			if (!withinInteractionRange(player, blocker)) return false;
+			boolean correctTool = !blockerState.requiresCorrectToolForDrops()
+				|| bestMiningSlot(player, blockerState) >= 0;
+			if (
+				!StairEscape.canClearSightBlocker(
+					blockerState.blocksMotion(),
+					!blockerState.getFluidState().isEmpty(),
+					blockerState.getDestroySpeed(client.level, blocker),
+					blockerState.requiresCorrectToolForDrops(),
+					correctTool
+				)
+			) return false;
+			if (!blocker.equals(climbObstruction)) {
+				if (client.gameMode.isDestroying()) client.gameMode.stopDestroyBlock();
+				climbMining = null;
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate stair obstruction target={} blocker={} state={} face={} eye={}",
+					intended,
+					blocker,
+					blockerState,
+					hit.getDirection(),
+					player.getEyePosition()
+				);
+			}
+			climbObstruction = blocker;
+			mineClimbHit(client, player, blocker, hit);
+			return true;
+		}
+
+		private void mineClimbHit(
+			Minecraft client,
+			LocalPlayer player,
+			BlockPos pos,
+			BlockHitResult hit
+		) {
+			if (climbMining == null || !climbMining.equals(pos)) {
+				if (client.gameMode.isDestroying()) client.gameMode.stopDestroyBlock();
+				client.gameMode.startDestroyBlock(pos, hit.getDirection());
+				climbMining = pos;
+			} else {
+				client.gameMode.continueDestroyBlock(pos, hit.getDirection());
+			}
+			MineTask.aimAt(player, Vec3.atCenterOf(pos));
+			client.hitResult = hit;
+			holdMiningInput(client);
+		}
+
+		private void abortClimb(Minecraft client, String reason) {
+			releaseMiningInput(client);
+			releaseWalkInput(client);
+			climbStep = null;
+			climbHead = null;
+			climbAbove = null;
+			climbMining = null;
+			climbObstruction = null;
+			escapingNoRoute = false;
+			finish(id, "failed", "E_PRECONDITION", reason);
+		}
+
+		private int buildingSlot(LocalPlayer player) {
+			for (int slot = 0; slot < 9; slot++) {
+				ItemStack stack = player.getInventory().getItem(slot);
+				if (stack.isEmpty()) continue;
+				if (!(stack.getItem() instanceof BlockItem item)) continue;
+				if (!item.getBlock().defaultBlockState().isSolid()) continue;
+				return slot;
+			}
+			return -1;
+		}
+
+		private boolean beginCeilingPillar(Minecraft client, LocalPlayer player) {
+			if (!player.onGround()) return false;
+			int slot = buildingSlot(player);
+			if (slot < 0) return false;
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate ceiling probe feet={} ceiling={} state={} slot={}",
+				player.blockPosition(),
+				player.blockPosition().above(2),
+				client.level.getBlockState(player.blockPosition().above(2)),
+				slot
+			);
+			ceilingActive = true;
+			ceilingPlacing = false;
+			ceilingMine = null;
+			climbMining = null;
+			if (!prepareCeiling(client, player)) {
+				ceilingActive = false;
+				return false;
+			}
+			int walls = 0;
+			BlockPos feet = player.blockPosition();
+			for (Direction direction : Direction.Plane.HORIZONTAL) {
+				if (
+					client.level.getBlockState(feet.relative(direction)).blocksMotion()
+						|| client.level.getBlockState(feet.above().relative(direction)).blocksMotion()
+				) {
+					walls++;
+				}
+			}
+			if (!ShaftEscape.shouldStartPillar(ceilingMine != null, walls)) {
+				ceilingActive = false;
+				ceilingPlacing = false;
+				return false;
+			}
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate ceiling pillar from={} ceiling={}",
+				player.position(),
+				ceilingMine
+			);
+			return true;
+		}
+
+		/**
+		 * The next block above the head. Air means the body can jump-place
+		 * immediately; solid means it must be mined first.
+		 */
+		private boolean prepareCeiling(Minecraft client, LocalPlayer player) {
+			BlockPos feet = player.blockPosition();
+			ceilingBase = feet.getY();
+			ceilingStepAt = age;
+			BlockPos ceiling = feet.above(2);
+			BlockState state = client.level.getBlockState(ceiling);
+			if (state.isAir()) {
+				ceilingMine = null;
+				ceilingPlacing = true;
+				return true;
+			}
+			if (!state.getFluidState().isEmpty()) return false;
+			if (state.getDestroySpeed(client.level, ceiling) < 0.0f) return false;
+			if (state.requiresCorrectToolForDrops()
+				&& !hasCorrectTool(player, state)) return false;
+			if (fluidWithin(client, ceiling, 3)) return false;
+			ceilingMine = ceiling;
+			ceilingPlacing = false;
+			return true;
+		}
+
+		private static boolean hasCorrectTool(LocalPlayer player, BlockState state) {
+			for (int slot = 0; slot < 9; slot++) {
+				ItemStack stack = player.getInventory().getItem(slot);
+				if (!stack.isEmpty() && stack.isCorrectToolForDrops(state)) return true;
+			}
+			return false;
+		}
+
+		/**
+		 * Pick the fastest valid tool in the hotbar. The old scan kept the
+		 * last matching slot, so a body carrying both a wooden and a stone
+		 * pickaxe mined every escape wall with the wooden one even though it
+		 * had already upgraded.
+		 */
+		private static int bestToolSlot(LocalPlayer player, BlockState state) {
+			int best = -1;
+			float bestSpeed = -1.0f;
+			for (int slot = 0; slot < 9; slot++) {
+				ItemStack stack = player.getInventory().getItem(slot);
+				if (stack.isEmpty() || !stack.isCorrectToolForDrops(state)) continue;
+				float speed = stack.getDestroySpeed(state);
+				if (speed > bestSpeed) {
+					bestSpeed = speed;
+					best = slot;
+				}
+			}
+			return best;
+		}
+
+		private void tickCeilingPillar(Minecraft client, LocalPlayer player) {
+			if (age - ceilingStepAt > 20 * 12) {
+				abortCeiling(client, "could not pillar through the ceiling");
+				return;
+			}
+			if (ceilingMine != null) {
+				if (client.level.getBlockState(ceilingMine).isAir()) {
+					ceilingMine = null;
+					ceilingPlacing = true;
+					ceilingStepAt = age;
+					return;
+				}
+				if (!mineCeilingBlock(client, player, ceilingMine)) return;
+				if (age % 20 == 0) send.accept(progress(id, "climbing", climbSteps, 16));
+				return;
+			}
+			if (!ceilingPlacing) {
+				if (!prepareCeiling(client, player)) {
+					abortCeiling(client, "ceiling is not safely mineable");
+				}
+				return;
+			}
+			if (player.onGround()) {
+				if (player.blockPosition().getY() > ceilingBase) {
+					ceilingPlacing = false;
+					climbSteps++;
+					ceilingStepAt = age;
+					releaseWalkInput(client);
+					Route route = firstSafeRoute(client, player);
+					if (route != null) {
+						ceilingActive = false;
+						followRoute(client, player, route);
+						return;
+					}
+					if (!prepareCeiling(client, player)) {
+						abortCeiling(client, "ran out of a safe ceiling route");
+					}
+					return;
+				}
+				player.jumpFromGround();
+				return;
+			}
+			if (player.getDeltaMovement().y < -0.15) return;
+			if (player.getY() < ceilingBase + 1.05) return;
+			BlockPos target = new BlockPos(
+				player.blockPosition().getX(),
+				ceilingBase,
+				player.blockPosition().getZ()
+			);
+			if (!client.level.getBlockState(target).canBeReplaced()) return;
+			BlockPos support = target.below();
+			if (!client.level.getBlockState(support).blocksMotion()) return;
+			int slot = buildingSlot(player);
+			if (slot < 0) {
+				abortCeiling(client, "ran out of building blocks while pillaring");
+				return;
+			}
+			player.getInventory().selected = slot;
+			Vec3 center = Vec3.atCenterOf(support);
+			player.setXRot(90.0f);
+			CameraController.steerHeading(player, player.getYRot(), 80.0f);
+			BlockHitResult hit = MineTask.clip(client, player, center);
+			if (!hit.getBlockPos().equals(support) || hit.getDirection() != Direction.UP) {
+				return;
+			}
+			client.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+		}
+
+		private boolean mineCeilingBlock(Minecraft client, LocalPlayer player, BlockPos pos) {
+			BlockState state = client.level.getBlockState(pos);
+			if (state.isAir()) {
+				climbMining = null;
+				return true;
+			}
+			if (!state.getFluidState().isEmpty()) {
+				abortCeiling(client, "ceiling exposed fluid");
+				return false;
+			}
+			if (state.requiresCorrectToolForDrops()) {
+				int tool = bestToolSlot(player, state);
+				if (tool < 0) {
+					abortCeiling(client, "no carried tool can mine the ceiling");
+					return false;
+				}
+				player.getInventory().selected = tool;
+			}
+			Vec3 center = Vec3.atCenterOf(pos);
+			MineTask.aimAt(player, center);
+			BlockHitResult hit = MineTask.clip(client, player, center);
+			if (!hit.getBlockPos().equals(pos)) {
+				abortCeiling(client, "ceiling target is obstructed");
+				return false;
+			}
+			if (climbMining == null || !climbMining.equals(pos)) {
+				if (client.gameMode.isDestroying()) client.gameMode.stopDestroyBlock();
+				client.gameMode.startDestroyBlock(pos, hit.getDirection());
+				climbMining = pos;
+			} else {
+				client.gameMode.continueDestroyBlock(pos, hit.getDirection());
+			}
+			client.hitResult = hit;
+			holdMiningInput(client);
+			return true;
+		}
+
+		private void abortCeiling(Minecraft client, String reason) {
+			releaseMiningInput(client);
+			releaseWalkInput(client);
+			ceilingActive = false;
+			ceilingMine = null;
+			ceilingPlacing = false;
+			climbMining = null;
+			escapingNoRoute = false;
+			finish(id, "failed", "E_PRECONDITION", reason);
+		}
+
+		/**
+		 * Exploration supplies several headings. Trying only the primary
+		 * destination made a coastal or cliff-side choice fail immediately,
+		 * even though another direction was a short safe walk, so the scan
+		 * stops at the first complete route instead of paying for every
+		 * candidate.
+		 *
+		 * When no candidate has a complete route, the best partial route wins
+		 * over standing still. Failing outright left the body frozen, and an
+		 * unchanged position makes the planner re-derive byte-identical
+		 * exploration coordinates: the same strategy fails again after every
+		 * backoff and the run looks like idling forever. A partial route still
+		 * ends on a proven standable cell, so walking it buys real
+		 * displacement, a new observation area, and different facts for the
+		 * next replan. The route whose end is closest to its own request wins;
+		 * a partial route that gets nowhere nearer than the current position is
+		 * rejected so the body never walks sideways for nothing. Arrival is
+		 * still only reported for a complete route, so this cannot fake
+		 * evidence.
+		 */
+		private Route firstSafeRoute(Minecraft client, LocalPlayer player) {
+			Route bestPartial = null;
+			Vec3 bestPartialTarget = null;
+			double bestRemaining = Double.MAX_VALUE;
+			Route fallback = null;
+			Vec3 fallbackTarget = null;
+			for (int index = 0; index < requests.size(); index++) {
+				Vec3 candidate = requests.get(index);
+				target = candidate;
+				Route found = safeRouteEnd(client, player);
+				if (found == null) continue;
+				if (found.complete()) {
+					if (acceptPartial && returnsToLastExplore(found)) {
+						if (fallback == null) {
+							fallback = found;
+							fallbackTarget = candidate;
+						}
+						continue;
+					}
+					return found;
+				}
+				double remaining = Math.hypot(
+					candidate.x - found.destination().x,
+					candidate.z - found.destination().z
+				);
+				if (remaining + 0.5 < bestRemaining
+					&& routeMovesBody(found, player)
+					&& bestPartialMovesCloser(player, found, candidate)) {
+					bestRemaining = remaining;
+					bestPartial = found;
+					bestPartialTarget = candidate;
+				}
+			}
+			// A complete route that only leads back down the way it came is a
+			// loop, not progress. A partial route into new terrain is better:
+			// the body still walks a proven-safe leg and observes somewhere
+			// new, which is all the explore skill promised.
+			if (
+				fallback != null
+					&& bestPartial != null
+					&& Math.hypot(
+						bestPartial.destination().x - player.getX(),
+						bestPartial.destination().z - player.getZ()
+					) >= PARTIAL_PROGRESS
+					&& !returnsToLastExplore(bestPartial)
+			) {
+				target = bestPartialTarget;
+				return bestPartial;
+			}
+			if (fallback != null) {
+				target = fallbackTarget;
+				return fallback;
+			}
+			target = requests.get(0);
+			return bestPartial;
+		}
+
+		private static boolean returnsToLastExplore(Route route) {
+			// The newest entry is where this leg starts, so it cannot be a
+			// return. Older entries are the places a ping-pong would revisit.
+			boolean newest = true;
+			for (Vec3 seen : exploreTrail) {
+				if (newest) {
+					newest = false;
+					continue;
+				}
+				if (
+					Math.hypot(
+						route.destination().x - seen.x,
+						route.destination().z - seen.z
+					) < OSCILLATION_RADIUS
+				) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		private static void rememberExplore(LocalPlayer player) {
+			exploreTrail.addFirst(
+				new Vec3(player.getX(), player.getY(), player.getZ())
+			);
+			while (exploreTrail.size() > EXPLORE_TRAIL) exploreTrail.removeLast();
+		}
+
+		private static boolean bestPartialMovesCloser(
+			LocalPlayer player,
+			Route route,
+			Vec3 candidate
+		) {
+			double fromBody = Math.hypot(
+				candidate.x - player.getX(),
+				candidate.z - player.getZ()
+			);
+			double fromEnd = Math.hypot(
+				candidate.x - route.destination().x,
+				candidate.z - route.destination().z
+			);
+			return fromEnd < fromBody;
 		}
 
 		@Override
 		void tick(Minecraft client) {
 			LocalPlayer player = client.player;
+			if (ledgeTarget != null) {
+				tickLedge(client, player);
+				return;
+			}
+			if (escapingCanopy) {
+				if (descendCanopyStep(client)) {
+					if (age % 20 == 0) send.accept(progress(id, "unstick", 1, 2));
+					return;
+				}
+				escapingCanopy = false;
+				Route route = firstSafeRoute(client, player);
+				if (route == null) {
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"no safe route after leaving the canopy"
+					);
+					return;
+				}
+				destination = route.destination();
+				routeComplete = route.complete();
+				waypoints = route.waypoints();
+				waypointIndex = waypoints.size() > 1 ? 1 : 0;
+				lastWaypointIndex = waypointIndex;
+				lastWaypointDistance = playerDistance(client.player);
+				nextReplanAt = 0;
+				send.accept(progress(id, "walking", 0, 1));
+				return;
+			}
 			if (escapeWall != null) {
 				BlockState wall = client.level.getBlockState(escapeWall);
 				if (wall.isAir()) {
 					escapeWall = null;
-					Route route = safeRouteEnd(client, player);
-					if (route != null) {
+					Route route = firstSafeRoute(client, player);
+					if (route != null && routeMovesBody(route, player)) {
 						destination = route.destination();
 						routeComplete = route.complete();
 						waypoints = route.waypoints();
 						waypointIndex = waypoints.size() > 1 ? 1 : 0;
+						escapingNoRoute = false;
+						return;
 					}
+					tickEscape(client, player);
 					return;
 				}
 				Vec3 centre = Vec3.atCenterOf(escapeWall);
 				MineTask.aimAt(player, centre);
 				BlockHitResult hit = MineTask.clip(client, player, centre);
 				if (!hit.getBlockPos().equals(escapeWall)) {
-					finish(id, "failed", "E_PRECONDITION", "escape wall is no longer visible");
+					BlockPos occluder = hit.getBlockPos();
+					BlockState occluderState = client.level.getBlockState(occluder);
+					// Underwater, a bobbing eye can sit above a low target and
+					// the ray hits the block directly above it. Re-aiming at
+					// the same low cell fails forever. Mine the cell the ray
+					// actually sees instead; that is exactly what a player
+					// does when clearing a flooded shaft upward.
+					if (
+						(player.isInWater() || player.isEyeInFluid(FluidTags.WATER))
+							&& hit.getType() == HitResult.Type.BLOCK
+							&& occluderState.blocksMotion()
+							&& occluderState.getDestroySpeed(client.level, occluder) >= 0.0f
+					) {
+						BlockPos oldTarget = escapeWall;
+						escapeWall = occluder;
+						client.gameMode.continueDestroyBlock(occluder, hit.getDirection());
+						holdMiningInput(client);
+						CraftMateBodyClient.LOGGER.info(
+							"CraftMate swim retarget occluder={} old={} state={} face={}",
+							occluder,
+							oldTarget,
+							occluderState,
+							hit.getDirection()
+						);
+						return;
+					}
+					// The player drifted or a previous jump moved the eye off
+					// the wall. Treat it as a changed world, not a terminal
+					// failure: pick the next escape from the current pose.
+					CraftMateBodyClient.LOGGER.info(
+						"CraftMate escape wall lost target={} hit={} player={}",
+						escapeWall,
+						hit.getBlockPos(),
+						player.position()
+					);
+					escapeWall = null;
+					releaseMiningInput(client);
+					tickEscape(client, player);
 					return;
 				}
 				client.gameMode.continueDestroyBlock(escapeWall, hit.getDirection());
 				holdMiningInput(client);
-				if (player.onGround()) player.jumpFromGround();
 				send.accept(progress(id, "unstick", 1, 2));
+				return;
+			}
+			if (escapingNoRoute) {
+				tickEscape(client, player);
 				return;
 			}
 			if (waypointIndex >= waypoints.size()) {
@@ -918,22 +2760,134 @@ public final class GameActions {
 			Vec3 waypoint = waypoints.get(waypointIndex);
 			Vec3 offset = waypoint.subtract(player.position());
 			double horizontal = horizontalDistance(player);
+			// A waypoint can share the target's horizontal cell but sit at a
+			// different Y. Requiring both the final destination height and the
+			// waypoint height rejected a valid route whose last safe cell was
+			// one block below the requested column.
+			boolean waypointReached = Math.hypot(waypoint.x - player.getX(), waypoint.z - player.getZ())
+					< ARRIVE_DISTANCE
+				&& Math.abs(waypoint.y - player.getY()) <= ARRIVE_HEIGHT;
 			if (
 				waypointIndex < waypoints.size() - 1
-					&& Math.hypot(waypoint.x - player.getX(), waypoint.z - player.getZ()) < ARRIVE_DISTANCE
-					&& Math.abs(waypoint.y - player.getY()) <= ARRIVE_HEIGHT
+					&& waypointReached
 			) {
 				waypointIndex++;
 				return;
 			}
 			boolean arrived = horizontal < ARRIVE_DISTANCE
 				&& Math.abs(player.getY() - destination.y) <= ARRIVE_HEIGHT;
+			// An explore target is a column, not a precise terrain height.
+			// The old height check rejected a perfectly good sweep endpoint
+			// whenever the chosen candidate's Y came from a neighbouring
+			// slope, which is why most "night keep moving" legs ended in
+			// E_PRECONDITION instead of a new observation area.
+			boolean reachedExploreColumn = acceptPartial
+				&& Math.hypot(target.x - player.getX(), target.z - player.getZ()) <= 1.5;
 			boolean finalWaypoint = waypointIndex >= waypoints.size() - 1;
-			if (arrived && finalWaypoint) {
+			if (finalWaypoint && (arrived || reachedExploreColumn)) {
 				stop(client);
-				if (arrived && routeComplete && atTarget()) {
-					finish(id, "completed", null, null);
+				if (
+					reachedExploreColumn
+						|| (arrived && routeComplete && atTarget(waypoint))
+				) {
+					JsonObject evidence = new JsonObject();
+					evidence.addProperty("summary", "arrived at the requested position");
+					JsonArray changes = new JsonArray();
+					JsonObject change = new JsonObject();
+					change.addProperty("kind", "position_reached");
+					change.addProperty("detail", "goto");
+					JsonObject position = new JsonObject();
+					position.addProperty("x", round(client.player.getX()));
+					position.addProperty("y", round(client.player.getY()));
+					position.addProperty("z", round(client.player.getZ()));
+					change.add("position", position);
+					changes.add(change);
+					evidence.add("changes", changes);
+					if (acceptPartial) rememberExplore(client.player);
+					finish(id, "completed", null, null, evidence);
+				} else if (
+					arrived
+						&& !routeComplete
+						&& acceptPartial
+						&& movedFromStart(client.player) >= PARTIAL_PROGRESS
+				) {
+					// The explore skill asked for a new observation area, not
+					// the exact column. The world refused the last stretch
+					// (ravine, water, cliff) but the body did walk a proven
+					// safe leg; reporting that as a failure sent the runtime
+					// into the same backoff and the same heading again.
+					if (beginBridgeStep(client, player)) {
+						escapingNoRoute = true;
+						send.accept(progress(id, "bridging", bridgeBlocks, 4));
+						return;
+					}
+					JsonObject evidence = partialRoute(horizontal);
+					JsonObject outcome = new JsonObject();
+					outcome.addProperty(
+						"summary",
+						"到达安全路线的可用终点，已完成一次新的区域观察"
+					);
+					outcome.addProperty("problem", "请求的坐标本身仍不可达");
+					evidence.add("outcome", outcome);
+					evidence.addProperty("partial", true);
+					JsonArray changes = new JsonArray();
+					JsonObject change = new JsonObject();
+					change.addProperty("kind", "position_reached");
+					change.addProperty("detail", "explore");
+					JsonObject position = new JsonObject();
+					position.addProperty("x", round(client.player.getX()));
+					position.addProperty("y", round(client.player.getY()));
+					position.addProperty("z", round(client.player.getZ()));
+					change.add("position", position);
+					changes.add(change);
+					evidence.add("changes", changes);
+					if (acceptPartial) rememberExplore(client.player);
+					finish(id, "completed", null, null, evidence);
 				} else {
+					if (!routeComplete && !acceptPartial) {
+						double endDistance = Math.hypot(
+							destination.x - player.getX(),
+							destination.z - player.getZ()
+						);
+						if (endDistance < 2.0) {
+							startEscape(client, player);
+							return;
+						}
+						double targetDistance = Math.hypot(
+							target.x - player.getX(),
+							target.z - player.getZ()
+						);
+						if (
+							replans < MAX_REPLANS
+							&& targetDistance + 0.75 < bestPartialTargetDistance
+						) {
+							bestPartialTargetDistance = targetDistance;
+							replans++;
+							Route replanned = firstSafeRoute(client, player);
+							if (replanned != null && routeMovesBody(replanned, player)) {
+								destination = replanned.destination();
+								routeComplete = replanned.complete();
+								waypoints = replanned.waypoints();
+								waypointIndex = waypoints.size() > 1 ? 1 : 0;
+								lastWaypointIndex = waypointIndex;
+								lastWaypointDistance = playerDistance(player);
+								send.accept(progress(id, "replanning", replans, MAX_REPLANS));
+								return;
+							}
+						}
+						startEscape(client, player);
+						return;
+					}
+					// An exploration leg that stops at a gap still has a real
+					// way forward: the body can place its own floor. Without
+					// this check acceptPartial only reported "route stopped
+					// short", so the agent re-planned the same edge forever
+					// and never reached the bridge state.
+					if (!routeComplete && beginBridgeStep(client, player)) {
+						escapingNoRoute = true;
+						send.accept(progress(id, "bridging", bridgeBlocks, 4));
+						return;
+					}
 					JsonObject evidence = partialRoute(horizontal);
 					finish(
 						id,
@@ -962,13 +2916,66 @@ public final class GameActions {
 				}
 				return;
 			}
-			if (player.onGround() && unsafeNextStep(client, player, offset)) {
+			Vec3 step = nextDistinctWaypoint(player);
+			if (player.onGround() && step != null && unsafeNextStep(client, step)) {
+				// A logged gap or ravine is exactly where a player places a
+				// block instead of turning around. Try the verified bridge
+				// state machine before reporting the route as impossible; it
+				// only starts when a solid landing and building blocks exist.
+				if (beginBridgeStep(client, player)) {
+					send.accept(progress(id, "bridging", 0, 4));
+					return;
+				}
 				stop(client);
 				finish(id, "failed", "E_PRECONDITION", "dangerous drop or water ahead");
 				return;
 			}
+			if (detour != null) {
+				Vec3 toSide = new Vec3(detour.x - player.getX(), 0.0, detour.z - player.getZ());
+				if (Math.hypot(toSide.x, toSide.z) < ARRIVE_DISTANCE || detourTicks > 20) {
+					detour = null;
+					detourTicks = 0;
+				} else {
+					detourTicks++;
+					step = detour;
+					waypoint = detour;
+					offset = waypoint.subtract(player.position());
+				}
+			}
+			float heading = (float) Math.toDegrees(
+				Math.atan2(-(step == null ? offset.x : step.x - player.getX()),
+					step == null ? offset.z : step.z - player.getZ())
+			);
+			boolean aligned = turnTowards(player, heading);
+			// A single collision tick is normal on a slope. Jumping on every
+			// one of them, however, is what wedged the body against a wall for
+			// minutes: it never turned and never left the lip. Jump when the
+			// next path cell is one block above the feet and the body is
+			// already facing it; otherwise keep the old short collision hop
+			// and let the stall branch choose another cell when jumping does
+			// not help.
+			boolean stepUp = step != null
+				&& step.y - player.getY() >= 0.45
+				&& step.y - player.getY() <= 1.6
+				&& Math.hypot(step.x - player.getX(), step.z - player.getZ()) <= 2.2;
 			if (player.horizontalCollision && player.onGround()) {
-				player.jumpFromGround();
+				if (stepUp && aligned) {
+					// A step can be geometrically valid and still unjumpable
+					// under a low cave roof: the body's head hits the ceiling
+					// before its feet clear the lip. A player mines that
+					// ceiling instead of hopping forever, so clear the head
+					// cell above the destination or above the current body.
+					if (stuckTicks >= 12 && clearStepHeadroom(client, player, step)) {
+						send.accept(progress(id, "unstick", replans, MAX_REPLANS));
+						return;
+					}
+					if (age - lastStepJumpAt >= 8) {
+						player.jumpFromGround();
+						lastStepJumpAt = age;
+					}
+				} else if (stuckTicks < 4) {
+					player.jumpFromGround();
+				}
 			}
 			double waypointDistance = playerDistance(player);
 			if (
@@ -992,13 +2999,21 @@ public final class GameActions {
 					send.accept(progress(id, "unstick", replans, MAX_REPLANS));
 					replans = 0;
 					nextReplanAt = age + 20;
-					Route replanned = safeRouteEnd(client, player);
+					Route replanned = firstSafeRoute(client, player);
 					if (replanned != null) {
 						destination = replanned.destination();
 						routeComplete = replanned.complete();
 						waypoints = replanned.waypoints();
 						waypointIndex = waypoints.size() > 1 ? 1 : 0;
 					}
+					return;
+				}
+				Vec3 sideStep = openSideStep(client, player, step);
+				if (sideStep != null) {
+					detour = sideStep;
+					detourTicks = 0;
+					lastWaypointDistance = playerDistance(player);
+					send.accept(progress(id, "unstick", replans, MAX_REPLANS));
 					return;
 				}
 				if (age < nextReplanAt || replans >= MAX_REPLANS) {
@@ -1016,13 +3031,14 @@ public final class GameActions {
 					finish(id, "failed", "E_PRECONDITION", "walk made no progress after bounded replanning");
 					return;
 				}
-				Route replanned = safeRouteEnd(client, player);
+				Route replanned = firstSafeRoute(client, player);
 				if (replanned == null) {
 					stop(client);
 					finish(id, "failed", "E_PRECONDITION", "no safe route after replanning");
 					return;
 				}
 				replans++;
+				detour = null;
 				nextReplanAt = age + REPLAN_COOLDOWN_TICKS;
 				destination = replanned.destination();
 				routeComplete = replanned.complete();
@@ -1033,28 +3049,72 @@ public final class GameActions {
 				send.accept(progress(id, "replanning", replans, MAX_REPLANS));
 				return;
 			}
-			player.setYRot((float) Math.toDegrees(Math.atan2(-offset.x, offset.z)));
 			CameraController.steerHeading(
 				player,
 				player.getYRot(),
 				CameraController.displayPitch(player)
 			);
+			if (age % 20 == 0) {
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate goto walk pos={} waypoint={} index={}/{} destination={} distance={} aligned={} onGround={} hcoll={} stuck={} replans={}",
+					player.position(),
+					step,
+					waypointIndex,
+					waypoints.size(),
+					destination,
+					horizontal,
+					aligned,
+					player.onGround(),
+					player.horizontalCollision,
+					stuckTicks,
+					replans
+				);
+			}
 			if (player.input != null) {
-				setWalkInput(client, true);
+				setWalkInput(client, aligned);
 			}
 			if (age - lastProgressTick >= 20) {
 				lastProgressTick = age;
-				CraftMateBodyClient.LOGGER.info(
-					"CraftMate goto tick position={} destination={} horizontal={} ground={} collision={} delta={}",
-					player.position(),
-					destination,
-					round(horizontal),
-					player.onGround(),
-					player.horizontalCollision,
-					player.getDeltaMovement()
-				);
 				send.accept(progress(id, "walking", (int) Math.round(horizontal), (int) Math.round(age)));
 			}
+		}
+
+		/**
+		 * The destination cell can be clear while its head cell is not, and a
+		 * cave roof above the current body can cap the jump arc. Pick the
+		 * blocking cell the body would actually hit and start destroying it
+		 * through the normal escape-wall state machine.
+		 */
+		private boolean clearStepHeadroom(Minecraft client, LocalPlayer player, Vec3 step) {
+			BlockPos stepFeet = BlockPos.containing(step);
+			BlockPos target = null;
+			if (client.level.getBlockState(stepFeet.above()).blocksMotion()) {
+				target = stepFeet.above();
+			} else {
+				BlockPos roof = player.blockPosition().above(2);
+				if (client.level.getBlockState(roof).blocksMotion()) target = roof;
+			}
+			if (target == null) return false;
+			BlockState state = client.level.getBlockState(target);
+			if (state.getDestroySpeed(client.level, target) < 0.0f) return false;
+			return breakEscapeWall(client, player, target, bestMiningSlot(player, state));
+		}
+
+		private static int bestMiningSlot(LocalPlayer player, BlockState state) {
+			int best = -1;
+			float bestSpeed = -1.0f;
+			for (int slot = 0; slot < 9; slot++) {
+				ItemStack stack = player.getInventory().getItem(slot);
+				if (stack.isEmpty()) continue;
+				boolean correct = stack.isCorrectToolForDrops(state);
+				if (!correct && state.requiresCorrectToolForDrops()) continue;
+				float speed = stack.getDestroySpeed(state) + (correct ? 100.0f : 0.0f);
+				if (speed > bestSpeed) {
+					bestSpeed = speed;
+					best = slot;
+				}
+			}
+			return best;
 		}
 
 		private double horizontalDistance(LocalPlayer player) {
@@ -1062,18 +3122,77 @@ public final class GameActions {
 		}
 
 		/**
+		 * When the body is pressed against a lip, the useful move is sideways
+		 * along the obstacle, not another jump straight into it. Prefer a
+		 * perpendicular cell that is standable and clear for the body, and do
+		 * not step onto water or a drop.
+		 */
+		private Vec3 openSideStep(Minecraft client, LocalPlayer player, Vec3 forward) {
+			Vec3 heading = forward == null
+				? new Vec3(destination.x - player.getX(), 0.0, destination.z - player.getZ())
+				: new Vec3(forward.x - player.getX(), 0.0, forward.z - player.getZ());
+			double length = Math.hypot(heading.x, heading.z);
+			if (length < 1.0e-4) return null;
+			double fx = heading.x / length;
+			double fz = heading.z / length;
+			BlockPos feet = player.blockPosition();
+			Vec3[] options = {
+				new Vec3(Math.round(player.getX()) + 0.5 - fz, 0.0, Math.round(player.getZ()) + 0.5 + fx),
+				new Vec3(Math.round(player.getX()) + 0.5 + fz, 0.0, Math.round(player.getZ()) + 0.5 - fx),
+			};
+			for (Vec3 option : options) {
+				BlockPos cell = BlockPos.containing(option.x, feet.getY(), option.z);
+				if (!standableAt(client, cell)) continue;
+				if (new BlockPos(cell.getX(), feet.getY(), cell.getZ()).equals(feet)) continue;
+				if (!bodySpaceAt(client, cell)) continue;
+				if (unsafeNextStep(client, new Vec3(cell.getX() + 0.5, cell.getY(), cell.getZ() + 0.5))) {
+					continue;
+				}
+				return new Vec3(cell.getX() + 0.5, cell.getY(), cell.getZ() + 0.5);
+			}
+			return null;
+		}
+
+		/**
+		 * The first route point can be the cell the body already occupies.
+		 * Heading at it makes the walk direction collapse to zero, and the
+		 * danger probe then skips a real drop. Return the next cell that is
+		 * actually different so steering and the probe share one direction.
+		 */
+		private Vec3 nextDistinctWaypoint(LocalPlayer player) {
+			for (int index = waypointIndex; index < waypoints.size(); index++) {
+				Vec3 point = waypoints.get(index);
+				if (Math.hypot(point.x - player.getX(), point.z - player.getZ()) >= 0.5) {
+					return point;
+				}
+			}
+			return null;
+		}
+
+		/**
 		 * Progress is measured against the current waypoint, not the final
 		 * target: a valid U-shaped detour initially walks away from the
 		 * target and must not look like a stall.
 		 */
+		private double movedFromStart(LocalPlayer player) {
+			return startedAt == null ? 0.0 : player.position().distanceTo(startedAt);
+		}
+
 		private double playerDistance(LocalPlayer player) {
 			Vec3 waypoint = waypoints.get(waypointIndex);
 			return player.position().distanceTo(waypoint);
 		}
 
-		private boolean atTarget() {
-			return Math.hypot(target.x - destination.x, target.z - destination.z) < 0.01
-				&& Math.abs(target.y - destination.y) <= ARRIVE_HEIGHT;
+		private boolean atTarget(Vec3 reached) {
+			return Math.hypot(target.x - reached.x, target.z - reached.z)
+					<= ARRIVE_DISTANCE + 0.01
+				&& Math.abs(target.y - reached.y) <= ARRIVE_HEIGHT;
+		}
+
+		/** An explore heading names a column; its floor height is terrain. */
+		private boolean atTargetColumn(Vec3 reached) {
+			return Math.hypot(target.x - reached.x, target.z - reached.z)
+				<= 1.5;
 		}
 
 		private JsonObject partialRoute(double remaining) {
@@ -1105,18 +3224,30 @@ public final class GameActions {
 		 * to the safety reflex. Let the autonomy loop choose another heading
 		 * instead of walking to the edge every time.
 		 */
-		private boolean unsafeNextStep(Minecraft client, LocalPlayer player, Vec3 offset) {
-			double length = Math.hypot(offset.x, offset.z);
-			if (length < 0.01) return false;
-			BlockPos next = BlockPos.containing(
-				player.getX() + offset.x / length * 0.65,
-				player.getY(),
-				player.getZ() + offset.z / length * 0.65
-			);
-			return standingY(
+		private boolean unsafeNextStep(Minecraft client, Vec3 waypoint) {
+			BlockPos next = BlockPos.containing(waypoint);
+			BlockPos feet = new BlockPos(next.getX(), next.getY(), next.getZ());
+			if (
+				standingY(
 				client,
-				new BlockPos(next.getX(), player.blockPosition().getY(), next.getZ())
-			) == Integer.MIN_VALUE;
+				feet
+				) != Integer.MIN_VALUE
+			) {
+				return false;
+			}
+			// One block of water over a solid floor is a normal walk, not an
+			// unsafe drop. Rejecting it made every shoreline look impassable.
+			return !shallowWaterAt(client, feet);
+		}
+
+		private static boolean shallowWaterAt(Minecraft client, BlockPos feet) {
+			BlockState foot = client.level.getBlockState(feet);
+			BlockState head = client.level.getBlockState(feet.above());
+			BlockState floor = client.level.getBlockState(feet.below());
+			return foot.getFluidState().is(FluidTags.WATER)
+				&& head.getFluidState().isEmpty()
+				&& head.isAir()
+				&& floor.blocksMotion();
 		}
 
 		/**
@@ -1140,8 +3271,11 @@ public final class GameActions {
 			BoundedPathfinder.Result found = BoundedPathfinder.find(
 				start,
 				goal,
-					(x, y, z) -> standingY(client, new BlockPos(x, y, z)) == y,
-				(x, y, z) -> isNearGoal(x, z, goal),
+				acceptPartial
+					? (cell) -> isNearExploreGoal(cell, goal)
+					: (cell) -> isNearGoal(cell, goal),
+				(x, y, z) -> standableAt(client, new BlockPos(x, y, z)),
+				traversal(client),
 				MAX_PATH_NODES,
 				MAX_PATH_RADIUS
 			);
@@ -1150,9 +3284,17 @@ public final class GameActions {
 			for (BoundedPathfinder.Cell cell : found.path()) {
 				points.add(new Vec3(cell.x() + 0.5, cell.y(), cell.z() + 0.5));
 			}
-			if (found.complete()) points.add(target);
+			// The requested height is the body's height when the heading was
+			// chosen, not the terrain height thirty blocks away. Only walk the
+			// exact final point when the search proved a cell at that level;
+			// otherwise the body would arrive at the right column and never
+			// satisfy the height check.
+			Vec3 last = points.get(points.size() - 1);
+			if (found.complete() && Math.abs(goal.y() - Math.floor(last.y)) <= 1) {
+				points.add(target);
+			}
 			Vec3 end = points.get(points.size() - 1);
-			return new Route(found.complete() ? target : end, found.complete(), points);
+			return new Route(end, found.complete(), points);
 		}
 
 		private record Route(Vec3 destination, boolean complete, List<Vec3> waypoints) {
@@ -1164,8 +3306,22 @@ public final class GameActions {
 		 * exploration step useful instead of failing and re-sending the same
 		 * unreachable goto every cooldown.
 		 */
-		private static boolean isNearGoal(int x, int z, BoundedPathfinder.Cell goal) {
-			return Math.abs(x - goal.x()) <= 1 && Math.abs(z - goal.z()) <= 1;
+		private static boolean isNearGoal(BoundedPathfinder.Cell cell, BoundedPathfinder.Cell goal) {
+			return Math.abs(cell.x() - goal.x()) <= 1
+				&& Math.abs(cell.z() - goal.z()) <= 1
+				&& Math.abs(cell.y() - goal.y()) <= 1;
+		}
+
+		/**
+		 * An explore heading names a column, not a floor: the terrain there
+		 * can be a hill, a beach or a ravine. Requiring the original feet
+		 * height made every leg end in a partial route as soon as the ground
+		 * sloped by more than one block, and the closest partial cell flipped
+		 * between two hillsides on every retry.
+		 */
+		private static boolean isNearExploreGoal(BoundedPathfinder.Cell cell, BoundedPathfinder.Cell goal) {
+			return Math.abs(cell.x() - goal.x()) <= 1
+				&& Math.abs(cell.z() - goal.z()) <= 1;
 		}
 
 		@Override
@@ -1174,6 +3330,18 @@ public final class GameActions {
 			releaseWalkInput(client);
 			CameraController.release();
 			escapeWall = null;
+			ledgeTarget = null;
+			escapingNoRoute = false;
+			climbStep = null;
+			climbHead = null;
+			climbAbove = null;
+			climbMining = null;
+			climbObstruction = null;
+			ceilingActive = false;
+			ceilingMine = null;
+			ceilingPlacing = false;
+			bridging = false;
+			bridgeClear();
 		}
 	}
 
@@ -1193,6 +3361,14 @@ public final class GameActions {
 		/** A bounded search is enough for a nearby tree; never scan the render space. */
 		private static final int APPROACH_PATH_NODES = 4_000;
 		private static final double APPROACH_PATH_RADIUS = 56.0;
+		/**
+		 * A forest can contain dozens of logs in the 48-block search volume.
+		 * Running a fresh A* for every candidate on a slow client turned one
+		 * tick into minutes of block lookups, so the action deadline expired
+		 * before the body ever started walking. Probe only the nearest few:
+		 * the walk loop still replans when the chosen trunk becomes blocked.
+		 */
+		private static final int APPROACH_ROUTE_PROBES = 6;
 		/** Diagnostics must stay bounded; never pathfind every log under a canopy. */
 		private static final int DIAGNOSTIC_ROUTE_PROBES = 4;
 		private final String blockId;
@@ -1201,6 +3377,13 @@ public final class GameActions {
 		private int mined;
 		private BlockPos target;
 		private BlockPos desiredTarget;
+		/**
+		 * The trunk this task is actually harvesting. Canopy cleanup replaces
+		 * `target` with a leaf; without remembering the original log the next
+		 * scan measures "canopy relevance" against a leaf and keeps choosing
+		 * leaves around it instead of returning to the tree.
+		 */
+		private BlockPos trunkOrigin;
 		private Direction side;
 		private int miningAge;
 		private boolean walking;
@@ -1212,6 +3395,9 @@ public final class GameActions {
 		private int approachWaypoint;
 		private BlockPos approachTarget;
 		private int nextApproachPlanAt;
+		/** Diagnostics only fire when the route state actually changes. */
+		private String lastRouteLog = "";
+		private BlockPos lastRouteLogTarget;
 		private boolean destroying;
 		private int lastReportedPercent = -1;
 		private BlockState blockBeforeDestroy;
@@ -1227,6 +3413,8 @@ public final class GameActions {
 		private ItemEntity pickupTarget;
 		private int pickupLastProgressAt;
 		private Vec3 pickupLastPosition;
+		/** A canopy has no standable neighbour, so descend before mining. */
+		private boolean escapingCanopy;
 
 		MineTask(String id, JsonObject args) {
 			this(id, args, false);
@@ -1317,10 +3505,46 @@ public final class GameActions {
 			return true;
 		}
 
+		/** Loose ground that is always worth opening when it blocks the target. */
+		private static boolean softObstruction(BlockState state) {
+			return state.is(Blocks.DIRT)
+				|| state.is(Blocks.GRASS_BLOCK)
+				|| state.is(Blocks.SAND)
+				|| state.is(Blocks.GRAVEL)
+				|| state.is(Blocks.CLAY)
+				|| state.is(Blocks.SNOW_BLOCK)
+				|| state.is(Blocks.COARSE_DIRT)
+				|| state.is(Blocks.ROOTED_DIRT);
+		}
+
 		@Override
 		void tick(Minecraft client) {
 			if (target == null) {
 				finish(id, "failed", "E_PRECONDITION", "mining target is not selected");
+				return;
+			}
+			if (escapingCanopy || onCanopy(client)) {
+				escapingCanopy = true;
+				if (descendCanopyStep(client)) {
+					if (age % 20 == 0) send.accept(progress(id, "unstick", 0, 1));
+					return;
+				}
+				escapingCanopy = false;
+				target = selectTarget(client);
+				if (target == null) {
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"no " + targetName() + " after leaving the canopy"
+					);
+					return;
+				}
+				walking = !canReach(client.player, target)
+					|| !canSee(client, client.player, target);
+				lastApproachDistance = Double.POSITIVE_INFINITY;
+				lastWalkProgressAge = walkingAge;
+				lastReportedPercent = -1;
 				return;
 			}
 			BlockState state = client.level.getBlockState(target);
@@ -1328,6 +3552,25 @@ public final class GameActions {
 				boolean wasClearingCanopy = breakingLeaves;
 				stopMining(client);
 				if (wasClearingCanopy) {
+					// Clearing one leaf should not repeat the full 48-block
+					// target search. Return to the trunk this task started
+					// with and only look around if that trunk is gone.
+					BlockPos anchor = cleanupAnchor();
+					if (
+						anchor != null
+							&& matchesTarget(client.level.getBlockState(anchor))
+					) {
+						target = anchor;
+						desiredTarget = null;
+						side = Direction.UP;
+						miningAge = 0;
+						lastApproachDistance = Double.POSITIVE_INFINITY;
+						lastWalkProgressAge = walkingAge;
+						lastReportedPercent = -1;
+						walking = !canReach(client.player, anchor)
+							|| !canSee(client, client.player, anchor);
+						return;
+					}
 					target = selectTarget(client);
 					if (target == null) {
 						finish(id, "failed", "E_PRECONDITION", "no " + targetName() + " left after clearing the canopy");
@@ -1374,7 +3617,8 @@ public final class GameActions {
 				return;
 			}
 			LocalPlayer player = client.player;
-			if (!canReach(player, target) || !canSee(client, player, target)) {
+			Vec3 center = Vec3.atCenterOf(target);
+			if (!walking && (!canReach(player, target) || !canSee(client, player, target))) {
 				// The player can drift out of reach while the destroy loop is
 				// holding attack (knockback, a step, falling). Continuing to
 				// hold the key then reports "breaking" forever while vanilla
@@ -1385,41 +3629,73 @@ public final class GameActions {
 				lastApproachDistance = Double.POSITIVE_INFINITY;
 				lastWalkProgressAge = walkingAge;
 				approachTarget = null;
-				return;
 			}
-			Vec3 center = Vec3.atCenterOf(target);
-			CameraController.hold(player);
-			aimAt(player, center);
-			// A visible lookup can change with one tick of camera smoothing.
-			// Do not start or continue a destroy cycle unless this tick's
-			// crosshair is actually on the requested block; otherwise the
-			// body would hold attack forever and report "breaking" at 0%.
-			BlockHitResult aimed = clip(client, player, center);
-			if (!aimed.getBlockPos().equals(target)) {
-				if (breaking) stopMining(client);
-				BlockPos alternative = findBlock(client, candidateState ->
-					matchesTarget(candidateState) && !candidateState.equals(target)
-				);
-				if (alternative == null) {
-					alternative = findBlockUnclipped(client, candidateState ->
-						matchesTarget(candidateState) && !candidateState.equals(target)
+			if (!walking) {
+				CameraController.hold(player);
+				aimAt(player, center);
+				// A visible lookup can change with one tick of camera smoothing.
+				// Do not start or continue a destroy cycle unless this tick's
+				// crosshair is actually on the requested block; otherwise the
+				// body would hold attack forever and report "breaking" at 0%.
+				BlockHitResult aimed = clip(client, player, center);
+				if (!aimed.getBlockPos().equals(target)) {
+					if (breaking) stopMining(client);
+					BlockPos obstruction = aimed.getBlockPos();
+					BlockState obstructionState = client.level.getBlockState(obstruction);
+					boolean supportBlock = removesCurrentSupport(player, obstruction);
+					int walls = 0;
+					BlockPos feet = player.blockPosition();
+					for (Direction direction : Direction.Plane.HORIZONTAL) {
+						if (client.level.getBlockState(feet.relative(direction)).blocksMotion()) walls++;
+					}
+					MiningApproach.Obstruction action = MiningApproach.obstruction(
+						matchesTarget(obstructionState)
+							&& !obstruction.equals(target)
+							&& !supportBlock,
+						obstructionState.is(BlockTags.LEAVES) && !supportBlock,
+						softObstruction(obstructionState) && !supportBlock,
+						walls >= 3
 					);
-				}
-				if (alternative != null) {
-					target = alternative;
-					lastApproachDistance = Double.POSITIVE_INFINITY;
-					lastWalkProgressAge = walkingAge;
-					lastReportedPercent = -1;
-					walking = !canReach(player, alternative) || !canSee(client, player, alternative);
+					if (action == MiningApproach.Obstruction.USE_HIT_BLOCK) {
+						target = obstruction;
+						if (anyLog) trunkOrigin = obstruction;
+						desiredTarget = null;
+						lastApproachDistance = Double.POSITIVE_INFINITY;
+						lastWalkProgressAge = walkingAge;
+						lastReportedPercent = -1;
+						walking = !canReach(player, obstruction) || !canSee(client, player, obstruction);
+						return;
+					}
+					if (action == MiningApproach.Obstruction.CLEAR_OBSTRUCTION) {
+						// The crosshair already names the block that hides the
+						// trunk. Break that exact block instead of scanning
+						// hundreds of thousands of positions for another tree.
+						startCanopyCleanup(client, obstruction);
+						return;
+					}
+					BlockPos alternative = findBlockNear(
+						client,
+						candidateState ->
+							matchesTarget(candidateState) && !candidateState.equals(target),
+						8
+					);
+					if (alternative != null) {
+						target = alternative;
+						if (anyLog) trunkOrigin = alternative;
+						lastApproachDistance = Double.POSITIVE_INFINITY;
+						lastWalkProgressAge = walkingAge;
+						lastReportedPercent = -1;
+						walking = !canReach(player, alternative) || !canSee(client, player, alternative);
+						return;
+					}
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"target is obstructed from the player's line of sight"
+					);
 					return;
 				}
-				finish(
-					id,
-					"failed",
-					"E_PRECONDITION",
-					"target is obstructed from the player's line of sight"
-				);
-				return;
 			}
 			if (walking) {
 				if (canReach(player, target) && canSee(client, player, target)) {
@@ -1427,7 +3703,41 @@ public final class GameActions {
 					walkingAge = 0;
 					return;
 				}
+				// A tall trunk's own centre can stay outside the 4.5-block
+				// eye reach even when a cell at its base can hit a lower log.
+				// Treat that base cell as the approach target instead of
+				// orbiting a target that can never be reached from the ground.
+				BlockPos base = ApproachRoute.interactionCells(client, target)
+					.stream()
+					.min(java.util.Comparator.comparingDouble(
+						cell -> Math.hypot(
+							cell.x() - player.getX(),
+							cell.z() - player.getZ()
+						)
+					))
+					.map(cell -> new BlockPos(cell.x(), cell.y(), cell.z()))
+					.orElse(null);
+				if (base != null && player.position().distanceTo(Vec3.atCenterOf(base)) < 1.5) {
+					walking = false;
+					walkingAge = 0;
+					return;
+				}
 				approachTicks++;
+				if (approachTicks % 20 == 0) {
+					// The coordinator's default command window is 30 seconds.
+					// A legitimate approach can spend that long walking across
+					// terrain before the first block is hit; without progress
+					// frames the bridge cancels a healthy route as "deadline
+					// passed" and the planner repeats it forever.
+					send.accept(
+						progress(
+							id,
+							"walking",
+							approachWaypoint,
+							Math.max(1, approachWaypoints.size())
+						)
+					);
+				}
 				double distance = player.position().distanceTo(center);
 				if (approachTicks % 20 == 0) {
 					BlockPos visible = findBlock(client, this::matchesTarget);
@@ -1440,7 +3750,31 @@ public final class GameActions {
 					}
 				}
 				if (!target.equals(approachTarget) || approachTicks >= nextApproachPlanAt) {
+					long routeStartedAt = System.nanoTime();
 					ApproachRoute.Route route = ApproachRoute.to(client, target);
+					// A failed search is still a completed plan. Without
+					// moving the cooldown forward here, `route == null`
+					// replans every tick, resets the walk state and never
+					// gives the body a chance to make a single step.
+					approachTarget = target;
+					nextApproachPlanAt = approachTicks + 20;
+					String routeState =
+						route == null ? "none" : route.complete() ? "complete" : "partial";
+					if (
+						!routeState.equals(lastRouteLog)
+							|| !target.equals(lastRouteLogTarget)
+					) {
+						lastRouteLog = routeState;
+						lastRouteLogTarget = target;
+						CraftMateBodyClient.LOGGER.info(
+							"CraftMate approach route target={} route={} waypoints={} elapsedMs={} candidates={}",
+							target,
+							routeState,
+							route == null ? 0 : route.waypoints().size(),
+							(System.nanoTime() - routeStartedAt) / 1_000_000L,
+							ApproachRoute.openInteractionCells(client, target).size()
+						);
+					}
 					if (route != null && route.waypoints().size() > 1) {
 						approachWaypoints = route.waypoints();
 						approachWaypoint = approachWaypoints.size() > 1 ? 1 : 0;
@@ -1448,15 +3782,19 @@ public final class GameActions {
 						approachWaypoints = List.of();
 						approachWaypoint = 0;
 					}
-					approachTarget = target;
-					nextApproachPlanAt = approachTicks + 20;
 					if (route == null) {
-						BlockPos canopy = canopyNear(client, target);
-						if (MiningApproach.next(false, canopy != null) == MiningApproach.Mode.CLEAR_CANOPY) {
+						BlockPos canopy = canopyNear(client, cleanupAnchor());
+						boolean stalled =
+							walkingAge - lastWalkProgressAge >= APPROACH_RETARGET_TICKS;
+						if (
+							MiningApproach.next(false, canopy != null, stalled)
+								== MiningApproach.Mode.CLEAR_CANOPY
+						) {
 							// No standable interaction cell exists yet. Clearing
 							// the trunk's own canopy is the only truthful way
-							// forward; walking at the trunk from here never
-							// changes the world.
+							// forward once a direct approach has genuinely
+							// stalled. Doing it immediately made the selected
+							// leaf a new target on every tick.
 							startCanopyCleanup(client, canopy);
 							return;
 						}
@@ -1481,7 +3819,12 @@ public final class GameActions {
 					lastWalkProgressAge = walkingAge;
 				}
 				double heading = Math.atan2(-(step.x - player.getX()), step.z - player.getZ());
-				player.setYRot((float) Math.toDegrees(heading));
+				boolean aligned = turnTowards(player, (float) Math.toDegrees(heading));
+				CameraController.steerHeading(
+					player,
+					player.getYRot(),
+					CameraController.displayPitch(player)
+				);
 				Vec3 ahead = player.position().add(
 					-Math.sin(heading) * 0.6,
 					0,
@@ -1525,7 +3868,7 @@ public final class GameActions {
 					player.jumpFromGround();
 				}
 				if (player.input != null) {
-					setWalkInput(client, true);
+					setWalkInput(client, aligned);
 				}
 				walkingAge++;
 				if (walkingAge > walkBudgetTicks(player, target)) {
@@ -1552,6 +3895,14 @@ public final class GameActions {
 						return;
 					}
 					replans++;
+				BlockPos canopy = canopyNear(client, cleanupAnchor());
+					if (canopy != null) {
+						// A direct approach can stall on the trunk's own
+						// leaves even when no path exists yet. Open that cell
+						// before hopping to a different tree in the forest.
+						startCanopyCleanup(client, canopy);
+						return;
+					}
 					// The nearest log may be behind leaves or across a gap.
 					// Give the agent another visible candidate instead of
 					// reporting the same unreachable target every four seconds.
@@ -1561,14 +3912,6 @@ public final class GameActions {
 						center = Vec3.atCenterOf(target);
 						lastApproachDistance = Double.POSITIVE_INFINITY;
 						lastWalkProgressAge = walkingAge;
-						return;
-					}
-					BlockPos canopy = canopyNear(client, target);
-					if (canopy != null) {
-						// A canopy can completely surround the trunk. The
-						// normal destroy state machine can clear the leaf that
-						// blocks the next step; it is not a chop count.
-						startCanopyCleanup(client, canopy);
 						return;
 					}
 					stop(client);
@@ -1603,6 +3946,11 @@ public final class GameActions {
 					lastApproachDistance = Double.POSITIVE_INFINITY;
 					lastWalkProgressAge = 0;
 					lastReportedPercent = -1;
+					return;
+				}
+					BlockPos canopy = canopyNear(client, cleanupAnchor());
+				if (canopy != null) {
+					startCanopyCleanup(client, canopy);
 					return;
 				}
 				stopMining(client);
@@ -1764,20 +4112,28 @@ public final class GameActions {
 			}
 			Vec3 direction = position.subtract(client.player.position());
 			double horizontal = Math.hypot(direction.x, direction.z);
+			boolean aligned = true;
 			if (horizontal > 0.01) {
-				client.player.setYRot((float) Math.toDegrees(Math.atan2(-direction.x, direction.z)));
+				aligned = turnTowards(
+					client.player,
+					(float) Math.toDegrees(Math.atan2(-direction.x, direction.z))
+				);
 			}
 			if (client.player.horizontalCollision && client.player.onGround()) {
 				client.player.jumpFromGround();
 			}
-			if (client.player.input != null) setWalkInput(client, true);
+			if (client.player.input != null) setWalkInput(client, aligned);
 			if (age % 20 == 0) send.accept(progress(id, "collecting", mined, count));
 		}
 
 		private void completeMining(Minecraft client) {
 			stopMining(client);
 			releaseWalkInput(client);
-			JsonObject evidence = new JsonObject();
+			JsonObject evidence = outcome(
+				(anyLog ? "砍下并拾取 " : "挖掉并拾取 ") + mined + " 个" + targetName(),
+				minedBlocks,
+				null
+			);
 			evidence.add("mined", minedBlocks);
 			JsonObject pickup = new JsonObject();
 			pickup.addProperty("confirmed", true);
@@ -1790,14 +4146,6 @@ public final class GameActions {
 			}
 			pickup.add("gained", gained);
 			evidence.add("pickup", pickup);
-			evidence.add(
-				"outcome",
-				outcome(
-					(anyLog ? "砍下并拾取 " : "挖掉并拾取 ") + mined + " 个" + targetName(),
-					minedBlocks,
-					null
-				)
-			);
 			finish(id, "completed", null, null, evidence);
 		}
 
@@ -1930,7 +4278,9 @@ public final class GameActions {
 			candidates.sort(
 				(left, right) -> Double.compare(left.distSqr(origin), right.distSqr(origin))
 			);
+			int probes = 0;
 			for (BlockPos candidate : candidates) {
+				if (probes++ >= APPROACH_ROUTE_PROBES) break;
 				ApproachRoute.Route route = ApproachRoute.nearestReachable(
 					client,
 					candidate,
@@ -1944,7 +4294,15 @@ public final class GameActions {
 			// overhang. Do not report "no reachable log" while a real log is
 			// still nearby: return the nearest candidate and let the bounded
 			// walk + canopy-clearing loop make an honest attempt.
-			return candidates.isEmpty() ? null : candidates.get(0);
+			if (candidates.isEmpty()) return null;
+			// Prefer a log the body can already reach or see. It is both the
+			// cheapest first chop and avoids an immediate obstruction failure.
+			for (BlockPos candidate : candidates) {
+				if (canReach(client.player, candidate) || canSee(client, client.player, candidate)) {
+					return candidate;
+				}
+			}
+			return candidates.get(0);
 		}
 
 		/**
@@ -2017,6 +4375,10 @@ public final class GameActions {
 			approachWaypoints = List.of();
 			approachWaypoint = 0;
 			approachTarget = null;
+			approachTicks = 0;
+			nextApproachPlanAt = 0;
+			lastApproachDistance = Double.POSITIVE_INFINITY;
+			lastWalkProgressAge = walkingAge;
 			lastReportedPercent = -1;
 		}
 
@@ -2039,6 +4401,11 @@ public final class GameActions {
 			return evidence;
 		}
 
+		/** Canopy relevance is measured from the trunk, never from a leaf. */
+		private BlockPos cleanupAnchor() {
+			return trunkOrigin != null ? trunkOrigin : target;
+		}
+
 		private BlockPos selectTarget(Minecraft client) {
 			// A tall trunk can hide its lower logs behind leaves or adjacent
 			// blocks. Prefer a directly visible log, then accept any log within
@@ -2050,6 +4417,7 @@ public final class GameActions {
 				BlockPos reachable = findApproachTarget(client, null);
 				if (reachable != null) {
 					desiredTarget = null;
+					trunkOrigin = reachable;
 					return reachable;
 				}
 				// A trunk can be completely enclosed by its canopy. The
@@ -2061,10 +4429,12 @@ public final class GameActions {
 				BlockPos visible = findTarget(client);
 				if (visible != null) {
 					desiredTarget = null;
+					trunkOrigin = visible;
 					return visible;
 				}
 				BlockPos nearby = findBlockUnclipped(client, state -> state.is(BlockTags.LOGS));
 				desiredTarget = null;
+				trunkOrigin = nearby;
 				return nearby;
 			}
 			BlockPos direct = findTarget(client);
@@ -2260,7 +4630,7 @@ public final class GameActions {
 			evidence.addProperty("searchRadius", TARGET_SEARCH_RADIUS);
 			evidence.addProperty(
 				"playerCellStandable",
-				standingY(client, origin) == origin.getY()
+				standableAt(client, origin)
 			);
 			evidence.addProperty("blockInteractionRange", 4.5);
 			// Visibility is a property of the player, not of each candidate.
@@ -2320,6 +4690,7 @@ public final class GameActions {
 						entry.addProperty("head", blockId(client, spot.above()));
 						entry.addProperty("floor", blockId(client, spot.below()));
 						entry.addProperty("standingY", standingY(client, spot));
+						entry.addProperty("standable", standableAt(client, spot));
 						spots.add(entry);
 					}
 				}
@@ -2504,7 +4875,15 @@ public final class GameActions {
 			}
 			Vec3 direction = target.position().subtract(client.player.position());
 			double horizontal = Math.hypot(direction.x, direction.z);
-			client.player.setYRot((float) Math.toDegrees(Math.atan2(-direction.x, direction.z)));
+			boolean aligned = turnTowards(
+				client.player,
+				(float) Math.toDegrees(Math.atan2(-direction.x, direction.z))
+			);
+			CameraController.steerHeading(
+				client.player,
+				client.player.getYRot(),
+				CameraController.displayPitch(client.player)
+			);
 			if (
 				horizontal > 0.01
 					&& standingY(
@@ -2523,7 +4902,7 @@ public final class GameActions {
 			if (client.player.horizontalCollision && client.player.onGround()) {
 				client.player.jumpFromGround();
 			}
-			if (client.player.input != null) setWalkInput(client, true);
+			if (client.player.input != null) setWalkInput(client, aligned);
 			if (age % 20 == 0) send.accept(progress(id, "collecting", collected, requested));
 		}
 
@@ -2745,6 +5124,17 @@ public final class GameActions {
 				} else {
 					approachWaypoints = List.of();
 					approachWaypoint = 0;
+					if (playerToTable(player) > 6.0) {
+						stop(client);
+						finish(
+							id,
+							"failed",
+							"E_PRECONDITION",
+							"no safe route to the crafting table",
+							approachEvidence(client, "the station is visible but unreachable")
+						);
+						return;
+					}
 				}
 				approachTarget = tablePos;
 				nextApproachPlanAt = walkingAge + 20;
@@ -2780,7 +5170,12 @@ public final class GameActions {
 				return;
 			}
 			double heading = Math.atan2(-(step.x - player.getX()), step.z - player.getZ());
-			player.setYRot((float) Math.toDegrees(heading));
+			boolean aligned = turnTowards(player, (float) Math.toDegrees(heading));
+			CameraController.steerHeading(
+				player,
+				player.getYRot(),
+				CameraController.displayPitch(player)
+			);
 			Vec3 ahead = player.position().add(
 				-Math.sin(heading) * 0.6,
 				0,
@@ -2801,7 +5196,7 @@ public final class GameActions {
 				return;
 			}
 			if (player.horizontalCollision && player.onGround()) player.jumpFromGround();
-			if (player.input != null) setWalkInput(client, true);
+			if (player.input != null) setWalkInput(client, aligned);
 			if (walkingAge % 20 == 0) {
 				send.accept(progress(id, "walking", (int) Math.round(player.position().distanceTo(center)), 0));
 			}
@@ -3776,7 +6171,12 @@ public final class GameActions {
 				return;
 			}
 			double heading = Math.atan2(-(step.x - player.getX()), step.z - player.getZ());
-			player.setYRot((float) Math.toDegrees(heading));
+			boolean aligned = turnTowards(player, (float) Math.toDegrees(heading));
+			CameraController.steerHeading(
+				player,
+				player.getYRot(),
+				CameraController.displayPitch(player)
+			);
 			Vec3 ahead = player.position().add(
 				-Math.sin(heading) * 0.6,
 				0,
@@ -3797,7 +6197,7 @@ public final class GameActions {
 				return;
 			}
 			if (player.horizontalCollision && player.onGround()) player.jumpFromGround();
-			if (player.input != null) setWalkInput(client, true);
+			if (player.input != null) setWalkInput(client, aligned);
 			if (walkingAge % 20 == 0) {
 				send.accept(progress(id, "walking", (int) Math.round(player.position().distanceTo(center)), 0));
 			}
@@ -4448,7 +6848,12 @@ public final class GameActions {
 				step = waypoints.get(waypointIndex);
 			}
 			double heading = Math.atan2(-(step.x - client.player.getX()), step.z - client.player.getZ());
-			client.player.setYRot((float) Math.toDegrees(heading));
+			boolean aligned = turnTowards(client.player, (float) Math.toDegrees(heading));
+			CameraController.steerHeading(
+				client.player,
+				client.player.getYRot(),
+				CameraController.displayPitch(client.player)
+			);
 			// Walk along the route; only aim at the animal once it is inside
 			// reach. Aiming at the target here overwrote the route heading,
 			// and vanilla movement derives its forward vector from yaw. The
@@ -4545,13 +6950,17 @@ public final class GameActions {
 			}
 			Vec3 direction = position.subtract(client.player.position());
 			double horizontal = Math.hypot(direction.x, direction.z);
+			boolean aligned = true;
 			if (horizontal > 0.01) {
-				client.player.setYRot((float) Math.toDegrees(Math.atan2(-direction.x, direction.z)));
+				aligned = turnTowards(
+					client.player,
+					(float) Math.toDegrees(Math.atan2(-direction.x, direction.z))
+				);
 			}
 			if (client.player.horizontalCollision && client.player.onGround()) {
 				client.player.jumpFromGround();
 			}
-			if (client.player.input != null) setWalkInput(client, true);
+			if (client.player.input != null) setWalkInput(client, aligned);
 			if (age % 20 == 0) send.accept(progress(id, "collecting", 0, 1));
 		}
 
@@ -4970,7 +7379,12 @@ public final class GameActions {
 				return;
 			}
 			double heading = Math.atan2(-(step.x - player.getX()), step.z - player.getZ());
-			player.setYRot((float) Math.toDegrees(heading));
+			boolean aligned = turnTowards(player, (float) Math.toDegrees(heading));
+			CameraController.steerHeading(
+				player,
+				player.getYRot(),
+				CameraController.displayPitch(player)
+			);
 			Vec3 ahead = player.position().add(-Math.sin(heading) * 0.6, 0, Math.cos(heading) * 0.6);
 			BlockPos foot = BlockPos.containing(ahead.x, player.getY() - 0.5, ahead.z);
 			boolean ledge = client.level.getBlockState(foot).isAir()
@@ -4986,7 +7400,7 @@ public final class GameActions {
 				return;
 			}
 			if (player.horizontalCollision && player.onGround()) player.jumpFromGround();
-			if (player.input != null) setWalkInput(client, true);
+			if (player.input != null) setWalkInput(client, aligned);
 			if (walkingAge % 20 == 0) {
 				send.accept(progress(id, "walking", (int) Math.round(player.position().distanceTo(center)), 0));
 			}
@@ -5130,16 +7544,22 @@ public final class GameActions {
 	}
 
 	private static final class EatTask extends Task {
-		private static final int MAX_USE_ATTEMPTS = 5;
-		private static final int RETRY_INTERVAL_TICKS = 8;
 		private static final int GIVE_UP_TICKS = 20 * 10;
+		private static final int SWAP_WAIT_TICKS = 20;
+		/**
+		 * Vanilla consumes food only after the use input has been held for
+		 * roughly 32 ticks. Calling useItem five times with gaps merely
+		 * restarts the animation, so the item never changes.
+		 */
+		private static final int MIN_USE_TICKS = 20 * 3;
 		private final String itemId;
 		private int ticks;
 		private int foodBefore;
 		private String itemBefore;
 		private int countBefore;
-		private int attempts;
-		private int nextAttemptTick;
+		private boolean useHeld;
+		private boolean eatingStarted;
+		private int swapSubmittedAt = -1;
 
 		EatTask(String id, String itemId) {
 			super(id);
@@ -5149,30 +7569,101 @@ public final class GameActions {
 		@Override
 		void start(Minecraft client) {
 			LocalPlayer player = client.player;
-			ItemStack stack = player.getInventory().getSelected();
-			if (stack.isEmpty() || (itemId != null && !matches(stack, itemId))) {
-				int slot = itemId == null ? -1 : findHotbar(player, itemId);
-				if (slot < 0) {
-					finish(id, "failed", "E_PRECONDITION", "food is not in hotbar");
-					return;
-				}
-				player.getInventory().selected = slot;
-			}
-			ItemStack eating = player.getInventory().getSelected();
-			if (eating.isEmpty()) {
-				finish(id, "failed", "E_PRECONDITION", "no food in the selected slot");
+			if (edible(player.getInventory().getSelected())) {
+				beginEating(client);
 				return;
 			}
+			for (int slot = 0; slot < 9; slot++) {
+				if (!edible(player.getInventory().getItem(slot))) continue;
+				player.getInventory().selected = slot;
+				beginEating(client);
+				return;
+			}
+			int foodSlot = -1;
+			for (int slot = 9; slot < 36; slot++) {
+				if (!edible(player.getInventory().getItem(slot))) continue;
+				foodSlot = slot;
+				break;
+			}
+			if (foodSlot < 0) {
+				finish(id, "failed", "E_PRECONDITION", "no edible food in inventory");
+				return;
+			}
+			int hotbar = foodHotbarSlot(player);
+			player.getInventory().selected = hotbar;
+			player.connection.send(new ServerboundSetCarriedItemPacket(hotbar));
+			client.gameMode.handleInventoryMouseClick(
+				player.inventoryMenu.containerId,
+				foodSlot,
+				hotbar,
+				ClickType.SWAP,
+				player
+			);
+			swapSubmittedAt = age;
+			send.accept(progress(id, "equipping", 0, 1));
+		}
+
+		private boolean edible(ItemStack stack) {
+			if (stack.isEmpty() || !stack.getItem().isEdible()) return false;
+			return itemId == null || matches(stack, itemId);
+		}
+
+		/**
+		 * Prefer an empty slot, then a low-value consumable/misc slot. Tools
+		 * and construction stacks must stay in the hotbar because the mining
+		 * and building state machines only search slots 0-8.
+		 */
+		private static int foodHotbarSlot(LocalPlayer player) {
+			int best = 0;
+			int bestScore = Integer.MIN_VALUE;
+			for (int slot = 0; slot < 9; slot++) {
+				ItemStack stack = player.getInventory().getItem(slot);
+				int score = 0;
+				if (stack.isEmpty()) score += 1_000;
+				if (!stack.isEmpty() && !stack.getItem().isEdible()) score += 20;
+				if (!stack.isEmpty() && !stack.isDamageableItem()) score += 100;
+				if (!(stack.getItem() instanceof BlockItem)) score += 40;
+				if (!stack.isEmpty()) score += Math.max(0, 20 - stack.getCount());
+				if (!stack.isEmpty() && stack.isDamageableItem()) score -= 500;
+				if (score > bestScore) {
+					bestScore = score;
+					best = slot;
+				}
+			}
+			return best;
+		}
+
+		private void beginEating(Minecraft client) {
+			LocalPlayer player = client.player;
+			ItemStack eating = player.getInventory().getSelected();
 			foodBefore = player.getFoodData().getFoodLevel();
 			itemBefore = BuiltInRegistries.ITEM.getKey(eating.getItem()).toString();
 			countBefore = eating.getCount();
-			useOnce(client);
+			eatingStarted = true;
+			swapSubmittedAt = -1;
+			holdUse(client, true);
 			send.accept(progress(id, "eating", 0, 1));
 		}
 
 		@Override
 		void tick(Minecraft client) {
 			ticks++;
+			if (swapSubmittedAt >= 0 && !eatingStarted) {
+				if (edible(client.player.getInventory().getSelected())) {
+					beginEating(client);
+					return;
+				}
+				if (age - swapSubmittedAt > SWAP_WAIT_TICKS) {
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"could not equip food into the hotbar"
+					);
+				}
+				return;
+			}
+			if (!eatingStarted) return;
 			int foodAfter = client.player.getFoodData().getFoodLevel();
 			ItemStack stack = client.player.getInventory().getSelected();
 			String itemAfter = stack.isEmpty()
@@ -5187,18 +7678,8 @@ public final class GameActions {
 				finish(id, "completed", null, null, foodEvidence(true, foodAfter));
 				return;
 			}
-			if (
-				attempts < MAX_USE_ATTEMPTS
-					&& !client.player.isUsingItem()
-					&& ticks >= nextAttemptTick
-			) {
-				// The server may reject or cancel one use when the client did
-				// not hold the use input for the whole duration. A human
-				// player just tries again; do that with a bounded attempt
-				// count instead of claiming success or looping forever.
-				useOnce(client);
-			}
-			if (attempts >= MAX_USE_ATTEMPTS && !client.player.isUsingItem() && ticks >= nextAttemptTick) {
+			if (ticks >= MIN_USE_TICKS && !client.player.isUsingItem()) {
+				releaseUse(client);
 				finish(
 					id,
 					"failed",
@@ -5211,10 +7692,18 @@ public final class GameActions {
 			}
 		}
 
-		private void useOnce(Minecraft client) {
-			attempts++;
-			nextAttemptTick = ticks + RETRY_INTERVAL_TICKS;
-			client.gameMode.useItem(client.player, InteractionHand.MAIN_HAND);
+		private void holdUse(Minecraft client, boolean held) {
+			useHeld = held;
+			client.options.keyUse.setDown(held);
+		}
+
+		private void releaseUse(Minecraft client) {
+			if (!useHeld) return;
+			useHeld = false;
+			client.options.keyUse.setDown(false);
+			if (client.player.isUsingItem()) {
+				client.gameMode.releaseUsingItem(client.player);
+			}
 		}
 
 		private JsonObject foodEvidence(boolean consumed, int foodAfter) {
@@ -5247,9 +7736,185 @@ public final class GameActions {
 
 		@Override
 		void stop(Minecraft client) {
-			if (client.player != null && client.player.isUsingItem()) {
-				client.gameMode.releaseUsingItem(client.player);
+			if (client.player != null) {
+				releaseUse(client);
 			}
+		}
+	}
+
+	/**
+	 * Human-style pillaring: jump, look down and place a solid block in the
+	 * cell the body just left. The block lands under the feet and raises the
+	 * floor one level. This is the escape a player uses when a cave has no
+	 * walkable route and the body has blocks but no pickaxe.
+	 */
+	private static final class PillarTask extends Task {
+		private static final int MAX_TICKS = 20 * 20;
+		private final String requestedBlock;
+		private final int height;
+		private int placed;
+		private int baseY;
+		private int jumpAt = -1;
+		private boolean awaitingConfirm;
+		private BlockPos targetCell;
+
+		PillarTask(String id, String blockId, int height) {
+			super(id);
+			this.requestedBlock = blockId;
+			this.height = Math.max(1, Math.min(16, height));
+		}
+
+		@Override
+		boolean validate(Minecraft client) {
+			if (!super.validate(client)) return false;
+			if (findBuildingBlock(client.player) < 0) {
+				validationError = requestedBlock == null
+					? "no solid building block in the hotbar"
+					: "requested block is not a solid item in the hotbar: " + requestedBlock;
+				return false;
+			}
+			return true;
+		}
+
+		@Override
+		void start(Minecraft client) {
+			int slot = findBuildingBlock(client.player);
+			if (slot < 0) {
+				finish(id, "failed", "E_PRECONDITION", "no solid building block in the hotbar");
+				return;
+			}
+			client.player.getInventory().selected = slot;
+			releaseWalkInput(client);
+			baseY = client.player.blockPosition().getY();
+			send.accept(progress(id, "pillar", 0, height));
+		}
+
+		@Override
+		void tick(Minecraft client) {
+			LocalPlayer player = client.player;
+			if (placed >= height) {
+				complete(client);
+				return;
+			}
+			if (age > MAX_TICKS) {
+				if (placed > 0) {
+					finish(id, "completed", null, null, evidence());
+				} else {
+					finish(id, "failed", "E_TIMEOUT", "pillar did not place a block in time");
+				}
+				return;
+			}
+			releaseWalkInput(client);
+			if (awaitingConfirm) {
+				if (targetCell != null && !client.level.getBlockState(targetCell).canBeReplaced()) {
+					placed++;
+					baseY = targetCell.getY() + 1;
+					awaitingConfirm = false;
+					targetCell = null;
+					send.accept(progress(id, "pillar", placed, height));
+					if (placed >= height) complete(client);
+					return;
+				}
+				if (age - jumpAt > 20) {
+					awaitingConfirm = false;
+					targetCell = null;
+				}
+				return;
+			}
+			if (player.onGround()) {
+				player.jumpFromGround();
+				jumpAt = age;
+				return;
+			}
+			// Wait for the jump apex. Placing while still rising can push the
+			// block into the player's own collision box and make the server
+			// reject the use.
+			if (player.getDeltaMovement().y < -0.15) return;
+			if (player.getY() < baseY + 1.05) return;
+			int x = player.blockPosition().getX();
+			int z = player.blockPosition().getZ();
+			BlockPos support = new BlockPos(x, baseY - 1, z);
+			BlockPos target = support.above();
+			if (!client.level.getBlockState(target).canBeReplaced()) return;
+			if (player.getBoundingBox().minY < target.getY() + 1.0) return;
+			Vec3 center = Vec3.atCenterOf(support);
+			player.setXRot(90.0f);
+			CameraController.steerHeading(player, player.getYRot(), 80.0f);
+			BlockHitResult hit = client.level.clip(
+				new ClipContext(
+					player.getEyePosition(),
+					center,
+					ClipContext.Block.OUTLINE,
+					ClipContext.Fluid.NONE,
+					player
+				)
+			);
+			if (!hit.getBlockPos().equals(support) || hit.getDirection() != Direction.UP) {
+				return;
+			}
+			int slot = findBuildingBlock(player);
+			if (slot < 0) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"ran out of building blocks while pillaring",
+					evidence()
+				);
+				return;
+			}
+			player.getInventory().selected = slot;
+			client.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+			targetCell = target;
+			awaitingConfirm = true;
+			jumpAt = age;
+		}
+
+		private int findBuildingBlock(LocalPlayer player) {
+			for (int slot = 0; slot < 9; slot++) {
+				ItemStack stack = player.getInventory().getItem(slot);
+				if (stack.isEmpty()) continue;
+				if (!(stack.getItem() instanceof BlockItem item)) continue;
+				if (
+					requestedBlock != null &&
+					!BuiltInRegistries.ITEM.getKey(stack.getItem()).toString().equals(requestedBlock)
+				) continue;
+				if (!item.getBlock().defaultBlockState().isSolid()) continue;
+				return slot;
+			}
+			return -1;
+		}
+
+		private void complete(Minecraft client) {
+			finish(
+				id,
+				"completed",
+				null,
+				null,
+				evidence()
+			);
+		}
+
+		private JsonObject evidence() {
+			JsonObject outcome = new JsonObject();
+			outcome.addProperty("summary", "pillared up " + placed + " blocks");
+			JsonArray changes = new JsonArray();
+			for (int index = 0; index < placed; index++) {
+				JsonObject change = new JsonObject();
+				change.addProperty("kind", "block_placed");
+				change.addProperty("detail", "pillar_up");
+				changes.add(change);
+			}
+			outcome.add("changes", changes);
+			return outcome;
+		}
+
+		@Override
+		void stop(Minecraft client) {
+			releaseWalkInput(client);
+			CameraController.release();
+			awaitingConfirm = false;
+			targetCell = null;
 		}
 	}
 
@@ -5478,6 +8143,37 @@ public final class GameActions {
 				);
 				return;
 			}
+			if (
+				PlacementTarget.overlapsPlayer(
+					client.player.getBoundingBox(),
+					targetPos.getX(),
+					targetPos.getY(),
+					targetPos.getZ()
+				)
+				|| PlacementTarget.overlapsStandingCell(
+					client.player.blockPosition(),
+					targetPos.getX(),
+					targetPos.getY(),
+					targetPos.getZ()
+				)
+			) {
+				BlockHitResult surface = findPlacementSurface(client);
+				if (surface == null) {
+					finish(
+						id,
+						"failed",
+						"E_PRECONDITION",
+						"no free placement surface beside the body",
+						placeEvidence("the only visible cell would overlap the player")
+					);
+					return;
+				}
+				aimedSurface = surface;
+				MineTask.aimAt(client.player, Vec3.atCenterOf(surface.getBlockPos()));
+				awaitingSurfaceAim = true;
+				send.accept(progress(id, "turning", placed, count));
+				return;
+			}
 			if (isBedItem(blockId)) {
 				BedRoom room = bedRoom(client, targetPos);
 				if (room == BedRoom.BLOCKED) {
@@ -5521,6 +8217,21 @@ public final class GameActions {
 				for (Direction face : Direction.values()) {
 					BlockPos destination = support.relative(face);
 					if (!client.level.getBlockState(destination).canBeReplaced()) continue;
+					// A client ray can point into the player's own hitbox, but
+					// the server rejects a full block there. Never submit a
+					// placement that would trap the body.
+					if (PlacementTarget.overlapsPlayer(
+						player.getBoundingBox(),
+						destination.getX(),
+						destination.getY(),
+						destination.getZ()
+					)) continue;
+					if (PlacementTarget.overlapsStandingCell(
+						origin,
+						destination.getX(),
+						destination.getY(),
+						destination.getZ()
+					)) continue;
 					Vec3 aim = Vec3.atCenterOf(support);
 					BlockHitResult hit = MineTask.clip(client, player, aim);
 					if (!hit.getBlockPos().equals(support) || hit.getDirection() != face) continue;
@@ -5609,7 +8320,21 @@ public final class GameActions {
 				targetPos = hit.getBlockPos().relative(hit.getDirection());
 				beforeBlock = blockSnapshot(client, targetPos);
 				beforeCount = client.player.getInventory().getSelected().getCount();
-				if (beforeBlock != null && !beforeBlock.replaceable()) {
+				if (
+					(beforeBlock != null && !beforeBlock.replaceable())
+					|| PlacementTarget.overlapsPlayer(
+						client.player.getBoundingBox(),
+						targetPos.getX(),
+						targetPos.getY(),
+						targetPos.getZ()
+					)
+					|| PlacementTarget.overlapsStandingCell(
+						client.player.blockPosition(),
+						targetPos.getX(),
+						targetPos.getY(),
+						targetPos.getZ()
+					)
+				) {
 					beginPlacement(client);
 					return;
 				}
@@ -5709,7 +8434,7 @@ public final class GameActions {
 	 * actual move vector from these `KeyMapping`s. Setting the fields directly
 	 * without updating the key mappings leaves vanilla movement active.
 	 */
-	private static void setWalkInput(Minecraft client, boolean forward) {
+	static void setWalkInput(Minecraft client, boolean forward) {
 		client.options.keyUp.setDown(forward);
 		client.options.keyDown.setDown(false);
 		client.options.keyLeft.setDown(false);
@@ -5723,8 +8448,50 @@ public final class GameActions {
 		}
 	}
 
+	/**
+	 * Swimming uses the same vanilla key state as walking, but the jump key is
+	 * what makes the body rise in water. Keep it down every swim tick rather
+	 * than calling `jumpFromGround`, which does nothing without ground.
+	 */
+	static void setSwimInput(Minecraft client, boolean forward) {
+		client.options.keyUp.setDown(forward);
+		client.options.keyDown.setDown(false);
+		client.options.keyLeft.setDown(false);
+		client.options.keyRight.setDown(false);
+		client.options.keyJump.setDown(true);
+		client.options.keyShift.setDown(false);
+		client.options.keySprint.setDown(false);
+		if (client.player != null && client.player.input instanceof KeyboardInput keyboard) {
+			keyboard.tick(false, 1.0f);
+		}
+	}
+
 	static void releaseWalkInput(Minecraft client) {
 		setWalkInput(client, false);
+	}
+
+	/**
+	 * Reflex movement while the crosshair stays on an attacker. Vanilla reads
+	 * the key mappings, not the `Input` holder, so both are updated together.
+	 * `strafe` is +1 for left, -1 for right.
+	 */
+	static void setCombatMove(
+		Minecraft client,
+		int strafe,
+		boolean backward,
+		boolean forward,
+		boolean sprint
+	) {
+		client.options.keyUp.setDown(forward && !backward);
+		client.options.keyDown.setDown(backward);
+		client.options.keyLeft.setDown(strafe > 0);
+		client.options.keyRight.setDown(strafe < 0);
+		client.options.keyJump.setDown(false);
+		client.options.keyShift.setDown(false);
+		client.options.keySprint.setDown(sprint);
+		if (client.player != null && client.player.input instanceof KeyboardInput keyboard) {
+			keyboard.tick(false, 1.0f);
+		}
 	}
 
 	/**
@@ -5768,6 +8535,83 @@ public final class GameActions {
 	}
 
 	/**
+	 * Exact standability at a fixed feet level. `standingY` searches nearby
+	 * levels and therefore returns `y + 1` for a ground-level cell whose own
+	 * column is one block lower. Using that result with `== y` rejected every
+	 * downslope cell, so A* could only climb and ordinary terrain looked like
+	 * an impassable island. Path grids need this fixed-level check instead.
+	 */
+	static boolean standableAt(Minecraft client, BlockPos at) {
+		BlockPos floorPos = at.below();
+		BlockState floor = client.level.getBlockState(floorPos);
+		BlockState feet = client.level.getBlockState(at);
+		BlockState head = client.level.getBlockState(at.above());
+		return floor.blocksMotion()
+			&& !floor.is(BlockTags.LEAVES)
+			&& floor.getFluidState().isEmpty()
+			&& feet.getFluidState().isEmpty()
+			&& (feet.isAir() || !feet.blocksMotion())
+			&& head.getFluidState().isEmpty()
+			&& (head.isAir() || !head.blocksMotion());
+	}
+
+	/**
+	 * A cell the body's two-block frame can occupy at this feet level: no
+	 * fluid, and neither the feet nor the head cell blocks motion. The floor
+	 * is deliberately not required, so this also describes the air column the
+	 * body passes through before a one-block drop.
+	 */
+	static boolean bodySpaceAt(Minecraft client, BlockPos at) {
+		BlockState feet = client.level.getBlockState(at);
+		BlockState head = client.level.getBlockState(at.above());
+		return feet.getFluidState().isEmpty()
+			&& (feet.isAir() || !feet.blocksMotion())
+			&& head.getFluidState().isEmpty()
+			&& (head.isAir() || !head.blocksMotion());
+	}
+
+	/**
+	 * Movement geometry A* must respect to avoid routes that look valid on a
+	 * standability grid but wedge the body in game.
+	 *
+	 * <p>A one-block drop needs the destination column clear at the body's
+	 * current height: vanilla will not lower the body through a solid lip,
+	 * and the body cannot fall until it has moved horizontally over the gap.
+	 * A diagonal needs both orthogonal cells body-clear, because vanilla
+	 * resolves horizontal movement one axis at a time and a closed corner
+	 * cancels both axes.
+	 */
+	static BoundedPathfinder.Traversal traversal(Minecraft client) {
+		return (from, to) -> {
+			if (to.y() < from.y()) {
+				// The body moves sideways at its current height first, so the
+				// destination column must be open for the body's feet and head
+				// at the current level, not merely at the lower destination.
+				for (int y = to.y(); y <= from.y(); y++) {
+					if (!bodySpaceAt(client, new BlockPos(to.x(), y, to.z()))) {
+						return false;
+					}
+				}
+			}
+			int dx = to.x() - from.x();
+			int dz = to.z() - from.z();
+			if (dx != 0 && dz != 0) {
+				// Vanilla resolves a diagonal one axis at a time, so both
+				// orthogonal cells must clear the body at the higher of the two
+				// levels. Checking only the destination let a body try to cut
+				// through a closed corner and stall against it.
+				int high = Math.max(from.y(), to.y());
+				BlockPos first = new BlockPos(to.x(), high, from.z());
+				BlockPos second = new BlockPos(from.x(), high, to.z());
+				if (!bodySpaceAt(client, first) || !bodySpaceAt(client, second)) {
+					return false;
+				}
+			}
+			return true;
+		};
+	}
+
+	/**
 	 * Vanilla stops a destroy when the mouse is not grabbed, which happens
 	 * whenever another app is focused. The mixin keeps `continueAttack(true)`
 	 * for exactly this window so the agent can mine without stealing focus.
@@ -5775,6 +8619,292 @@ public final class GameActions {
 	private static void holdMiningInput(Minecraft client) {
 		miningInputHeld = true;
 		client.missTime = 0;
+	}
+
+	/**
+	 * Turns the body toward a heading at a human rate and reports whether it
+	 * is close enough to walk. Movement is gated on alignment because walking
+	 * forward while still facing thirty degrees away drives the body into the
+	 * wall it is trying to avoid.
+	 */
+	static boolean turnTowards(LocalPlayer player, float yaw) {
+		player.setYRot(
+			ViewSlew.stepYaw(player.getYRot(), yaw, ViewSlew.WALK_TURN_PER_TICK)
+		);
+		keepEyesOffEnderman(player);
+		return ViewSlew.aligned(player.getYRot(), yaw, ViewSlew.WALK_ALIGNMENT);
+	}
+
+	/**
+	 * Walking toward a waypoint can make the crosshair cross an enderman's
+	 * face even when the route itself is harmless. Movement only needs yaw;
+	 * glance down while one is close so an ordinary stroll cannot trigger a
+	 * hostile teleport-and-hit. Explicit eye-stage attacks still use aimAt and
+	 * are not affected by this movement safeguard.
+	 */
+	private static void keepEyesOffEnderman(LocalPlayer player) {
+		if (player.level() == null) return;
+		List<EnderMan> endermen = player.level().getEntitiesOfClass(
+			EnderMan.class,
+			player.getBoundingBox().inflate(24.0),
+			EnderMan::isAlive
+		);
+		if (endermen.isEmpty()) return;
+		float yaw = player.getYRot();
+		for (EnderMan enderman : endermen) {
+			double dx = enderman.getX() - player.getX();
+			double dz = enderman.getZ() - player.getZ();
+			float bearing = (float) Math.toDegrees(Math.atan2(-dx, dz));
+			if (Math.abs(ViewSlew.wrap(bearing - yaw)) <= 22.0f) {
+				player.setXRot(Math.max(player.getXRot(), 35.0f));
+				return;
+			}
+		}
+	}
+
+	/** Slower, two-axis look used while idle. Returns true when settled. */
+	static boolean lookTowards(LocalPlayer player, float yaw, float pitch) {
+		player.setYRot(
+			ViewSlew.stepYaw(player.getYRot(), yaw, ViewSlew.LOOK_TURN_PER_TICK)
+		);
+		player.setXRot(
+			ViewSlew.stepPitch(player.getXRot(), pitch, ViewSlew.PITCH_PER_TICK)
+		);
+		return ViewSlew.aligned(player.getYRot(), yaw, 2.0f)
+			&& Math.abs(player.getXRot() - Math.max(-90.0f, Math.min(90.0f, pitch))) <= 2.0f;
+	}
+
+	/** True when the body stands on a leaf block instead of real ground. */
+	static boolean onCanopy(Minecraft client) {
+		LocalPlayer player = client.player;
+		if (player == null || client.level == null) return false;
+		BlockPos feet = player.blockPosition();
+		SupportBlock support = supportBlock(client, player);
+		return CanopyEscape.standingInTreeCanopy(
+			player.onGround(),
+			support.state().is(BlockTags.LEAVES),
+			support.state().is(BlockTags.LOGS),
+			leafNeighbours(client, feet)
+		);
+	}
+
+	/**
+	 * The block actually supporting the player's bounding box. A player can
+	 * stand on the corner of a leaf or a step while `blockPosition()` (which
+	 * floors one point) reports the adjacent empty column. That made canopy
+	 * detection miss entirely after a respawn on a tree: the body had no
+	 * navigation neighbour and did not look like it was on a canopy either.
+	 */
+	private static SupportBlock supportBlock(Minecraft client, LocalPlayer player) {
+		AABB box = player.getBoundingBox();
+		int supportY = (int) Math.floor(box.minY - 0.01);
+		int minX = (int) Math.floor(box.minX + 0.001);
+		int maxX = (int) Math.floor(box.maxX - 0.001);
+		int minZ = (int) Math.floor(box.minZ + 0.001);
+		int maxZ = (int) Math.floor(box.maxZ - 0.001);
+		BlockPos leaf = null;
+		BlockPos log = null;
+		BlockPos solid = null;
+		for (int x = minX; x <= maxX; x++) {
+			for (int z = minZ; z <= maxZ; z++) {
+				BlockPos pos = new BlockPos(x, supportY, z);
+				BlockState state = client.level.getBlockState(pos);
+				if (state.is(BlockTags.LEAVES)) {
+					if (leaf == null) leaf = pos;
+				} else if (state.is(BlockTags.LOGS)) {
+					if (log == null) log = pos;
+				} else if (
+					state.blocksMotion()
+						&& state.getFluidState().isEmpty()
+				) {
+					if (solid == null) solid = pos;
+				}
+			}
+		}
+		BlockPos chosen = solid != null ? solid : log != null ? log : leaf;
+		if (chosen == null) chosen = player.blockPosition().below();
+		return new SupportBlock(chosen, client.level.getBlockState(chosen));
+	}
+
+	private record SupportBlock(BlockPos pos, BlockState state) {
+	}
+
+	/** Leaves packed around the body are the wall that traps a felled tree. */
+	private static int leafNeighbours(Minecraft client, BlockPos feet) {
+		int leaves = 0;
+		for (int dy = 0; dy <= 2; dy++) {
+			for (Direction direction : Direction.Plane.HORIZONTAL) {
+				if (client.level.getBlockState(feet.above(dy).relative(direction)).is(BlockTags.LEAVES)) {
+					leaves++;
+				}
+			}
+		}
+		return leaves;
+	}
+
+	/**
+	 * One tick of a controlled descent from a tree canopy. Returns true while
+	 * the body is still on or above the canopy, false once it stands on a
+	 * normal floor.
+	 *
+	 * <p>A leaves-only floor is deliberately excluded from the navigation
+	 * grid, so a body that lands on a canopy has no standable neighbour and
+	 * every A* search returns no route. Peeling the leaf under the feet drops
+	 * it exactly one block onto the next layer; the last short gap is either
+	 * taken or walked around, so the body never freezes on a tree.
+	 */
+	static boolean descendCanopyStep(Minecraft client) {
+		LocalPlayer player = client.player;
+		if (player == null || client.level == null) return false;
+		if (!player.onGround()) {
+			// The peeled leaf is gone and the body is falling to the next
+			// layer. Keep the escape state; steering mid-air would cancel it.
+			releaseWalkInput(client);
+			return true;
+		}
+		BlockPos feet = player.blockPosition();
+		SupportBlock supportBlock = supportBlock(client, player);
+		BlockPos support = supportBlock.pos();
+		BlockState under = supportBlock.state();
+		boolean leafSupport = under.is(BlockTags.LEAVES);
+		boolean logSupport = under.is(BlockTags.LOGS) && leafNeighbours(client, feet) >= 2;
+		if (!leafSupport && !logSupport) {
+			releaseMiningInput(client);
+			releaseWalkInput(client);
+			CameraController.release();
+			return false;
+		}
+		BlockState next = client.level.getBlockState(support.below());
+		boolean belowIsCanopy = next.is(BlockTags.LEAVES)
+			|| (next.is(BlockTags.LOGS) && leafNeighbours(client, feet.below()) >= 2);
+		int drop = belowIsCanopy ? 1 : canopyDrop(client, support);
+		boolean safeLanding = belowIsCanopy || canopyLandingSafe(client, support, drop);
+		if (CanopyEscape.canPeel(belowIsCanopy, drop, safeLanding)) {
+			return breakCanopyBlock(client, support);
+		}
+		// The last layer is too high for a safe drop. Walk the canopy toward a
+		// column whose ground is closer instead of falling off the tree.
+		BlockPos landing = canopyLandingColumn(client, feet);
+		if (landing != null) {
+			BlockPos step = nextCanopyStep(client, feet, landing);
+			if (step != null) {
+				steerTowards(client, step);
+				return true;
+			}
+		}
+		// Nothing safer exists inside the search radius. A controlled fall is
+		// still progress; a frozen body never reaches the next tree.
+		return breakCanopyBlock(client, support);
+	}
+
+	/** Blocks from the feet to the first non-leaf floor, or -1 if unknown. */
+	private static int canopyDrop(Minecraft client, BlockPos support) {
+		for (int depth = 1; depth <= 16; depth++) {
+			BlockState state = client.level.getBlockState(support.below(depth));
+			if (!state.getFluidState().isEmpty() || state.blocksMotion()) return depth;
+		}
+		return -1;
+	}
+
+	/**
+	 * The drop that remains once every leaf in this column is gone. A canopy
+	 * column always answers one block for {@link #canopyDrop}; landing choice
+	 * needs the real ground instead.
+	 */
+	private static int canopyGroundDrop(Minecraft client, BlockPos support) {
+		for (int depth = 1; depth <= 24; depth++) {
+			BlockState state = client.level.getBlockState(support.below(depth));
+			if (state.is(BlockTags.LEAVES)) continue;
+			if (!state.getFluidState().isEmpty() || state.blocksMotion()) return depth;
+		}
+		return -1;
+	}
+
+	private static boolean canopyLandingSafe(Minecraft client, BlockPos support, int drop) {
+		if (drop < 0 || drop > 24) return false;
+		BlockState landing = client.level.getBlockState(support.below(drop));
+		if (landing.getFluidState().is(FluidTags.LAVA)) return false;
+		return !landing.is(Blocks.MAGMA_BLOCK)
+			&& !landing.is(Blocks.CACTUS)
+			&& !landing.is(Blocks.SWEET_BERRY_BUSH)
+			&& !landing.is(Blocks.CAMPFIRE);
+	}
+
+	/**
+	 * Nearest canopy column whose ground is close enough to leave safely.
+	 * Keeping this inside four blocks means the body never wanders across an
+	 * entire forest crown looking for a perfect exit.
+	 */
+	private static BlockPos canopyLandingColumn(Minecraft client, BlockPos feet) {
+		BlockPos best = null;
+		double bestDistance = Double.POSITIVE_INFINITY;
+		for (BlockPos pos : BlockPos.betweenClosed(feet.offset(-4, 0, -4), feet.offset(4, 0, 4))) {
+			BlockPos column = pos.immutable();
+			if (column.equals(feet)) continue;
+			if (!client.level.getBlockState(column.below()).is(BlockTags.LEAVES)) continue;
+			if (!bodySpaceAt(client, column)) continue;
+			int drop = canopyGroundDrop(client, column.below());
+			if (!CanopyEscape.canLeaveCanopy(drop, canopyLandingSafe(client, column.below(), drop))) {
+				continue;
+			}
+			double distance = feet.distSqr(column);
+			if (distance < bestDistance) {
+				bestDistance = distance;
+				best = column;
+			}
+		}
+		return best;
+	}
+
+	/**
+	 * One greedy step across the crown. Only cells that still have a leaf
+	 * under them are eligible, so the walk cannot turn into a fall.
+	 */
+	private static BlockPos nextCanopyStep(Minecraft client, BlockPos feet, BlockPos goal) {
+		BlockPos best = null;
+		double bestDistance = feet.distSqr(goal);
+		for (int dx = -1; dx <= 1; dx++) {
+			for (int dz = -1; dz <= 1; dz++) {
+				if (dx == 0 && dz == 0) continue;
+				BlockPos next = feet.offset(dx, 0, dz);
+				if (!client.level.getBlockState(next.below()).is(BlockTags.LEAVES)) continue;
+				if (!bodySpaceAt(client, next)) continue;
+				double distance = next.distSqr(goal);
+				if (distance < bestDistance) {
+					bestDistance = distance;
+					best = next;
+				}
+			}
+		}
+		return best;
+	}
+
+	private static void steerTowards(Minecraft client, BlockPos column) {
+		LocalPlayer player = client.player;
+		double dx = column.getX() + 0.5 - player.getX();
+		double dz = column.getZ() + 0.5 - player.getZ();
+		player.setYRot((float) Math.toDegrees(Math.atan2(-dx, dz)));
+		CameraController.steerHeading(
+			player,
+			player.getYRot(),
+			CameraController.displayPitch(player)
+		);
+		setWalkInput(client, true);
+	}
+
+	private static boolean breakCanopyBlock(Minecraft client, BlockPos block) {
+		LocalPlayer player = client.player;
+		CameraController.hold(player);
+		MineTask.aimAt(player, Vec3.atCenterOf(block));
+		BlockHitResult hit = MineTask.clip(client, player, Vec3.atCenterOf(block));
+		if (!hit.getBlockPos().equals(block)) {
+			releaseMiningInput(client);
+			return true;
+		}
+		holdMiningInput(client);
+		client.hitResult = hit;
+		client.missTime = 0;
+		return true;
 	}
 
 	public static boolean holdsMiningInput() {
@@ -5795,7 +8925,10 @@ public final class GameActions {
 	/** Releases every synthetic input a finished or interrupted task can own. */
 	public static void releaseInputs(Minecraft client) {
 		releaseMiningInput(client);
-		if (client.options != null) releaseWalkInput(client);
+		if (client.options != null) {
+			releaseWalkInput(client);
+			client.options.keyUse.setDown(false);
+		}
 	}
 
 	private static BlockPos findBlock(Minecraft client, java.util.function.Predicate<BlockState> matches) {
@@ -5889,6 +9022,51 @@ public final class GameActions {
 	}
 
 	/**
+	 * Small, visible alternative search used from the per-tick destroy loop.
+	 * The full 48-block scan belongs to task start only; repeating it every
+	 * tick on a slow client blocked the render thread for the entire command
+	 * deadline.
+	 */
+	private static BlockPos findBlockNear(
+		Minecraft client,
+		java.util.function.Predicate<BlockState> matches,
+		int radius
+	) {
+		BlockPos origin = client.player.blockPosition();
+		Vec3 eye = client.player.getEyePosition();
+		BlockPos best = null;
+		double bestScore = Double.POSITIVE_INFINITY;
+		for (BlockPos pos : BlockPos.betweenClosed(
+			origin.offset(-radius, -6, -radius),
+			origin.offset(radius, 6, radius)
+		)) {
+			BlockState state = client.level.getBlockState(pos);
+			if (!matches.test(state)) continue;
+			if (removesCurrentSupport(client.player, pos)) continue;
+			double distance = pos.distSqr(origin);
+			if (distance > (double) radius * radius) continue;
+			BlockPos candidate = pos.immutable();
+			Vec3 center = Vec3.atCenterOf(candidate);
+			BlockHitResult hit = client.level.clip(
+				new ClipContext(
+					eye,
+					center,
+					ClipContext.Block.OUTLINE,
+					ClipContext.Fluid.NONE,
+					client.player
+				)
+			);
+			if (!hit.getBlockPos().equals(candidate)) continue;
+			double score = eye.distanceToSqr(center);
+			if (score < bestScore) {
+				bestScore = score;
+				best = candidate;
+			}
+		}
+		return best;
+	}
+
+	/**
 	 * True when at least one face of the block is exposed to open air. This is
 	 * deliberately weaker than a centre raycast: a trunk surrounded by its own
 	 * leaves can still have a choppable side once covered, while a block
@@ -5965,6 +9143,37 @@ public final class GameActions {
 			if (client.level.getBlockState(pos).is(block)) return true;
 		}
 		return false;
+	}
+
+	private static BlockPos nearbyBlockPosition(
+		Minecraft client,
+		LocalPlayer player,
+		Block block,
+		int radius
+	) {
+		BlockPos origin = player.blockPosition();
+		BlockPos best = null;
+		double bestDistance = Double.POSITIVE_INFINITY;
+		int radiusSqr = radius * radius;
+		// Bound the vertical band. A full 97x17x97 cube is ~160k lookups on
+		// the render thread even once every five seconds. Tables live on a
+		// walkable surface, so a shallow band is enough to recover one.
+		int floorY = Math.max(client.level.getMinBuildHeight(), origin.getY() - 8);
+		int ceilingY = Math.min(client.level.getMaxBuildHeight() - 1, origin.getY() + 8);
+		for (BlockPos pos : BlockPos.betweenClosed(
+			origin.offset(-radius, floorY - origin.getY(), -radius),
+			origin.offset(radius, ceilingY - origin.getY(), radius)
+		)) {
+			BlockPos candidate = pos.immutable();
+			if (candidate.distSqr(origin) > radiusSqr) continue;
+			if (!client.level.getBlockState(candidate).is(block)) continue;
+			double distance = candidate.distSqr(origin);
+			if (distance < bestDistance) {
+				bestDistance = distance;
+				best = candidate;
+			}
+		}
+		return best;
 	}
 
 	private static double round(double value) {

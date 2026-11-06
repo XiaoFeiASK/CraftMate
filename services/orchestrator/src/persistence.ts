@@ -162,9 +162,14 @@ export function createPersistentShow(options: {
         const price = provider?.pricePerMillion ?? { input: 0, output: 0 };
         const cost =
           (prompt / 1_000_000) * price.input + (completion / 1_000_000) * price.output;
-        if (cost > 0) {
-          costs.record({ sessionId: context.sessionId, provider: providerId, model, cost });
-        }
+        costs.record({
+          sessionId: context.sessionId,
+          provider: providerId,
+          model,
+          cost,
+          promptTokens: prompt,
+          completionTokens: completion,
+        });
       },
       onDegraded: (detail) => {
         console.warn(`orchestrator: planner degraded — ${detail}`);
@@ -304,7 +309,6 @@ export function createPersistentShow(options: {
     readIntegrations: () => publicRuntimeConfig(runtimeConfig.read()),
     expireRawText: (now) => sources.expireRawText(now),
     recordCost: (providerId, model, cost) => {
-      if (cost <= 0) return;
       costs.record({ sessionId: context.sessionId, provider: providerId, model, cost });
     },
     recordGoalDecision,

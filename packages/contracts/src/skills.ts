@@ -19,6 +19,7 @@ export const skillNameSchema = z.enum([
   "eat",
   "deposit",
   "place_block",
+  "pillar_up",
   "build_schematic",
   "attack",
   "use_block",
@@ -39,7 +40,24 @@ const point = z.object({
 });
 
 export const skillArgsSchema = z.discriminatedUnion("name", [
-  z.object({ name: z.literal("goto"), args: z.object({ target: point }) }),
+  z.object({
+    name: z.literal("goto"),
+    args: z.object({
+      target: point,
+      /**
+       * Fallback destinations in preference order. Exploration uses this to
+       * avoid failing just because its first heading ends in water or a cliff;
+       * ordinary movement still gives one exact target.
+       */
+      candidates: z.array(point).min(1).max(8).optional(),
+      /**
+       * Exploration only: reaching the end of a proven safe partial route is
+       * real progress (a new observation area) even though the requested
+       * column was not reached. Ordinary movement must stay exact.
+       */
+      acceptPartial: z.boolean().optional(),
+    }),
+  }),
   z.object({ name: z.literal("follow"), args: z.object({ player: playerName }) }),
   z.object({ name: z.literal("flee"), args: z.object({ player: playerName.optional() }) }),
   z.object({
@@ -65,6 +83,13 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
   z.object({
     name: z.literal("place_block"),
     args: z.object({ block: blockId, count: z.number().int().min(1).max(64).default(1) }),
+  }),
+  z.object({
+    name: z.literal("pillar_up"),
+    args: z.object({
+      block: blockId.optional(),
+      height: z.number().int().min(1).max(16).default(3),
+    }),
   }),
   z.object({ name: z.literal("build_schematic"), args: z.object({ schematic: z.string().trim().min(1).max(120) }) }),
   z.object({
@@ -134,6 +159,7 @@ export const SKILL_CAPABILITY: Readonly<Record<SkillName, string>> = {
   eat: "use",
   deposit: "container",
   place_block: "build",
+  pillar_up: "build",
   build_schematic: "build",
   attack: "attack",
   use_block: "use",
@@ -163,6 +189,7 @@ export const FABRIC_BODY_SKILLS = [
   "eat",
   "use_block",
   "place_block",
+  "pillar_up",
   "sleep",
 ] as const satisfies readonly SkillName[];
 

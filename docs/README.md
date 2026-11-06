@@ -8,6 +8,7 @@ CraftMate 文档按使用场景分为四类。每个主题只有一个权威文�
 | 观察同类项目 | [相关项目调研](research/related-projects.md) | 哪些外部方案值得参考、与 CraftMate 的差异在哪里 |
 | 首次运行 | [运行手册](operations/runbook.md) | 依赖、启动、服务、数据、排错 |
 | 接外部系统 | [外部集成](guides/integrations.md) | 模型、语音、抖音、Minecraft 的配置与联调 |
+| 观察自主闭环 | [自主生存闭环](operations/autonomy.md) | 目标模式、连续决策、Agent/Mod 分工与模型额度排查 |
 | 理解系统 | [架构总览](reference/architecture.md) | 模块边界、运行链路、硬约束 |
 | 查实现细节 | [技术设计](reference/technical-design.md) | 协议、决策内核、存储、人格与记忆 |
 | 接游戏身体 | [Bridge 设计](reference/bridge.md) | 游戏通道协议、队列、控制权与安全 |

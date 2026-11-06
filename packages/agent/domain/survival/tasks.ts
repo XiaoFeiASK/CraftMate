@@ -19,12 +19,15 @@ import {
   isNight,
   nearbyHas,
   nearestEntity,
+  nearestEntityWithinHeight,
+  pickaxeTier,
 } from "./facts.ts";
 import type {
   BlockedTask,
   GoalId,
   Missing,
   NearbyBlock,
+  NearbyEntity,
   Task,
   TaskKind,
   WorldFacts,
@@ -49,6 +52,21 @@ const FOOD_ITEMS =
  * unable to eat while it keeps failing hunts.
  */
 const EMERGENCY_FOOD_ITEMS = /(^|:)rotten_flesh$/u;
+/** Items vanilla allows even when the hunger bar is already full. */
+const ALWAYS_EDIBLE_ITEMS =
+  /(^|:)golden_apple$|(^|:)enchanted_golden_apple$|(^|:)golden_carrot$|(^|:)honey_bottle$/u;
+/**
+ * Item entities carry the localized display name, not their registry id.
+ * The body reports "苹果" in a Chinese client and "Apple" in an English one,
+ * so the planner has to accept both spellings when deciding whether a
+ * dropped meal is worth a pickup walk.
+ */
+const DROPPED_FOOD_NAME =
+  /苹果|apple|腐肉|rotten flesh|牛肉|beef|鸡肉|chicken|猪肉|porkchop|羊肉|mutton|兔肉|rabbit|鳕鱼|cod|鲑鱼|salmon|面包|bread|胡萝卜|carrot|马铃薯|potato|甜菜根|beetroot|甜浆果|sweet berries/iu;
+const HOSTILE_ENTITIES =
+  /zombie|husk|drowned|skeleton|stray|creeper|spider|witch|pillager|vindicator|evoker|ravager|enderman|slime|magma_cube|blaze|ghast|wither|piglin|hoglin|phantom|warden/iu;
+/** Below this health a ranged mob is an immediate retreat, not a fair fight. */
+const RETREAT_HEALTH = 14;
 
 /**
  * Builds the single next executable task for a stage. When no task is ready,
@@ -57,26 +75,193 @@ const EMERGENCY_FOOD_ITEMS = /(^|:)rotten_flesh$/u;
  */
 export function nextTaskForStage(context: TaskContext): Task | BlockedTask | null {
   const { stage, facts, newId } = context;
+  const safety = immediateSafetyTask(stage, facts, newId);
+  if (safety !== null) return safety;
+  let task: Task | BlockedTask | null;
   switch (stage) {
     case "wood-and-table":
-      return woodAndTable(facts, newId);
+      task = woodAndTable(facts, newId);
+      break;
     case "stone-tools":
-      return stoneTools(facts, newId);
+      task = stoneTools(facts, newId);
+      break;
     case "food":
-      return foodTask(facts, newId);
+      task = foodTask(facts, newId);
+      break;
     case "shelter":
-      return shelter(facts, newId);
+      task = shelter(facts, newId);
+      break;
     case "iron":
-      return iron(facts, newId);
+      task = iron(facts, newId);
+      break;
     case "nether":
-      return nether(facts, newId);
+      task = nether(facts, newId);
+      break;
     case "eyes":
-      return eyes(facts, newId);
+      task = eyes(facts, newId);
+      break;
     case "stronghold":
-      return stronghold(facts, newId);
+      task = stronghold(facts, newId);
+      break;
     case "dragon":
-      return dragon(facts, newId);
+      task = dragon(facts, newId);
+      break;
   }
+  return nightMobility(stage, facts, task, newId);
+}
+
+/**
+ * Without a bed, standing still to chop or mine all night is how every run
+ * ended: a zombie walked up while the body was locked into a destroy loop.
+ * Keep the body moving between observation points after dusk instead. Eating,
+ * crafting and a melee answer to a mob already in range stay available; only
+ * long stationary work is deferred to daylight.
+ */
+function nightMobility(
+  stage: GoalId,
+  facts: WorldFacts,
+  task: Task | BlockedTask | null,
+  newId: () => string,
+): Task | BlockedTask | null {
+  if (isNight(facts) !== true) return task;
+  if (
+    facts.inventory.some((slot) => BED_ITEMS.test(slot.item)) ||
+    nearbyHas(facts, BED_ITEMS) !== null
+  ) {
+    return task;
+  }
+  if (task === null || !("skill" in task)) return task;
+  if (!/^(goto|mine_block|chop_tree|collect_items)$/u.test(task.skill.name)) {
+    return task;
+  }
+  // A goto already keeps the body moving, and collecting a drop is a short
+  // nearby action. Only stationary work needs the safety override. Even then
+  // do not erase the whole night: two out of three in-game hour windows keep
+  // the real task so wood, stone and food can still progress, while the
+  // remaining window sweeps a new area instead of standing under a tree.
+  if (task.skill.name === "goto") {
+    const target = task.skill.args["target"] as
+      | { readonly x: number; readonly y: number; readonly z: number }
+      | undefined;
+    const position = facts.position;
+    // A hunt or a shelter search already travels a wide ring; keep it.
+    // A targeted goto (no candidate list) is an approach to a specific
+    // entity or station; replacing it with a random sweep loses the sheep
+    // that prompted it. Only the local resource sweeps need widening.
+    if (
+      target != null &&
+      position != null &&
+      (task.skill.args["candidates"] === undefined ||
+        Math.hypot(target.x - position.x, target.z - position.z) >= 20)
+    ) {
+      return task;
+    }
+    return explore(facts, stage, "夜间保持移动，避免被围攻", "安全地带", 2, newId, 20, 32, true);
+  }
+  if (task.skill.name === "collect_items") {
+    return task;
+  }
+  const clock = Math.floor((facts.timeOfDay ?? 0) / 1_000);
+  if (clock % 3 !== 0) return task;
+  return explore(facts, stage, "夜间保持移动，避免被围攻", "安全地带", 2, newId, 20, 32, true);
+}
+
+/**
+ * A stage task can be worth doing for a long time, but none of it matters if
+ * a pillager is three blocks away. The body already reports a reflex; this is
+ * the next planner decision, using the same skill schema as every other step.
+ * It only overrides construction when the threat is genuinely close:
+ * low-health bodies retreat from a ten-block radius, healthy bodies only
+ * fight something already within melee range.
+ */
+function immediateSafetyTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  const threat = nearestEntity(facts, HOSTILE_ENTITIES, 10);
+  if (threat === null) return null;
+  const health = facts.health ?? 20;
+  const position = facts.position;
+  const threatPosition =
+    threat.x === undefined || threat.y === undefined || threat.z === undefined
+      ? null
+      : { x: threat.x, y: threat.y, z: threat.z };
+  const close = threat.distance <= 4.5;
+  const urgent = close || (health < RETREAT_HEALTH && threat.distance <= 10);
+  if (!urgent) return null;
+  const mustRetreat = health < RETREAT_HEALTH || /creeper/iu.test(threat.type);
+
+  if (mustRetreat && position !== null && position !== undefined && threatPosition !== null) {
+    const dx = position.x - threatPosition.x;
+    const dz = position.z - threatPosition.z;
+    const length = Math.hypot(dx, dz);
+    const baseAngle = length < 0.01
+      ? Math.PI / 2
+      : Math.atan2(dz, dx);
+    const candidates = Array.from({ length: 7 }, (_, index) => {
+      const offset = (index - 3) * (Math.PI / 6);
+      const radians = baseAngle + offset;
+      const distance = index === 3 ? 16 : 12;
+      return {
+        x: Math.round((position.x + Math.cos(radians) * distance) * 10) / 10,
+        y: Math.round(position.y * 10) / 10,
+        z: Math.round((position.z + Math.sin(radians) * distance) * 10) / 10,
+      };
+    });
+    return {
+      id: `task:${newId()}`,
+      stage,
+      kind: "navigate",
+      title: `低血量撤离 ${threat.name}`,
+      skill: skill("goto", {
+        target: candidates[3]!,
+        candidates,
+        acceptPartial: true,
+      }, newId),
+      preconditions: [
+        "a hostile entity is within the body's observed radius",
+        "the retreat direction has a safe bounded route",
+      ],
+      expectedEvidence: [
+        "the body leaves the hostile entity's immediate range",
+        "a later snapshot reports a safer distance",
+      ],
+      verify: (next) =>
+        next.position === undefined ||
+        next.position === null ||
+        Math.hypot(next.position.x - position.x, next.position.z - position.z) >= 3,
+    };
+  }
+
+  if (health >= RETREAT_HEALTH && threat.distance <= 5.5) {
+    return {
+      id: `task:${newId()}`,
+      stage,
+      kind: "combat",
+      title: `击退近身威胁 ${threat.name}`,
+      skill: skill("attack", {
+        target: threat.type,
+        count: 1,
+        radius: 12,
+        lethal: true,
+        collect: false,
+      }, newId),
+      preconditions: [
+        "a hostile entity is within melee or immediate ranged range",
+        "the body has enough health to trade one hit",
+      ],
+      expectedEvidence: [
+        "the hostile entity's health reaches zero",
+        "the immediate threat disappears from the snapshot",
+      ],
+      verify: (next) =>
+        !(next.entities ?? []).some(
+          (entity) => entity.type === threat.type && entity.distance <= 3.5,
+        ),
+    };
+  }
+  return null;
 }
 
 /**
@@ -134,6 +319,10 @@ export function missingForRecipe(
   if (
     recipe.station === "crafting_table" &&
     !hasStation(facts, "crafting_table") &&
+    // Walking away from a table this body already placed does not destroy
+    // the station. The body can walk back to the remembered position; only
+    // demand a new table when no placed table is known at all.
+    facts.craftingTablePlaced !== true &&
     !hasItem(facts, "minecraft:crafting_table")
   ) {
     missing.push({
@@ -189,19 +378,24 @@ function craftWithPrerequisite(
   if (
     recipe.ingredients.some((ingredient) =>
       ingredient.choices.some((choice) => isWoodDerived(choice)),
-    ) &&
-    nearbyHas(facts, WOOD_ITEMS) !== null
+    )
   ) {
-    return {
-      id: `task:${newId()}`,
-      stage,
-      kind: "gather",
-      title: "补充原木",
-      skill: skill("chop_tree", { count: 1 }, newId),
-      preconditions: ["a log block is nearby", "no screen is open"],
-      expectedEvidence: ["a log enters the inventory"],
-      verify: (next) => next.inventory.some((slot) => WOOD_ITEMS.test(slot.item)),
-    };
+    if (nearbyHas(facts, WOOD_ITEMS) !== null) {
+      return {
+        id: `task:${newId()}`,
+        stage,
+        kind: "gather",
+        title: "补充原木",
+        skill: skill("chop_tree", { count: 1 }, newId),
+        preconditions: ["a log block is nearby", "no screen is open"],
+        expectedEvidence: ["a log enters the inventory"],
+        verify: (next) => next.inventory.some((slot) => WOOD_ITEMS.test(slot.item)),
+      };
+    }
+    // No tree in this observation is not proof that the recipe is
+    // impossible. Walk one bounded step and look again instead of parking
+    // the whole season goal on an unseen log.
+    return explore(facts, stage, "寻找原木", "原木", 1, newId);
   }
   return blockedWith(stage, "craft", title, missing);
 }
@@ -425,7 +619,11 @@ function stoneTools(facts: WorldFacts, newId: () => string): Task | BlockedTask 
   if (table !== null) {
     return placeOrBuildTable(table, facts, newId);
   }
-  if (!hasItem(facts, "minecraft:wooden_pickaxe")) {
+  // Never ask for a tier the body has already surpassed. The previous
+  // `hasItem(wooden_pickaxe)` check stranded a body carrying only a stone or
+  // iron pickaxe: it demanded a wooden downgrade, needed logs for it, and
+  // then failed every replan because no log was nearby.
+  if (pickaxeTier(facts) < 1) {
     const pickaxe = queryRecipe("minecraft:wooden_pickaxe");
     if (pickaxe === null) return blocked("stone-tools", "craft", "制作木镐");
     const missing = missingForRecipe(pickaxe, facts);
@@ -439,9 +637,10 @@ function stoneTools(facts: WorldFacts, newId: () => string): Task | BlockedTask 
   if (inventoryCount(facts, "minecraft:cobblestone") < 3) {
     const nearbyStone = reachableStone(facts);
     if (nearbyStone === null) {
-      return blockedWith("stone-tools", "mine", "寻找石头", [
-        { kind: "resource", detail: "附近没有可瞄准的石头；存在不等于可挖" },
-      ]);
+      // "Not in this observation" is not "does not exist". Ground is under
+      // nearly every overworld biome, so walk one bounded step and look again
+      // instead of parking the whole season goal on a missing neighbour.
+      return explore(facts, "stone-tools", "寻找石头", "石头", 3, newId);
     }
     if (!canMine("minecraft:wooden_pickaxe", nearbyStone.id)) {
       return blockedWith("stone-tools", "mine", "挖石头", [
@@ -463,7 +662,7 @@ function stoneTools(facts: WorldFacts, newId: () => string): Task | BlockedTask 
       verify: (next) => inventoryCount(next, "minecraft:cobblestone") >= 3,
     };
   }
-  if (!hasItem(facts, "minecraft:stone_pickaxe")) {
+  if (pickaxeTier(facts) < 2) {
     const pickaxe = queryRecipe("minecraft:stone_pickaxe");
     if (pickaxe === null) return blocked("stone-tools", "craft", "制作石镐");
     const missing = missingForRecipe(pickaxe, facts);
@@ -492,9 +691,22 @@ function reachableStone(facts: WorldFacts): NearbyBlock | null {
   return nearbyHas(facts, /(^|:)stone$/u);
 }
 
+function logCount(facts: WorldFacts): number {
+  return facts.inventory.reduce(
+    (total, slot) => (WOOD_ITEMS.test(slot.item) ? total + slot.count : total),
+    0,
+  );
+}
+
 function foodTask(facts: WorldFacts, newId: () => string): Task | BlockedTask | null {
   const food = facts.inventory.find((slot) => FOOD_ITEMS.test(slot.item));
-  if (food !== undefined) {
+  // Vanilla refuses ordinary food at a full hunger bar. Only golden apples
+  // and similar always-edible items can be consumed there; asking for a
+  // normal meal at 20/20 produces a use animation that never completes.
+  if (
+    food !== undefined &&
+    (facts.food !== 20 || ALWAYS_EDIBLE_ITEMS.test(food.item))
+  ) {
     return {
       id: `task:${newId()}`,
       stage: "food",
@@ -502,10 +714,6 @@ function foodTask(facts: WorldFacts, newId: () => string): Task | BlockedTask | 
       title: `吃 ${shortName(food.item)}`,
       skill: skill("eat", { item: food.item }, newId),
       preconditions: ["food in inventory", "edible item selected"],
-      // A full hunger bar still counts as a meal in Minecraft: eating a
-      // golden apple or a food item at 20/20 is legal. The body must prove
-      // the held stack changed; the runtime's completion gate checks the
-      // `food_consumed` change independently.
       expectedEvidence: [`${food.item} count decreases`, "food_consumed evidence"],
       verify: (next) => inventoryCount(next, food.item) < inventoryCount(facts, food.item),
     };
@@ -523,9 +731,26 @@ function foodTask(facts: WorldFacts, newId: () => string): Task | BlockedTask | 
       verify: (next) => inventoryCount(next, emergencyFood.item) < inventoryCount(facts, emergencyFood.item),
     };
   }
+  if (food !== undefined && facts.food === 20) {
+    // The stage milestone treats a full belly plus a reserve as sufficient.
+    // If the caller reached this stage anyway, there is no legal meal to do.
+    return blockedWith("food", "interact", "食物充足，无需进食", [
+      {
+        kind: "material",
+        item: food.item,
+        detail: `${food.item} 在满饥饿时不可食用；保留作为下一段行程的储备`,
+      },
+    ]);
+  }
   const foodAnimals = /(^|:)(cow|pig|chicken|rabbit|sheep)$/u;
-  const nearby = nearestEntity(facts, foodAnimals, 16);
+  // The body observes further than it can see through terrain, and the attack
+  // skill walks to a target it only knows by direction. A pig at 38 blocks is
+  // a real, reachable meal; ignoring it sent the agent back to the explore
+  // sweep and made the food stage last minutes longer than necessary.
+  const nearby = nearestEntityWithinHeight(facts, foodAnimals, 40);
   if (nearby !== null) {
+    const approach = approachEntity(facts, "food", nearby, shortName(nearby.type), newId);
+    if (approach !== null) return approach;
     return {
       id: `task:${newId()}`,
       stage: "food",
@@ -543,10 +768,12 @@ function foodTask(facts: WorldFacts, newId: () => string): Task | BlockedTask | 
       verify: (next) => next.inventory.some((slot) => FOOD_ITEMS.test(slot.item)),
     };
   }
-  // Fish are food too. A river or ocean start may have no land animal within
-  // reach at all; a fish is a legitimate, observable hunt target and lets the
-  // body prove a meal instead of blocking the whole survival chain.
-  const fish = nearestEntity(facts, /(^|:)(cod|salmon|tropical_fish)$/u, 16);
+  // Fish are food, but the navigation grid deliberately refuses water. A cod
+  // fifteen blocks offshore is not a hunt target: the body reports "no
+  // reachable route" and the runtime backs off instead of moving. Only a fish
+  // already inside vanilla melee reach is worth swinging at; anything further
+  // is left to the land sweep below.
+  const fish = nearestEntity(facts, /(^|:)(cod|salmon|tropical_fish)$/u, 3);
   if (fish !== null) {
     return {
       id: `task:${newId()}`,
@@ -570,30 +797,79 @@ function foodTask(facts: WorldFacts, newId: () => string): Task | BlockedTask | 
     const recipe = queryRecipe("minecraft:bread");
     return recipe === null ? blocked("food", "craft", "制作面包") : craftTask(recipe, "food", facts, newId);
   }
-  // There is no visible animal. This is a search, not a dead end: the body's
-  // attack task has a bounded radius and will walk to a passive animal it can
-  // see, while still proving every hit. The target list mirrors the edible
-  // animal families rather than scanning for arbitrary entities.
-  return {
-    id: `task:${newId()}`,
-    stage: "food",
-    kind: "combat",
-    title: "探索并寻找可猎取的被动生物",
-    skill: skill("attack", {
-      target: "minecraft:cow",
-      targets: ["cow", "pig", "chicken", "rabbit", "sheep"].map((name) => `minecraft:${name}`),
-      count: 2,
-      radius: 48,
-      lethal: true,
-      collect: true,
-    }, newId),
-    preconditions: ["a passive animal exists within the bounded search radius"],
-    expectedEvidence: [
-      "the body searches for a visible passive animal",
-      "the task fails honestly when none is reachable",
-    ],
-    verify: (next) => next.inventory.some((slot) => FOOD_ITEMS.test(slot.item)),
-  };
+  const droppedFood = (facts.entities ?? [])
+    .filter(
+      (entity) =>
+        entity.type === "minecraft:item" &&
+        entity.distance <= 16 &&
+        DROPPED_FOOD_NAME.test(entity.name),
+    )
+    .sort((left, right) => left.distance - right.distance)[0];
+  if (droppedFood !== undefined) {
+    return {
+      id: `task:${newId()}`,
+      stage: "food",
+      kind: "gather",
+      title: `捡起 ${droppedFood.name}`,
+      skill: skill("collect_items", { count: 1 }, newId),
+      preconditions: ["a dropped food item is visible within pickup range"],
+      expectedEvidence: ["an edible item enters the inventory"],
+      verify: (next) => next.foodAcquired === true || next.inventory.some((slot) => FOOD_ITEMS.test(slot.item)),
+    };
+  }
+  // A coastal or cleared forest can have no passive animals in the hunt
+  // window while oak trees are everywhere. Exploring the same ring forever
+  // cannot create a cow, but chopping an oak does create a real food chance:
+  // the canopy decays, apples drop, and the body's pickup pass collects them.
+  // The logs are useful for tools and shelter either way. This must be
+  // species-specific; `chop_tree` could pick a birch and produce no apples.
+  const oakLog = nearbyHas(facts, /(^|:)(dark_oak|oak)_log$/u);
+  const oakLeaves = nearbyHas(facts, /(^|:)(dark_oak|oak)_leaves$/u);
+  if (oakLog !== null) {
+    // Chopping logs is the reliable half of the apple strategy. It produces
+    // a drop at the body's feet, so the mining task can confirm pickup and
+    // complete. The canopy then decays on its own and rolls the apple drop
+    // table. Breaking leaves directly was faster in theory but the body could
+    // not confirm their sapling/apple drops, so every attempt failed with
+    // "block was broken but pickup was not confirmed" and the runtime looped.
+    // Six logs is enough to fell most oak trees; a taller one simply takes a
+    // second task.
+    return {
+      id: `task:${newId()}`,
+      stage: "food",
+      kind: "gather",
+      title: "砍橡树寻找苹果",
+      skill: skill("mine_block", { block: oakLog.id, count: 6 }, newId),
+      preconditions: ["an oak tree is nearby", "no passive animal is in the hunt window"],
+      expectedEvidence: ["oak logs enter the inventory", "decaying leaves may drop an apple"],
+      verify: (next) => logCount(next) > logCount(facts),
+    };
+  }
+  if (oakLeaves !== null) {
+    // No trunk is reachable, but a canopy is. This is the last land-food
+    // chance; a failed pickup still leaves the body somewhere new, and the
+    // runtime's bounded backoff prevents a tight retry loop.
+    return {
+      id: `task:${newId()}`,
+      stage: "food",
+      kind: "gather",
+      title: "打落橡树叶寻找苹果",
+      skill: skill("mine_block", { block: oakLeaves.id, count: 48 }, newId),
+      preconditions: ["oak leaves are nearby", "no reachable oak trunk"],
+      expectedEvidence: ["oak leaves are broken", "the leaf drop table may produce an apple"],
+      verify: (next) =>
+        next.foodAcquired === true ||
+        next.inventory.some((slot) => FOOD_ITEMS.test(slot.item)),
+    };
+  }
+  // There is no visible animal. An attack with no target fails in the same
+  // tick and the runtime then retries byte-identical work after every
+  // backoff, which looks exactly like an idle agent. Walking to a new
+  // observation area is the action that can actually create a hunt target.
+  // A passive mob is rarely inside the 16-block observation that failed
+  // above. Sweep further than the generic resource search so a full loop
+  // actually covers new ground instead of orbiting the same clearing.
+  return explore(facts, "food", "寻找可猎取的动物", "动物", 2, newId, 24, 36, true);
 }
 
 function shelter(facts: WorldFacts, newId: () => string): Task | BlockedTask | null {
@@ -606,8 +882,10 @@ function shelter(facts: WorldFacts, newId: () => string): Task | BlockedTask | n
     const missing = missingForRecipe(recipe, facts);
     const woolMissing = missing.find((entry) => /_wool$/u.test(entry.item ?? ""));
     if (woolMissing !== undefined) {
-      const sheep = nearestEntity(facts, /(^|:)sheep$/u, 40);
+      const sheep = nearestEntityWithinHeight(facts, /(^|:)sheep$/u, 40);
       if (sheep !== null) {
+        const approach = approachEntity(facts, "shelter", sheep, "绵羊", newId);
+        if (approach !== null) return approach;
         return {
           id: `task:${newId()}`,
           stage: "shelter",
@@ -625,6 +903,13 @@ function shelter(facts: WorldFacts, newId: () => string): Task | BlockedTask | n
           verify: (next) => next.inventory.some((slot) => WOOL_ITEMS.test(slot.item)),
         };
       }
+      // A wool shortage is not a dead end when no sheep is in the bounded
+      // observation. Search a new area, then re-plan from the new facts.
+      // A forest can be empty of sheep for a long time. The generic 8–16
+      // block sweep kept the body orbiting the same clearing; a bed needs a
+      // real trip to a new biome, so use the same longer, steady heading as
+      // the animal hunt instead of re-observing the same trees.
+      return explore(facts, "shelter", "寻找绵羊", "羊", woolMissing.count ?? 2, newId, 24, 40, true);
     }
     return missing.length === 0
       ? craftTask(recipe, "shelter", facts, newId)
@@ -670,16 +955,17 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
     const recipe = queryRecipe("minecraft:furnace");
     if (recipe === null) return blocked("iron", "craft", "制作熔炉");
     const missing = missingForRecipe(recipe, facts);
-    return missing.length === 0
-      ? craftTask(recipe, "iron", facts, newId)
-      : craftWithPrerequisite(recipe, "iron", facts, newId, "制作熔炉");
+    if (missing.length === 0) return craftTask(recipe, "iron", facts, newId);
+    const prerequisite = craftWithPrerequisite(recipe, "iron", facts, newId, "制作熔炉");
+    if ("skill" in prerequisite) return prerequisite;
+    return missing.some((entry) => entry.kind === "station")
+      ? prerequisite
+      : explore(facts, "iron", "寻找熔炉材料", "圆石", 8, newId);
   }
   if (inventoryCount(facts, "minecraft:raw_iron") < 3 && inventoryCount(facts, "minecraft:iron_ingot") < 3) {
     const ore = nearbyHas(facts, /iron_ore$/u);
     if (ore === null) {
-      return blockedWith("iron", "mine", "寻找铁矿石", [
-        { kind: "resource", detail: "附近没有铁矿石；需要下矿或探索" },
-      ]);
+      return explore(facts, "iron", "寻找铁矿石", "铁矿石", 3, newId);
     }
     return {
       id: `task:${newId()}`,
@@ -724,16 +1010,18 @@ function nether(facts: WorldFacts, newId: () => string): Task | BlockedTask | nu
     const recipe = queryRecipe("minecraft:diamond_pickaxe");
     if (recipe === null) return blocked("nether", "craft", "制作钻石镐");
     const missing = missingForRecipe(recipe, facts);
-    return missing.length === 0
-      ? craftTask(recipe, "nether", facts, newId)
-      : craftWithPrerequisite(recipe, "nether", facts, newId, "制作钻石镐");
+    if (missing.length === 0) return craftTask(recipe, "nether", facts, newId);
+    const prerequisite = craftWithPrerequisite(recipe, "nether", facts, newId, "制作钻石镐");
+    if ("skill" in prerequisite) return prerequisite;
+    const diamond = missing.find((entry) => /diamond$/u.test(entry.item ?? ""));
+    return diamond === undefined
+      ? prerequisite
+      : explore(facts, "nether", "寻找钻石矿石", "钻石矿石", 3, newId);
   }
   if (inventoryCount(facts, "minecraft:obsidian") < 10) {
     const obsidian = nearbyHas(facts, /obsidian$/u);
     if (obsidian === null) {
-      return blockedWith("nether", "mine", "寻找黑曜石", [
-        { kind: "resource", detail: "附近没有黑曜石；需要寻找岩浆源附近的水流交界" },
-      ]);
+      return explore(facts, "nether", "寻找黑曜石", "黑曜石", 10, newId);
     }
     return {
       id: `task:${newId()}`,
@@ -796,14 +1084,18 @@ function eyes(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
   if (inventoryCount(facts, "minecraft:blaze_powder") < 12) {
     const recipe = queryRecipe("minecraft:blaze_powder");
     if (recipe === null) return blocked("eyes", "craft", "制作烈焰粉");
-    return craftTask(recipe, "eyes", facts, newId, 12);
+    const missing = missingForRecipe(recipe, facts);
+    if (missing.length === 0) return craftTask(recipe, "eyes", facts, newId, 12);
+    const blazeRod = missing.find((entry) => /blaze_rod$/u.test(entry.item ?? ""));
+    if (blazeRod !== undefined) {
+      return explore(facts, "eyes", "寻找烈焰人", "烈焰棒", 12, newId);
+    }
+    return blockedWith("eyes", "craft", "制作烈焰粉", missing);
   }
   if (inventoryCount(facts, "minecraft:ender_pearl") < 12) {
     const enderman = nearestEntity(facts, /enderman$/u, 32);
     if (enderman === null) {
-      return blockedWith("eyes", "combat", "寻找末影人", [
-        { kind: "resource", detail: "附近没有末影人；夜晚或下界更有机会" },
-      ]);
+      return explore(facts, "eyes", "寻找末影人", "末影珍珠", 12, newId);
     }
     return {
       id: `task:${newId()}`,
@@ -857,9 +1149,7 @@ function dragon(facts: WorldFacts, newId: () => string): Task | BlockedTask | nu
     };
   }
   if (!facts.entities?.some((entity) => /dragon/iu.test(entity.type))) {
-    return blockedWith("dragon", "combat", "确认末影龙位置", [
-      { kind: "resource", detail: "末地内没有报告末影龙实体" },
-    ]);
+    return explore(facts, "dragon", "在末地寻找末影龙", "末影龙", 1, newId);
   }
   return {
     id: `task:${newId()}`,
@@ -875,6 +1165,111 @@ function dragon(facts: WorldFacts, newId: () => string): Task | BlockedTask | nu
 
 function blocked(stage: GoalId, kind: TaskKind, title: string): BlockedTask {
   return { stage, kind, title, missing: [] };
+}
+
+/**
+ * No target is visible from the current position. Issue a bounded walk to a
+ * different nearby area instead of declaring the stage blocked: entity and
+ * block snapshots are local, so "not nearby" is not "does not exist". The
+ * direction is derived from the body's position and the missing resource, so
+ * a replan after the walk searches a different sector without depending on
+ * hidden randomness.
+ */
+export function explore(
+  facts: WorldFacts,
+  stage: GoalId,
+  title: string,
+  resource: string,
+  count: number,
+  newId: () => string,
+  minRadius = 8,
+  maxRadius = 16,
+  steady = false,
+): Task {
+  const origin = facts.position ?? { x: 0, y: 64, z: 0 };
+  let hash = 0;
+  for (const character of `${stage}:${resource}`) {
+    hash = (hash * 31 + character.codePointAt(0)!) >>> 0;
+  }
+  // A wedged body that cannot move keeps the same position, so a heading
+  // derived from position alone re-issues byte-identical destinations forever:
+  // the same strategy key fails again after every backoff. In-game time keeps
+  // advancing while the body is stuck, so rotate the sweep slowly with it.
+  // Planning stays pure: identical facts still produce an identical task, and
+  // therefore an identical idempotency key.
+  const clock = Math.floor((facts.timeOfDay ?? 0) / 1_000);
+  // Stay inside the body's bounded path budget. Long headings in broken
+  // terrain exhaust the A* node budget and produce only a partial route, so
+  // the agent never moves and retries the same unreachable destination. A
+  // short repeated sweep still changes the observation area every step. Offer
+  // eight headings because a single destination may be water, a cliff, or a
+  // wall; the body chooses the first one with a complete safe route.
+  const steps = Math.max(1, Math.trunc((maxRadius - minRadius) / 4) + 1);
+  // A resource sweep may re-randomise its heading from the current cell, but
+  // a hunt for a mob that is not in sight needs to actually travel. Mixing
+  // the position into the angle turned every 30-block leg in a different
+  // direction, so the body random-walked inside a small clearing for minutes.
+  const drift = steady ? 0 : Math.trunc(origin.x) + Math.trunc(origin.z);
+  const radius = minRadius + ((hash + drift + clock) % steps) * 4;
+  const baseAngle =
+    ((hash % 360) + (steady ? 0 : Math.trunc(origin.x) * 7 + Math.trunc(origin.z) * 13) + clock * 45) %
+    360;
+  const candidates = Array.from({ length: 8 }, (_, index) => {
+    const radians = ((baseAngle + index * 45) * Math.PI) / 180;
+    return {
+      x: Math.round((origin.x + Math.cos(radians) * radius) * 10) / 10,
+      y: Math.round(origin.y * 10) / 10,
+      z: Math.round((origin.z + Math.sin(radians) * radius) * 10) / 10,
+    };
+  });
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "navigate",
+    title: `${title}（搜索 ${resource}）`,
+    skill: skill("goto", { target: candidates[0]!, candidates, acceptPartial: true }, newId),
+    preconditions: [
+      "a safe bounded route exists from the current position",
+      "the target resource is not already visible in the local snapshot",
+    ],
+    expectedEvidence: [
+      "the body reaches a new observation area",
+      `a later snapshot contains ${resource}`,
+    ],
+    verify: () => true,
+  };
+}
+
+/**
+ * A mob snapshot includes its coordinates, but the attack skill's own path
+ * finder only knows how to walk. When a sheep stands across a ravine or a
+ * gap, attack fails with "no reachable route" forever. Approach with the
+ * navigation skill first: `goto` owns the staircase/bridge escape, and the
+ * next planning cycle can attack once the body is actually nearby.
+ */
+function approachEntity(
+  facts: WorldFacts,
+  stage: GoalId,
+  entity: NearbyEntity,
+  label: string,
+  newId: () => string,
+): Task | null {
+  if (entity.distance <= 6) return null;
+  if (entity.x === undefined || entity.y === undefined || entity.z === undefined) return null;
+  const target = { x: entity.x, y: entity.y, z: entity.z };
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "navigate",
+    title: `接近${label}`,
+    skill: skill("goto", { target, acceptPartial: false }, newId),
+    preconditions: ["the target entity reported coordinates", "no safe attack route from here"],
+    expectedEvidence: ["the body reaches the target's observation area", "a later attack can close the last few blocks"],
+    verify: (next) =>
+      next.position === undefined ||
+      next.position === null ||
+      Math.hypot(next.position.x - target.x, next.position.z - target.z) <= 8,
+  };
 }
 
 function blockedWith(
@@ -926,6 +1321,33 @@ function ensureTable(
   newId: () => string,
 ): Task | BlockedTask | null {
   if (hasStation(facts, "crafting_table")) return null;
+  /**
+   * A table on a tree platform or across a ravine can be visible in the
+   * snapshot while having no legal route. Walking at it forever is the
+   * failure mode the operator sees as a frozen body. When the body carries
+   * the wood for a replacement, make a fresh table here instead.
+   */
+  if (!hasItem(facts, "minecraft:crafting_table") && facts.craftingTablePlaced === true) {
+    const table = facts.craftingTable;
+    const position = facts.position;
+    const distance =
+      table === undefined || table === null || position === undefined || position === null
+        ? null
+        : Math.hypot(table.x - position.x, table.y - position.y, table.z - position.z);
+    if (facts.craftingTableNearby !== true && distance !== null && distance > 12) {
+      const recipe = queryRecipe("minecraft:crafting_table");
+      if (recipe !== null) {
+        const replacement = craftWithPrerequisite(
+          recipe,
+          stage,
+          facts,
+          newId,
+          "制作备用工作台",
+        );
+        if ("skill" in replacement) return replacement;
+      }
+    }
+  }
   // A table the body already placed is a known station. Do not demand a
   // second table simply because the agent walked away. If its exact position
   // is known, walk back first so the 3x3 craft has a real station in reach.

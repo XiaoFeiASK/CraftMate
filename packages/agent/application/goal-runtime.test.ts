@@ -150,7 +150,21 @@ describe("goal runtime", () => {
     assert.match(value.currentProgress?.lastFailure ?? "", /接管或急停/);
   });
 
-  test("a failed strategy backs off and is not retried blindly", () => {
+  test("a threat does not pause the planner that must choose fight or flight", () => {
+    const { value } = runtime();
+    const next = value.beginStep(
+      context({
+        bridge: health({
+          incidents: [{ kind: "threat", detail: "骷髅离你 6 格", at: 1_000 }],
+        }),
+      }),
+    );
+    assert.ok(next);
+    assert.equal(next.decision.skill?.name, "chop_tree");
+    assert.notEqual(value.currentProgress?.status, "paused");
+  });
+
+  test("a failed strategy backs off and keeps the autonomous run alive", () => {
     const { value, advance } = runtime();
     const first = value.beginStep(context());
     assert.ok(first);
@@ -175,8 +189,12 @@ describe("goal runtime", () => {
       at: 3_500,
     });
     advance(4_500);
-    assert.equal(value.beginStep(context()), null);
-    assert.match(value.currentProgress?.lastFailure ?? "", /同一策略已连续失败两次/);
+    assert.equal(value.currentProgress?.status, "active");
+    assert.match(value.currentProgress?.lastFailure ?? "", /仍然没有可站立的接近点/);
+    assert.equal(value.currentProgress?.consecutiveFailures, 2);
+    assert.notEqual(value.currentProgress?.retryAt, null);
+    advance(value.currentProgress?.retryAt ?? 0);
+    assert.ok(value.beginStep(context()));
   });
 
   test("a success clears the retry projection instead of leaving a stale backoff", () => {
@@ -436,7 +454,7 @@ describe("goal runtime", () => {
     assert.equal(plan.blockedReason, null);
   });
 
-  test("survival recovery blocks only after two same-stage failures", () => {
+  test("survival recovery retries a repeated strategy after fresh observation", () => {
     const first: TaskFailure = {
       taskId: "task:wood-and-table:craft:craft:{\"count\":1,\"item\":\"minecraft:oak_planks\"}",
       stage: "wood-and-table",
@@ -465,8 +483,149 @@ describe("goal runtime", () => {
       failures: [first, second],
       lastFailureStrategy: "wood-and-table:craft:craft:{\"count\":1,\"item\":\"minecraft:oak_planks\"}",
     });
-    assert.equal(plan.nextTask, null);
-    assert.match(plan.blockedReason ?? "", /停止重复|人工检查|没有安全/);
+    assert.equal(plan.nextTask?.skill.name, "craft");
+    assert.equal(plan.blockedReason, null);
+    assert.match(plan.nextTask?.reason ?? "", /重新观察后重试/);
+  });
+
+  test("a craft stuck approaching its station changes area instead of retrying", () => {
+    const strategy =
+      "stone-tools:craft:craft:{\"count\":1,\"item\":\"minecraft:wooden_pickaxe\"}";
+    const first: TaskFailure = {
+      taskId: `task:${strategy}`,
+      stage: "stone-tools",
+      code: "E_PRECONDITION",
+      detail: "crafting table approach made no progress for 3 seconds",
+      attempts: 1,
+    };
+    const second: TaskFailure = { ...first, attempts: 2 };
+    const plan = new SurvivalGoalPlanner().plan({
+      goal: goal(),
+      progress: progress(),
+      world: {
+        inWorld: true,
+        inventory: [
+          { section: "main", slot: 9, item: "minecraft:oak_planks", count: 6 },
+          { section: "main", slot: 10, item: "minecraft:stick", count: 4 },
+        ],
+        nearbyBlocks: [{ id: "minecraft:crafting_table" }],
+      },
+      health: health({ skills: ["goto", "craft", "place_block", "chop_tree"] }),
+      proposals: [],
+      lastFailure: second.detail,
+      consecutiveFailures: 2,
+      failures: [first, second],
+      lastFailureStrategy: strategy,
+    });
+    assert.equal(plan.nextTask?.skill.name, "goto");
+    assert.match(plan.nextTask?.reason ?? "", /换一片区域|重新观察/u);
+  });
+
+  test("a repeated unreachable food target sweeps beyond the hunt window", () => {
+    const foodWorld = {
+      inWorld: true,
+      health: 20,
+      food: 20,
+      inventory: [
+        { section: "hotbar" as const, slot: 0, item: "minecraft:stone_pickaxe", count: 1 },
+        { section: "hotbar" as const, slot: 1, item: "minecraft:cobblestone", count: 3 },
+      ],
+      nearbyBlocks: [{ id: "minecraft:grass_block" }],
+      entities: [
+        {
+          name: "鸡",
+          type: "minecraft:chicken",
+          distance: 38,
+        },
+      ],
+      position: { x: 0, y: 64, z: 0 },
+      timeOfDay: 2_000,
+    };
+    const firstPlan = new SurvivalGoalPlanner().plan({
+      goal: goal(),
+      progress: progress(),
+      world: foodWorld,
+      health: health({ skills: ["attack", "goto", "craft", "place_block"] }),
+      proposals: [],
+      lastFailure: null,
+      consecutiveFailures: 0,
+    });
+    assert.equal(firstPlan.stage.id, "food");
+    assert.equal(firstPlan.nextTask?.skill.name, "attack");
+    const strategy = firstPlan.strategyKey;
+    assert.ok(strategy);
+    const first: TaskFailure = {
+      taskId: `task:${strategy}`,
+      stage: "food",
+      code: "E_PRECONDITION",
+      detail: "no reachable route to minecraft:chicken",
+      attempts: 1,
+    };
+    const second: TaskFailure = { ...first, attempts: 2 };
+    const detour = new SurvivalGoalPlanner().plan({
+      goal: goal(),
+      progress: progress(),
+      world: foodWorld,
+      health: health({ skills: ["attack", "goto", "craft", "place_block"] }),
+      proposals: [],
+      lastFailure: second.detail,
+      consecutiveFailures: 2,
+      failures: [first, second],
+      lastFailureStrategy: strategy,
+    });
+    assert.equal(detour.nextTask?.skill.name, "goto");
+    const target = detour.nextTask?.skill.args.target as {
+      readonly x: number;
+      readonly z: number;
+    };
+    assert.ok(Math.hypot(target.x, target.z) >= 40);
+  });
+
+  test("a repeated chopping timeout moves to a fresh observation area", () => {
+    const plan = new SurvivalGoalPlanner().plan({
+      goal: goal(),
+      progress: progress(),
+      world: {
+        inWorld: true,
+        inventory: [],
+        nearbyBlocks: [{ id: "minecraft:oak_log", count: 12 }],
+        position: { x: -46.5, y: 72, z: 166.5 },
+      },
+      health: health({ skills: ["chop_tree", "goto", "craft", "place_block"] }),
+      proposals: [],
+      lastFailure: null,
+      consecutiveFailures: 0,
+    });
+    assert.equal(plan.stage.id, "wood-and-table");
+    assert.equal(plan.nextTask?.skill.name, "chop_tree");
+    const strategy = plan.strategyKey;
+    assert.ok(strategy);
+    const first: TaskFailure = {
+      taskId: `task:${strategy}`,
+      stage: "wood-and-table",
+      code: "timeout",
+      detail: "deadline passed",
+      attempts: 1,
+    };
+    const second: TaskFailure = { ...first, attempts: 2 };
+    const detour = new SurvivalGoalPlanner().plan({
+      goal: goal(),
+      progress: progress(),
+      world: {
+        inWorld: true,
+        inventory: [],
+        nearbyBlocks: [{ id: "minecraft:oak_log", count: 12 }],
+        position: { x: -46.5, y: 72, z: 166.5 },
+      },
+      health: health({ skills: ["chop_tree", "goto", "craft", "place_block"] }),
+      proposals: [],
+      lastFailure: second.detail,
+      consecutiveFailures: 2,
+      failures: [first, second],
+      lastFailureStrategy: strategy,
+    });
+    assert.equal(detour.nextTask?.skill.name, "goto");
+    assert.match(detour.nextTask?.reason ?? "", /换一片区域|重新观察/u);
   });
 
   test("a task that failed once is retried after fresh observation", () => {

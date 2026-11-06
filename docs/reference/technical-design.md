@@ -6,7 +6,7 @@
 
 | 事项 | 取值 | 详见 |
 | --- | --- | --- |
-| 游戏 | Minecraft Java 1.20.1 + Fabric Loader 0.15.11 + Fabric API 0.92.2 | §3 |
+| 游戏 | Minecraft Java 1.20.1 + Fabric Loader ≥0.15.11 + Fabric API 0.92.2 | §3 |
 | 运行时 | Node.js ≥ 22.5、TypeScript、zod | §4 |
 | 管理端 | Tauri 2 + React | §10 |
 | Orchestrator | `127.0.0.1:4321`，`/control`、`/ingress`、`/bridge` | §2 |
@@ -100,6 +100,10 @@ control    Agent / Operator / None 三态仲裁
 当前 Minecraft 运行目标为 1.20.1；游戏 API 兼容代码保留在身体 Mod 中，Bridge 协议继续
 使用语义 ID，以减少游戏版本变化对规划层的影响。
 
+身体把“怎么把技能做得像人”留在 Mod：有界 A*、单格台阶/树冠/竖井脱困、自动垫桥、
+最短弧转向和镜头弹簧都只推进 Agent 已批准的任务。没有任务时，`IdleWander` 才会在
+Agent 持有控制权的前提下随机观察、短距行走或捡附近掉落物；任何真实命令立即重置它。
+
 ## 4. 决策内核
 
 ### Stage A
@@ -154,6 +158,20 @@ decision.skill
 字段缺失表示“未知”，不表示“成功”。控制台在收到终态前不显示结果行。
 身体是外部输入，Orchestrator 写入前用 `skillOutcomeSchema` 重新校验。
 
+### 目标运行时
+
+目标模式与观众 Stage C 是两条路径。`GoalRuntime` 使用确定性
+`SurvivalGoalPlanner`，从身体快照生成 `WorldFacts`，按九个阶段选择单个任务并
+交给 Bridge；不把快照发给大模型。
+
+- 当前任务终态到达前不下发第二个任务。
+- 完成要求 `changes` 中存在对应世界证据；`unconfirmed` 不能推进阶段。
+- 失败按指数退避，上限 6 秒；同一移动策略连续失败会换区域重新观察。
+- 目标、阶段、失败历史和幂等命令持久化；重启恢复目标但不会重放旧任务。
+- 接管、急停和目标切换会取消在途命令。
+
+完整流程见[自主生存闭环](../operations/autonomy.md)。
+
 ### 身体事件时间线
 
 身体事件与决策是两条独立的事实流：
@@ -180,7 +198,9 @@ Mod 以通用 `event` 帧上报，Orchestrator 同时写入 `world_event`（按 
 | `CRAFTMATE_MODEL_KEY_LIMIT` | 单 Key 累计预算 |
 
 观众文本只放在用户 JSON 字段；系统提示只包含人格、技能契约和输出格式。成本按小时
-与 Provider 记账，超预算不调用模型。
+与 Provider 记账，超预算不调用模型。成功调用会记录 `model_cost`；迁移
+`0012_model_usage` 后，即使单价为零也会记录 prompt/completion token，从而区分
+“没有调用”与“调用成功但本地价格为零”。失败、超时和供应商 5xx 不写费用行。
 
 ## 6. 语音
 

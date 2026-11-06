@@ -143,6 +143,14 @@ export const worldSnapshotSchema = z.object({
     name: z.string().max(160),
     type: z.string().max(160),
     distance: z.number().nonnegative(),
+    /**
+     * Observed entity position. Optional because older bodies only sent a
+     * distance; the planner degrades to an attack instead of inventing a
+     * retreat heading when the direction is unknown.
+     */
+    x: z.number().finite().optional(),
+    y: z.number().finite().optional(),
+    z: z.number().finite().optional(),
   })).max(32).optional(),
   nearbyBlocks: z.array(z.object({
     id: z.string().min(1).max(160),
@@ -177,6 +185,7 @@ export const reflexEventSchema = z.object({
     "on_fire",
     "starving",
     "creeper",
+    "threat",
   ]),
   /** One sentence an operator or model can read without knowing the body. */
   detail: z.string().min(1).max(240),

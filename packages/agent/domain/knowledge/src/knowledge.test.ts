@@ -4,6 +4,7 @@ import {
   canMine,
   dropsFor,
   entityDropsFor,
+  ENTITY_DROPS,
   KNOWLEDGE_VERSION,
   queryRecipe,
   recipesFor,
@@ -73,6 +74,17 @@ describe("knowledge data", () => {
     assert.equal(queryRecipe("white_bed", shaped.id)?.id, shaped.id);
   });
 
+  test("a base recipe outranks recoloring an existing item", () => {
+    const bed = queryRecipe("white_bed");
+    assert.ok(bed !== null);
+    assert.equal(bed.id, "minecraft:white_bed");
+    assert.ok(
+      bed.ingredients.some((ingredient) =>
+        ingredient.choices.includes("minecraft:white_wool"),
+      ),
+    );
+  });
+
   test("resolves tag ingredients to concrete items", () => {
     const pickaxe = queryRecipe("wooden_pickaxe");
     assert.ok(pickaxe !== null);
@@ -102,6 +114,17 @@ describe("knowledge data", () => {
     assert.ok(entityDropsFor("blaze").some((drop) => drop.item === "minecraft:blaze_rod"));
     assert.ok(entityDropsFor("enderman").some((drop) => drop.item === "minecraft:ender_pearl"));
     assert.ok(entityDropsFor("sheep").some((drop) => drop.item === "minecraft:mutton"));
+  });
+
+  test("variant loot tables are folded into the base entity", () => {
+    // Sheep publish one loot table per colour. The body only reports
+    // `minecraft:sheep`, so the aggregate must carry the wool or the planner
+    // concludes that hunting sheep can never make a bed.
+    const wool = entityDropsFor("sheep").filter((drop) => /_wool$/u.test(drop.item));
+    assert.ok(wool.length >= 16, `expected every colour to drop wool, got ${wool.length}`);
+    assert.ok(wool.some((drop) => drop.item === "minecraft:white_wool"));
+    assert.ok(!ENTITY_DROPS.some((entry) => entry.entity.includes("/")));
+    assert.ok(sourcesFor("white_wool").droppedByEntities.includes("minecraft:sheep"));
   });
 
   test("applies vanilla tool tier rules", () => {

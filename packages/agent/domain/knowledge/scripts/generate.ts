@@ -190,13 +190,14 @@ const blockDrops = [...blockLoot.entries()]
   .filter((entry) => entry.drops.length > 0)
   .sort((left, right) => left.block.localeCompare(right.block));
 
-const entityDrops = [...entityLoot.entries()]
-  .map(([entity, table]) => ({
-    entity: `minecraft:${entity}`,
-    drops: dropsFromTable(table, blockLoot, entityLoot),
-  }))
-  .filter((entry) => entry.drops.length > 0)
-  .sort((left, right) => left.entity.localeCompare(right.entity));
+const entityDrops = aggregateEntityVariants(
+  [...entityLoot.entries()]
+    .map(([entity, table]) => ({
+      entity: `minecraft:${entity}`,
+      drops: dropsFromTable(table, blockLoot, entityLoot),
+    }))
+    .filter((entry) => entry.drops.length > 0),
+).sort((left, right) => left.entity.localeCompare(right.entity));
 
 const toolTiers = buildToolTiers(blockTags);
 
@@ -459,6 +460,39 @@ function stationFor(type: string): "furnace" | "blast_furnace" | "smoker" | "cam
     default:
       return null;
   }
+}
+
+/**
+ * Some entities publish their loot as a base table plus one table per variant
+ * (`loot_table/entities/sheep/white.json` and its 15 siblings). The body only
+ * reports the variant-free entity type, so a planner asking about
+ * `minecraft:sheep` would read the base table and conclude that sheep drop
+ * mutton but never wool. Fold every `base/variant` row into `base` so the
+ * aggregate answers "what can this kind of entity drop".
+ */
+function aggregateEntityVariants(
+  entries: ReadonlyArray<{ readonly entity: string; readonly drops: readonly DropStack[] }>,
+): Array<{ readonly entity: string; readonly drops: readonly DropStack[] }> {
+  const byEntity = new Map<string, Map<string, DropStack>>();
+  for (const entry of entries) {
+    const match = /^(minecraft:[^/]+)\/.+$/u.exec(entry.entity);
+    const key = match !== null ? match[1]! : entry.entity;
+    const drops = byEntity.get(key) ?? new Map<string, DropStack>();
+    for (const drop of entry.drops) {
+      const existing = drops.get(drop.item);
+      drops.set(
+        drop.item,
+        existing === undefined
+          ? drop
+          : { item: drop.item, min: Math.min(existing.min, drop.min), max: Math.max(existing.max, drop.max) },
+      );
+    }
+    byEntity.set(key, drops);
+  }
+  return [...byEntity.entries()].map(([entity, drops]) => ({
+    entity,
+    drops: [...drops.values()].sort((left, right) => left.item.localeCompare(right.item)),
+  }));
 }
 
 function dropsFromTable(
