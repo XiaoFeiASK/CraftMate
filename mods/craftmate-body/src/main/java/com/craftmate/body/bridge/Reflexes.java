@@ -120,14 +120,24 @@ final class Reflexes {
 			dangerous = true;
 			report(Kind.ON_FIRE, "身上着火了", player);
 		}
-		if (player.getFoodData().getFoodLevel() <= 2) {
-			dangerous = true;
-			report(Kind.STARVING, "饿到快掉血了", player);
-		}
+		// Hunger is a condition, not an immediate hazard. Treating it as a
+		// reflex cancelled every climb, hunt and eat attempt as soon as the
+		// bar reached two, so the body could never fix the starvation it was
+		// reporting. The survival planner owns this decision; only lava,
+		// falling, drowning, fire and mobs are immediate enough to preempt.
 		Entity threat = nearestThreat(client, player);
 		AbstractArrow arrow = incomingArrow(client, player);
+		// A mob within seven blocks is not a two-second event. Extending the
+		// response window while the same threat survives keeps the body
+		// strafing, closing, or retreating every tick; the old fixed window
+		// left a two-second gap where the planner owned the body but the
+		// reflex immediately cancelled its first action. That gap read as
+		// "walk, stop, stare at the zombie, die".
+		if (threat != null && threat.distanceToSqr(player) <= THREAT_DISTANCE * THREAT_DISTANCE) {
+			threatResponseUntil = Math.max(threatResponseUntil, ticks + 4);
+		}
 		if ((threat != null || arrow != null) && ticks >= nextThreatAt) {
-			threatResponseUntil = ticks + THREAT_RESPONSE_TICKS;
+			threatResponseUntil = Math.max(threatResponseUntil, ticks + THREAT_RESPONSE_TICKS);
 			nextThreatAt = ticks + THREAT_RETRY_TICKS;
 			if (threat != null) {
 				double distance = Math.sqrt(threat.distanceToSqr(player));
@@ -220,9 +230,9 @@ final class Reflexes {
 		AbstractArrow arrow
 	) {
 		int side = (ticks / 20) % 2 == 0 ? 1 : -1;
-		boolean retreat = player.getHealth() < 12.0f || threat instanceof Creeper;
 		if (threat != null) {
 			int weapon = bestWeaponSlot(player);
+			boolean unarmed = weapon < 0;
 			if (weapon >= 0) player.getInventory().selected = weapon;
 			double distance = Math.sqrt(threat.distanceToSqr(player));
 			Vec3 target = threat.getBoundingBox().getCenter();
@@ -231,9 +241,27 @@ final class Reflexes {
 			player.setXRot(
 				(float) Math.toDegrees(-Math.asin(Math.max(-1.0, Math.min(1.0, direction.y))))
 			);
+			// A fist loses a trade against every hostile. Turning around and
+			// sprinting away is both more human and more survivable than
+			// strafing backward while punching, especially after a respawn
+			// with an empty inventory at night.
+			if (unarmed || player.getHealth() < 12.0f || threat instanceof Creeper) {
+				Vec3 away = player.position().subtract(target);
+				if (away.lengthSqr() > 1.0e-4) {
+					away = away.normalize();
+					player.setYRot(
+						(float) Math.toDegrees(Math.atan2(-away.x, away.z))
+					);
+					player.setXRot(0.0f);
+				}
+				GameActions.setCombatMove(client, side, false, true, true);
+				if (player.horizontalCollision && player.onGround()) {
+					player.jumpFromGround();
+				}
+				return;
+			}
 			if (
-				!retreat
-					&& distance <= MELEE_DISTANCE
+				distance <= MELEE_DISTANCE
 					&& player.getAttackStrengthScale(0.5f) >= 0.9f
 			) {
 				client.gameMode.attack(player, threat);
@@ -246,8 +274,8 @@ final class Reflexes {
 			GameActions.setCombatMove(
 				client,
 				side,
-				retreat,
-				!retreat && distance > MELEE_DISTANCE * 0.85,
+				false,
+				distance > MELEE_DISTANCE * 0.85,
 				true
 			);
 			if (player.horizontalCollision && player.onGround()) player.jumpFromGround();

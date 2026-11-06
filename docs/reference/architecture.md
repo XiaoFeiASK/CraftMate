@@ -59,13 +59,15 @@ Admin Console 崩溃不中断直播；外部系统故障只降级对应能力，
 操作员开启目标模式后，运行链路不再等待评论：
 
 ```text
-身体快照 → worldFactsFromSnapshot → planSurvival
-         → GoalRuntime → Bridge → Fabric Mod
+身体快照 → worldFactsFromSnapshot → planSurvival（合法候选）
+         → 模型候选排序（可失败回退）→ GoalRuntime → Bridge → Fabric Mod
          → result/changes → settle → 重新观察
 ```
 
-- 当前 `GoalRuntime` 使用确定性 `SurvivalGoalPlanner`，不调用大模型。
+- `SurvivalGoalPlanner` 决定阶段、前置条件、合法技能和安全候选；模型只能选择
+  候选 id，不能直接发明技能或参数。
 - 规划器只读取身体已上报的事实；缺失字段保持 `unverified`，不会补造进度。
+- 未配置模型、只有一个候选、超时、坏 JSON、未知 id 或预算超限时回退确定性任务。
 - 一次只下发一个任务，终态后才继续；完成必须有已确认世界变化。
 - 同一移动策略连续失败会换区域重新观察；失败上限只选择最长退避，不永久停掉目标。
 - 操作员接管、急停或换目标会取消当前命令，控制权仍按 Bridge sticky owner 规则处理。

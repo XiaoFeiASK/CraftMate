@@ -104,6 +104,7 @@ describe("goal runtime", () => {
     assert.ok(first);
     assert.equal(first.decision.decision, "EXECUTE");
     assert.equal(first.decision.skill?.name, "chop_tree");
+    assert.match(first.decision.speech, /砍一根原木/u);
     assert.equal(value.beginStep(context()), null);
 
     assert.equal(
@@ -117,6 +118,50 @@ describe("goal runtime", () => {
     const second = value.beginStep(context());
     assert.ok(second);
     assert.notEqual(second.decision.id, first.decision.id);
+  });
+
+  test("body progress keeps a long-running task alive past the timeout", () => {
+    const { clock, advance } = testClock();
+    const store = new MemoryGoalRuntimeStore();
+    const value = new GoalRuntime({
+      store,
+      planner: planner(),
+      clock,
+      taskTimeoutMs: 30_000,
+    });
+    value.restore();
+    value.setGoal({ title: "击败末影龙", description: "完整生存链" });
+    const issued = value.beginStep(context());
+    assert.ok(issued);
+    advance(25_000);
+    assert.equal(value.noteProgress(issued.commandId), true);
+    advance(25_000);
+    assert.equal(value.beginStep(context()), null);
+    assert.match(value.currentProgress?.lastFailure ?? "", /^$/u);
+    assert.equal(value.settle(issued.decision.id, { status: "completed", at: clock.now() }), true);
+  });
+
+  test("a timed-out task cancels the stale body command exactly once", () => {
+    const { clock, advance } = testClock();
+    const store = new MemoryGoalRuntimeStore();
+    const value = new GoalRuntime({
+      store,
+      planner: planner(),
+      clock,
+      taskTimeoutMs: 30_000,
+    });
+    value.restore();
+    value.setGoal({ title: "击败末影龙", description: "完整生存链" });
+    const issued = value.beginStep(context());
+    assert.ok(issued);
+    const expired: string[] = [];
+    value.setExpiryHandler((interruption) => expired.push(interruption.commandId));
+    advance(30_001);
+    assert.equal(value.beginStep(context()), null);
+    assert.deepEqual(expired, [issued.commandId]);
+    advance(1_000);
+    assert.equal(value.beginStep(context()), null);
+    assert.deepEqual(expired, [issued.commandId]);
   });
 
   test("unverified progress stays explicit and never becomes a percentage", () => {
@@ -525,7 +570,7 @@ describe("goal runtime", () => {
     const foodWorld = {
       inWorld: true,
       health: 20,
-      food: 20,
+      food: 8,
       inventory: [
         { section: "hotbar" as const, slot: 0, item: "minecraft:stone_pickaxe", count: 1 },
         { section: "hotbar" as const, slot: 1, item: "minecraft:cobblestone", count: 3 },
@@ -628,6 +673,107 @@ describe("goal runtime", () => {
     assert.match(detour.nextTask?.reason ?? "", /换一片区域|重新观察/u);
   });
 
+  test("a repeated unreachable stone target moves to a fresh observation area", () => {
+    const world = {
+      inWorld: true,
+      inventory: [
+        { section: "hotbar" as const, slot: 0, item: "minecraft:wooden_pickaxe", count: 1 },
+      ],
+      nearbyBlocks: [
+        { id: "minecraft:crafting_table" },
+        { id: "minecraft:stone", count: 448 },
+      ],
+      position: { x: -23.5, y: 122, z: -62.5 },
+    };
+    const plan = new SurvivalGoalPlanner().plan({
+      goal: goal(),
+      progress: progress(),
+      world,
+      health: health({ skills: ["mine_block", "goto", "craft", "place_block"] }),
+      proposals: [],
+      lastFailure: null,
+      consecutiveFailures: 0,
+    });
+    assert.equal(plan.stage.id, "stone-tools");
+    assert.equal(plan.nextTask?.skill.name, "mine_block");
+    const strategy = plan.strategyKey;
+    assert.ok(strategy);
+    const first: TaskFailure = {
+      taskId: `task:${strategy}`,
+      stage: "stone-tools",
+      code: "E_PRECONDITION",
+      detail: "target is no longer visible",
+      attempts: 1,
+    };
+    const second: TaskFailure = { ...first, attempts: 2 };
+    const detour = new SurvivalGoalPlanner().plan({
+      goal: goal(),
+      progress: progress(),
+      world,
+      health: health({ skills: ["mine_block", "goto", "craft", "place_block"] }),
+      proposals: [],
+      lastFailure: second.detail,
+      consecutiveFailures: 2,
+      failures: [first, second],
+      lastFailureStrategy: strategy,
+    });
+    assert.equal(detour.nextTask?.skill.name, "goto");
+    assert.match(detour.nextTask?.reason ?? "", /换一片区域|重新观察/u);
+  });
+
+  test("a blocked mining heading moves the body before branch mining again", () => {
+    const world = {
+      inWorld: true,
+      health: 20,
+      food: 20,
+      inventory: [
+        { section: "hotbar" as const, slot: 0, item: "minecraft:iron_pickaxe", count: 1 },
+        { section: "hotbar" as const, slot: 1, item: "minecraft:torch", count: 4 },
+        { section: "hotbar" as const, slot: 2, item: "minecraft:cobblestone", count: 32 },
+      ],
+      nearbyBlocks: [
+        { id: "minecraft:crafting_table" },
+        { id: "minecraft:furnace" },
+        { id: "minecraft:iron_ore", count: 12 },
+      ],
+      position: { x: -12.5, y: 16, z: -40.5 },
+    };
+    const plan = new SurvivalGoalPlanner().plan({
+      goal: goal(),
+      progress: progress(),
+      world,
+      health: health({ skills: ["descend", "goto", "craft", "place_block"] }),
+      proposals: [],
+      lastFailure: null,
+      consecutiveFailures: 0,
+    });
+    assert.equal(plan.stage.id, "iron");
+    assert.equal(plan.nextTask?.skill.name, "descend");
+    const strategy = plan.strategyKey;
+    assert.ok(strategy);
+    const first: TaskFailure = {
+      taskId: `task:${strategy}`,
+      stage: "iron",
+      code: "E_PRECONDITION",
+      detail: "no safe mining direction from the current cell",
+      attempts: 1,
+    };
+    const second: TaskFailure = { ...first, attempts: 2 };
+    const detour = new SurvivalGoalPlanner().plan({
+      goal: goal(),
+      progress: progress(),
+      world,
+      health: health({ skills: ["descend", "goto", "craft", "place_block"] }),
+      proposals: [],
+      lastFailure: second.detail,
+      consecutiveFailures: 2,
+      failures: [first, second],
+      lastFailureStrategy: strategy,
+    });
+    assert.equal(detour.nextTask?.skill.name, "goto");
+    assert.match(detour.nextTask?.reason ?? "", /换一片区域|重新观察/u);
+  });
+
   test("a task that failed once is retried after fresh observation", () => {
     const failure: TaskFailure = {
       taskId: "task:wood-and-table:gather:chop_tree:{\"count\":1}",
@@ -705,6 +851,64 @@ describe("goal runtime", () => {
     assert.equal(value.beginStep(context()), null);
     assert.notEqual(value.currentGoal?.status, "completed");
     assert.notEqual(value.currentProgress?.status, "completed");
+  });
+
+  test("async planning uses the model-selected task and rechecks the bridge gate", async () => {
+    const base = planner();
+    const asyncPlanner: GoalPlanner = {
+      plan: base.plan,
+      planAsync: async () => {
+        const planned = base.plan({
+          goal: {
+            id: "goal-1",
+            title: "击败末影龙",
+            description: "",
+            status: "active",
+            version: 1,
+            setBy: "operator",
+            setAt: 1_000,
+          },
+          progress: {
+            goalId: "goal-1",
+            goalVersion: 1,
+            status: "active",
+            stage: { id: "wood-and-table", title: "木头与工作台" },
+            milestone: { id: "have-log", title: "已获得木头" },
+            nextTask: "",
+            milestones: [],
+            completed: 0,
+            unverified: 0,
+            lastFailure: null,
+            consecutiveFailures: 0,
+            retryAt: null,
+            updatedAt: 1_000,
+          },
+          world: null,
+          health: null,
+          proposals: [],
+          lastFailure: null,
+          consecutiveFailures: 0,
+        });
+        assert.ok(planned?.nextTask);
+        return {
+          ...planned,
+          nextTask: {
+            ...planned.nextTask,
+            text: "合成木板",
+            skill: {
+              name: "craft",
+              args: { item: "minecraft:oak_planks", count: 1 },
+              idempotencyKey: "craft-async",
+            },
+          },
+        };
+      },
+    };
+    const { value } = runtime(asyncPlanner);
+    const dispatch = await value.beginStepAsync(
+      context({ bridge: health({ skills: ["craft"] }) }),
+    );
+    assert.equal(dispatch?.decision.skill?.name, "craft");
   });
 
 });

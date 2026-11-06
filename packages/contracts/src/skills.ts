@@ -21,6 +21,8 @@ export const skillNameSchema = z.enum([
   "place_block",
   "pillar_up",
   "build_schematic",
+  "descend",
+  "smelt",
   "attack",
   "use_block",
   "sleep",
@@ -93,6 +95,23 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
   }),
   z.object({ name: z.literal("build_schematic"), args: z.object({ schematic: z.string().trim().min(1).max(120) }) }),
   z.object({
+    name: z.literal("descend"),
+    args: z.object({
+      targetY: z.number().int().min(-58).max(300),
+      /** Excavate this many horizontal branch blocks after reaching targetY. */
+      branchLength: z.number().int().min(0).max(64).default(0),
+    }),
+  }),
+  z.object({
+    name: z.literal("smelt"),
+    args: z.object({
+      input: itemId,
+      output: itemId,
+      count: z.number().int().min(1).max(64).default(1),
+      fuel: itemId.optional(),
+    }),
+  }),
+  z.object({
     name: z.literal("attack"),
     args: z.object({
       target: z.string().trim().min(1).max(64),
@@ -161,6 +180,8 @@ export const SKILL_CAPABILITY: Readonly<Record<SkillName, string>> = {
   place_block: "build",
   pillar_up: "build",
   build_schematic: "build",
+  descend: "mine",
+  smelt: "use",
   attack: "attack",
   use_block: "use",
   sleep: "use",
@@ -190,6 +211,8 @@ export const FABRIC_BODY_SKILLS = [
   "use_block",
   "place_block",
   "pillar_up",
+  "descend",
+  "smelt",
   "sleep",
 ] as const satisfies readonly SkillName[];
 

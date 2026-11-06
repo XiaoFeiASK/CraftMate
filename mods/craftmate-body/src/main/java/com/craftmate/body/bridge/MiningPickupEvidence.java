@@ -47,6 +47,24 @@ final class MiningPickupEvidence {
 	}
 
 	/**
+	 * Leaves and other blocks with no guaranteed item must still count as
+	 * mined when their loot roll is empty. The caller gives them a short
+	 * pickup grace window, then advances without treating the absent drop as
+	 * a failed block break.
+	 */
+	static boolean pickupOptional(Set<String> expected) {
+		return expected.isEmpty();
+	}
+
+	static boolean optionalPickupSettled(
+		Set<String> expected,
+		int elapsedTicks,
+		int graceTicks
+	) {
+		return pickupOptional(expected) && elapsedTicks >= graceTicks;
+	}
+
+	/**
 	 * A pickup can be proven for one item while another drop is still on the
 	 * ground. The remaining drops are not a failure as long as the requested
 	 * count was met; they are reported as `unconfirmed` evidence.
@@ -60,5 +78,24 @@ final class MiningPickupEvidence {
 			if (gained.getOrDefault(item, 0) <= 0) missing.add(item);
 		}
 		return missing;
+	}
+
+	/**
+	 * A mining task may only claim the drop produced by its target block. A
+	 * nearby apple or sapling is real inventory progress, but it is not proof
+	 * that the requested log, stone, or ore was collected.
+	 */
+	static Map<String, Integer> expectedGains(
+		Map<String, Integer> gained,
+		Set<String> expected
+	) {
+		if (expected.isEmpty()) return gained;
+		Map<String, Integer> selected = new java.util.TreeMap<>();
+		for (var entry : gained.entrySet()) {
+			if (expected.contains(entry.getKey()) && entry.getValue() > 0) {
+				selected.put(entry.getKey(), entry.getValue());
+			}
+		}
+		return selected;
 	}
 }

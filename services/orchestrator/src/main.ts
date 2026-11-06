@@ -3,6 +3,7 @@ import { createPersistentShow } from "./persistence.ts";
 import { createRetentionSweep } from "./retention.ts";
 import { loadOrCreateToken } from "@craftmate/local-auth";
 import { connectVoice } from "./transport/voice-link.ts";
+import { GoalSpeechGate } from "./transport/goal-speech.ts";
 import { createOps } from "./ops.ts";
 import { createBridgeUpgrade, SqliteActionPort } from "@craftmate/bridge";
 import { loadOrCreateBridgeToken } from "@craftmate/bridge";
@@ -50,6 +51,7 @@ const telemetry = new AgentTelemetry({
 /** Ingress facts already projected, so a metrics reconnect is not replayed. */
 const ingressSeenAt = new Set<string>();
 let voiceLink: ReturnType<typeof connectVoice> | null = null;
+const goalSpeechGate = new GoalSpeechGate();
 const ingressSupervisor = createIngressSupervisor({
   publishHealth: (health) => server.publishSourceHealth(health),
   onError: (detail) => console.warn(`orchestrator: ingress — ${detail}`),
@@ -269,6 +271,7 @@ bridge = createBridgeUpgrade({
     server.publishBridgeHealth(bridge.health());
   },
   onProgress: (progress) => {
+    persistent.goals.noteProgress(progress.commandId);
     const decision = progress.decisionId === undefined
       ? null
       : persistent.show.recent().find((entry) => entry.id === progress.decisionId) ?? null;
@@ -328,6 +331,7 @@ function confirmedChanges(
 function interruptGoal(
   interruption: GoalInterruption | null,
   reason: string,
+  status: "cancelled" | "timeout" = "cancelled",
 ): void {
   if (interruption === null) return;
   try {
@@ -340,8 +344,8 @@ function interruptGoal(
     );
   }
   const settled = persistent.show.settleDecision(interruption.decisionId, {
-    status: "cancelled",
-    errorCode: "E_CANCELLED",
+    status,
+    errorCode: status === "timeout" ? "E_TIMEOUT" : "E_CANCELLED",
     detail: reason,
     outcome: null,
     at: Date.now(),
@@ -351,8 +355,8 @@ function interruptGoal(
     decisionId: interruption.decisionId,
     traceId: settled?.eventId ?? interruption.decision.eventId,
     status: "skipped",
-    summary: `任务被取消：${reason}`,
-    errorCode: "E_CANCELLED",
+    summary: `${status === "timeout" ? "任务超时" : "任务被取消"}：${reason}`,
+    errorCode: status === "timeout" ? "E_TIMEOUT" : "E_CANCELLED",
     source: "goal",
   });
 }
@@ -369,72 +373,91 @@ function goalContext() {
  * Issues one goal task. The command id comes from GoalRuntime so takeover can
  * cancel exactly the command it observed, not a later replacement.
  */
-function dispatchGoalStep(): void {
-  if (server.isPlanning()) return;
-  const dispatch = persistent.goals.beginStep(goalContext());
-  if (dispatch === null) {
-    publishGoalSnapshot();
-    return;
-  }
-  server.publishDecision(dispatch.decision);
-  taskTelemetry.queued({
-    decisionId: dispatch.decision.id,
-    traceId: dispatch.decision.eventId,
-    taskId: dispatch.taskId,
-    goalId: persistent.goals.currentGoal?.id ?? null,
-    summary: `目标任务已排队：${dispatch.decision.skill?.name ?? "未知动作"}`,
-    source: "goal",
-  });
+let goalStepPlanning = false;
+
+async function dispatchGoalStep(): Promise<void> {
+  if (goalStepPlanning || server.isPlanning()) return;
+  goalStepPlanning = true;
   try {
-    bridge.session.issue({
-      v: 1,
-      type: "cmd",
-      id: dispatch.commandId,
-      decisionId: dispatch.decision.id,
-      op: dispatch.decision.skill!.name,
-      args: dispatch.decision.skill!.args,
-      priority: dispatch.decision.priority,
-      idempotencyKey: dispatch.decision.skill!.idempotencyKey,
-      ...(dispatch.decision.skill!.deadlineTicks === undefined
-        ? {}
-        : { deadlineTick: dispatch.decision.skill!.deadlineTicks }),
-    });
-    taskTelemetry.running({
+    const dispatch = await persistent.goals.beginStepAsync(goalContext());
+    if (dispatch === null) {
+      publishGoalSnapshot();
+      return;
+    }
+    server.publishDecision(dispatch.decision);
+    taskTelemetry.queued({
       decisionId: dispatch.decision.id,
       traceId: dispatch.decision.eventId,
       taskId: dispatch.taskId,
       goalId: persistent.goals.currentGoal?.id ?? null,
-      summary: `动作已下达：${dispatch.decision.skill!.name}`,
+      summary: `目标任务已排队：${dispatch.decision.skill?.name ?? "未知动作"}`,
       source: "goal",
     });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    persistent.goals.failDispatch(dispatch.taskId, dispatch.strategyKey, detail);
-    const failed = persistent.show.settleDecision(dispatch.decision.id, {
-      status: "failed",
-      errorCode:
-        error instanceof Error && "code" in error && typeof error.code === "string"
-          ? error.code
-          : "E_INTERNAL",
-      detail,
-      outcome: null,
-      at: Date.now(),
-    });
-    if (failed) server.publishDecision(failed);
-    taskTelemetry.settled({
-      decisionId: dispatch.decision.id,
-      traceId: dispatch.decision.eventId,
-      taskId: dispatch.taskId,
-      status: "failed",
-      // The dispatch message can originate from the body; only the closed
-      // error code is an operator-safe fact here.
-      summary: "动作未下达",
-      errorCode: "E_DISPATCH",
-      source: "goal",
-    });
+    try {
+      bridge.session.issue({
+        v: 1,
+        type: "cmd",
+        id: dispatch.commandId,
+        decisionId: dispatch.decision.id,
+        op: dispatch.decision.skill!.name,
+        args: dispatch.decision.skill!.args,
+        priority: dispatch.decision.priority,
+        idempotencyKey: dispatch.decision.skill!.idempotencyKey,
+        ...(dispatch.decision.skill!.deadlineTicks === undefined
+          ? {}
+          : { deadlineTick: dispatch.decision.skill!.deadlineTicks }),
+      });
+      taskTelemetry.running({
+        decisionId: dispatch.decision.id,
+        traceId: dispatch.decision.eventId,
+        taskId: dispatch.taskId,
+        goalId: persistent.goals.currentGoal?.id ?? null,
+        summary: `动作已下达：${dispatch.decision.skill!.name}`,
+        source: "goal",
+      });
+      const speech = goalSpeechGate.take(dispatch.decision);
+      if (speech !== null) {
+        voiceLink?.speak({
+          text: speech,
+          priority:
+            dispatch.decision.intent === "danger"
+              ? "safety"
+              : dispatch.decision.priority,
+          decisionId: dispatch.decision.id,
+          commitmentId: null,
+        });
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      persistent.goals.failDispatch(dispatch.taskId, dispatch.strategyKey, detail);
+      const failed = persistent.show.settleDecision(dispatch.decision.id, {
+        status: "failed",
+        errorCode:
+          error instanceof Error && "code" in error && typeof error.code === "string"
+            ? error.code
+            : "E_INTERNAL",
+        detail,
+        outcome: null,
+        at: Date.now(),
+      });
+      if (failed) server.publishDecision(failed);
+      taskTelemetry.settled({
+        decisionId: dispatch.decision.id,
+        traceId: dispatch.decision.eventId,
+        taskId: dispatch.taskId,
+        status: "failed",
+        // The dispatch message can originate from the body; only the closed
+        // error code is an operator-safe fact here.
+        summary: "动作未下达",
+        errorCode: "E_DISPATCH",
+        source: "goal",
+      });
+    }
+    publishGoalSnapshot();
+    server.publishBridgeHealth(bridge.health());
+  } finally {
+    goalStepPlanning = false;
   }
-  publishGoalSnapshot();
-  server.publishBridgeHealth(bridge.health());
 }
 
 const server = createControlServer({
@@ -597,6 +620,11 @@ const server = createControlServer({
  */
 const taskTelemetry = new TaskTelemetry((event) => server.publishAgentEvent(event));
 
+persistent.goals.setExpiryHandler((interruption) => {
+  interruptGoal(interruption, "任务长时间没有终态，已取消身体上的旧动作", "timeout");
+  publishGoalSnapshot();
+});
+
 // Headless smoke-test ingress. This reads only a caller-owned local file,
 // waits for the real game body and world, and then enters through the same
 // event pipeline as a live comment. It never simulates an action result.
@@ -661,8 +689,8 @@ const bridgePoll = setInterval(() => {
 // time; the runtime refuses while paused, busy, backing off, or unverified.
 const goalLoop = setInterval(() => {
   if (!persistent.goals.isEnabled) return;
-  dispatchGoalStep();
-}, 1_000);
+  void dispatchGoalStep();
+}, 250);
 
 const shutdown = async (): Promise<void> => {
   clearInterval(bridgePoll);

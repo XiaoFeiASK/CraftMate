@@ -10,13 +10,21 @@ export interface SnapshotView {
   readonly inWorld?: boolean;
   readonly world?: string | null;
   readonly position?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  readonly yaw?: number | null;
+  readonly cameraYaw?: number | null;
   readonly health?: number | null;
   readonly food?: number | null;
   readonly foodAcquired?: boolean | null;
   readonly foodConsumed?: boolean | null;
   readonly craftingTableCrafted?: boolean | null;
   readonly craftingTablePlaced?: boolean | null;
+  readonly chestCrafted?: boolean | null;
+  readonly chestPlaced?: boolean | null;
+  readonly bedPlaced?: boolean | null;
+  readonly chest?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  readonly bed?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly craftingTableNearby?: boolean | null;
+  readonly craftingTableReachable?: boolean | null;
   readonly craftingTable?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly timeOfDay?: number | null;
   readonly day?: number | null;
@@ -24,6 +32,9 @@ export interface SnapshotView {
   readonly sleptThroughNight?: boolean | null;
   readonly screenOpen?: boolean | null;
   readonly onGround?: boolean | null;
+  readonly surfaceY?: number | null;
+  readonly canSeeSky?: boolean | null;
+  readonly lightLevel?: number | null;
   readonly selectedItem?: string | null;
   readonly inventory?: readonly {
     readonly section?: "hotbar" | "main" | "armor" | "offhand";
@@ -41,6 +52,12 @@ export interface SnapshotView {
   readonly nearbyBlocks?: readonly {
     readonly id: string;
     readonly count?: number;
+    readonly x?: number;
+    readonly y?: number;
+    readonly z?: number;
+    readonly distance?: number;
+    readonly bearing?: number;
+    readonly visible?: boolean;
   }[];
   readonly reachableBlock?: {
     readonly id: string;
@@ -68,7 +85,10 @@ export function worldFactsFromSnapshot(snapshot: SnapshotView | null): WorldFact
   const inventory = normalizeInventory(snapshot.inventory, snapshot.hotbar);
   const nearbyBlocks = normalizeBlocks(snapshot.nearbyBlocks);
   const entities = normalizeEntities(snapshot.entities);
-  const stations = inferStations(nearbyBlocks);
+  const stations = inferStations(nearbyBlocks).filter(
+    (station) =>
+      station !== "crafting_table" || snapshot.craftingTableReachable !== false,
+  );
   const reachableBlock =
     snapshot.reachableBlock === undefined || snapshot.reachableBlock === null
       ? snapshot.reachableBlock
@@ -89,13 +109,21 @@ export function worldFactsFromSnapshot(snapshot: SnapshotView | null): WorldFact
   return withOptionals(facts, {
     world: snapshot.world,
     position: snapshot.position,
+    yaw: snapshot.yaw,
+    cameraYaw: snapshot.cameraYaw,
     health: snapshot.health,
     food: snapshot.food,
     foodAcquired: snapshot.foodAcquired,
     foodConsumed: snapshot.foodConsumed,
     craftingTableCrafted: snapshot.craftingTableCrafted,
     craftingTablePlaced: snapshot.craftingTablePlaced,
+    chestCrafted: snapshot.chestCrafted,
+    chestPlaced: snapshot.chestPlaced,
+    bedPlaced: snapshot.bedPlaced,
+    chest: snapshot.chest,
+    bed: snapshot.bed,
     craftingTableNearby: snapshot.craftingTableNearby,
+    craftingTableReachable: snapshot.craftingTableReachable,
     craftingTable: snapshot.craftingTable,
     timeOfDay: snapshot.timeOfDay,
     day: snapshot.day,
@@ -103,6 +131,9 @@ export function worldFactsFromSnapshot(snapshot: SnapshotView | null): WorldFact
     sleptThroughNight: snapshot.sleptThroughNight,
     screenOpen: snapshot.screenOpen,
     onGround: snapshot.onGround,
+    surfaceY: snapshot.surfaceY,
+    canSeeSky: snapshot.canSeeSky,
+    lightLevel: snapshot.lightLevel,
     selectedItem: snapshot.selectedItem,
     reachableBlock,
   });
@@ -189,7 +220,16 @@ export function countAny(facts: WorldFacts, items: readonly string[]): number {
 }
 
 export function nearbyHas(facts: WorldFacts, pattern: RegExp): NearbyBlock | null {
-  return (facts.nearbyBlocks ?? []).find((block) => pattern.test(block.id)) ?? null;
+  const matches = (facts.nearbyBlocks ?? []).filter((block) => pattern.test(block.id));
+  // Count-only summaries are deliberately prepended by the body so the most
+  // common blocks survive the wire cap. They carry no position, which made
+  // `nearbyHas` return a log without coordinates even when the same snapshot
+  // contained a line-of-sight target. Prefer the nearest located observation.
+  return matches
+    .filter((block) => block.visible === true && block.distance !== undefined)
+    .sort((left, right) => left.distance! - right.distance!)[0]
+    ?? matches[0]
+    ?? null;
 }
 
 export function nearestEntity(
@@ -315,6 +355,12 @@ function normalizeBlocks(blocks: SnapshotView["nearbyBlocks"]): readonly NearbyB
   return (blocks ?? []).map((block) => ({
     id: normalizeItem(block.id),
     ...(block.count === undefined ? {} : { count: block.count }),
+    ...(block.x === undefined ? {} : { x: block.x }),
+    ...(block.y === undefined ? {} : { y: block.y }),
+    ...(block.z === undefined ? {} : { z: block.z }),
+    ...(block.distance === undefined ? {} : { distance: block.distance }),
+    ...(block.bearing === undefined ? {} : { bearing: block.bearing }),
+    ...(block.visible === undefined ? {} : { visible: block.visible }),
   }));
 }
 
@@ -357,13 +403,21 @@ function withOptionals(
   optional: {
     readonly world?: string | null | undefined;
     readonly position?: WorldFacts["position"] | undefined;
+    readonly yaw?: number | null | undefined;
+    readonly cameraYaw?: number | null | undefined;
     readonly health?: number | null | undefined;
     readonly food?: number | null | undefined;
     readonly foodAcquired?: boolean | null | undefined;
     readonly foodConsumed?: boolean | null | undefined;
     readonly craftingTableCrafted?: boolean | null | undefined;
     readonly craftingTablePlaced?: boolean | null | undefined;
+    readonly chestCrafted?: boolean | null | undefined;
+    readonly chestPlaced?: boolean | null | undefined;
+    readonly bedPlaced?: boolean | null | undefined;
+    readonly chest?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
+    readonly bed?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
     readonly craftingTableNearby?: boolean | null | undefined;
+    readonly craftingTableReachable?: boolean | null | undefined;
     readonly craftingTable?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
     readonly timeOfDay?: number | null | undefined;
     readonly day?: number | null | undefined;
@@ -371,6 +425,9 @@ function withOptionals(
     readonly sleptThroughNight?: boolean | null | undefined;
     readonly screenOpen?: boolean | null | undefined;
     readonly onGround?: boolean | null | undefined;
+    readonly surfaceY?: number | null | undefined;
+    readonly canSeeSky?: boolean | null | undefined;
+    readonly lightLevel?: number | null | undefined;
     readonly selectedItem?: string | null | undefined;
     readonly reachableBlock?: WorldFacts["reachableBlock"] | undefined;
   },
@@ -379,13 +436,21 @@ function withOptionals(
     ...base,
     ...(optional.world === undefined ? {} : { world: optional.world }),
     ...(optional.position === undefined ? {} : { position: optional.position }),
+    ...(optional.yaw === undefined ? {} : { yaw: optional.yaw }),
+    ...(optional.cameraYaw === undefined ? {} : { cameraYaw: optional.cameraYaw }),
     ...(optional.health === undefined ? {} : { health: optional.health }),
     ...(optional.food === undefined ? {} : { food: optional.food }),
     ...(optional.foodAcquired === undefined ? {} : { foodAcquired: optional.foodAcquired }),
     ...(optional.foodConsumed === undefined ? {} : { foodConsumed: optional.foodConsumed }),
     ...(optional.craftingTableCrafted === undefined ? {} : { craftingTableCrafted: optional.craftingTableCrafted }),
     ...(optional.craftingTablePlaced === undefined ? {} : { craftingTablePlaced: optional.craftingTablePlaced }),
+    ...(optional.chestCrafted === undefined ? {} : { chestCrafted: optional.chestCrafted }),
+    ...(optional.chestPlaced === undefined ? {} : { chestPlaced: optional.chestPlaced }),
+    ...(optional.bedPlaced === undefined ? {} : { bedPlaced: optional.bedPlaced }),
+    ...(optional.chest === undefined ? {} : { chest: optional.chest }),
+    ...(optional.bed === undefined ? {} : { bed: optional.bed }),
     ...(optional.craftingTableNearby === undefined ? {} : { craftingTableNearby: optional.craftingTableNearby }),
+    ...(optional.craftingTableReachable === undefined ? {} : { craftingTableReachable: optional.craftingTableReachable }),
     ...(optional.craftingTable === undefined ? {} : { craftingTable: optional.craftingTable }),
     ...(optional.timeOfDay === undefined ? {} : { timeOfDay: optional.timeOfDay }),
     ...(optional.day === undefined ? {} : { day: optional.day }),
@@ -393,6 +458,9 @@ function withOptionals(
     ...(optional.sleptThroughNight === undefined ? {} : { sleptThroughNight: optional.sleptThroughNight }),
     ...(optional.screenOpen === undefined ? {} : { screenOpen: optional.screenOpen }),
     ...(optional.onGround === undefined ? {} : { onGround: optional.onGround }),
+    ...(optional.surfaceY === undefined ? {} : { surfaceY: optional.surfaceY }),
+    ...(optional.canSeeSky === undefined ? {} : { canSeeSky: optional.canSeeSky }),
+    ...(optional.lightLevel === undefined ? {} : { lightLevel: optional.lightLevel }),
     ...(optional.selectedItem === undefined ? {} : { selectedItem: optional.selectedItem }),
     ...(optional.reachableBlock === undefined ? {} : { reachableBlock: optional.reachableBlock }),
   };

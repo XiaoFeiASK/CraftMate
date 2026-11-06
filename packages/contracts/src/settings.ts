@@ -49,6 +49,10 @@ export const SEASON_GOAL_PRESETS = [
     title: "集齐全套钻石装备",
     description: "找到钻石、制作全套装备，并在可验证的世界事实里确认穿戴完成。",
   },
+  {
+    title: "自由生存并建设家园",
+    description: "从砍树和工作台起步，优先保证食物与庇护，再持续向铁器、下界和终局发育。",
+  },
 ] as const;
 export type SeasonGoalPreset = (typeof SEASON_GOAL_PRESETS)[number];
 

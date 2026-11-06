@@ -45,8 +45,14 @@ public final class FrameServer implements AutoCloseable {
 	 * second is enough for an operator to inspect the world and leaves the
 	 * render thread to the game.
 	 */
-	private static final long CAPTURE_PERIOD_MS = 1_000L;
-	private static final int MAX_WIDTH = 960;
+	private static final long CAPTURE_PERIOD_MS = 2_000L;
+	/**
+	 * Preserve enough detail to read a distant trunk or an item on the ground.
+	 * The encode still runs on a worker and remains capped below the retina
+	 * framebuffer size, so this does not turn frame diagnostics into a second
+	 * render loop.
+	 */
+	private static final int MAX_WIDTH = 1024;
 	/** The desktop shell and loopback dev servers are the only readers. */
 	private static final java.util.Set<String> ALLOWED_ORIGINS = java.util.Set.of(
 		"tauri://localhost",
@@ -316,7 +322,7 @@ public final class FrameServer implements AutoCloseable {
 			ImageWriteParam params = writer.getDefaultWriteParam();
 			if (params.canWriteCompressed()) {
 				params.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
-				params.setCompressionQuality(0.72f);
+				params.setCompressionQuality(0.80f);
 			}
 			writer.write(null, new IIOImage(scaled, null, null), params);
 		} finally {

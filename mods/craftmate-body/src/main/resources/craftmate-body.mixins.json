@@ -5,7 +5,8 @@
   "compatibilityLevel": "JAVA_21",
   "client": [
     "MinecraftMixin",
-    "CameraMixin"
+    "CameraMixin",
+    "LightTextureMixin"
   ],
   "injectors": {
     "defaultRequire": 1

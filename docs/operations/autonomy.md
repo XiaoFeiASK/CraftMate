@@ -1,7 +1,7 @@
 # 自主生存闭环
 
-> 本文说明目标模式如何持续决策、Agent 与 Fabric 身体各自负责什么，以及为什么
-> “角色在动”不等于“模型在扣费”。协议字段见 [Bridge 设计](../reference/bridge.md)，
+> 本文说明目标模式如何持续决策、Agent 与 Fabric 身体各自负责什么，以及模型安全
+> 边界和成本排查。协议字段见 [Bridge 设计](../reference/bridge.md)，
 > 阶段定义见 [技术设计](../reference/technical-design.md)。
 
 最后核对：2026-11-06，Minecraft Java 1.20.1。
@@ -13,11 +13,13 @@ CraftMate 同时支持观众驱动和目标驱动，但两者不会混用同一�
 | 路径 | 输入 | 决策方式 | 是否调用大模型 |
 | --- | --- | --- | --- |
 | 观众驱动 | 评论、礼物、操作员耳语 | Stage A/B 仲裁，胜出意图进入 Stage C | 可能，取决于意图与预算 |
-| 目标驱动 | 操作员开启目标模式 | `GoalRuntime` + 确定性 `SurvivalGoalPlanner` | 否 |
+| 目标驱动 | 操作员开启目标模式 | 确定性候选 + 模型排序 + `GoalRuntime` 执行闸门 | 已配置模型时可能 |
 
-目标模式当前不把世界快照发给大模型，也不依赖模型返回下一步技能。它从身体上报的
-事实计算阶段、里程碑和单个可验证任务，再把任务交给 Bridge。这样即使模型供应商
-超时或返回 5xx，角色仍能继续砍树、挖矿、战斗和移动。
+目标模式采用受约束的混合决策。`SurvivalGoalPlanner` 先从身体事实计算阶段、
+里程碑和合法候选；模型只能从候选 id 中选择一个，并给出一句理由。模型不能发明
+技能、参数、坐标或跳过前置，也不能把“没木头”改成“直接建家”。候选少于两个、
+未配置模型、预算超限、超时、坏 JSON 或未知 id 时会直接回退确定性任务，因此供应
+商故障不会让角色停摆。
 
 “Agent 层在执行”可以通过三个事实确认：
 
@@ -34,7 +36,8 @@ CraftMate 同时支持观众驱动和目标驱动，但两者不会混用同一�
 ```text
 身体快照
   -> worldFactsFromSnapshot（只保留已观测事实）
-  -> planSurvival（阶段、里程碑、下一任务）
+  -> planSurvival（阶段、里程碑、合法候选任务）
+  -> 模型排序（只能返回候选 id；失败则用确定性首选）
   -> GoalRuntime（退避、失败历史、接管与终态）
   -> Bridge（能力校验、队列、超时）
   -> Fabric Mod（A*、视角、挖掘、放置、战斗）
@@ -47,6 +50,7 @@ CraftMate 同时支持观众驱动和目标驱动，但两者不会混用同一�
 
 - 一次最多只有一个在途目标命令；收到终态后才重新规划。
 - 技能必须同时通过契约校验和身体能力白名单。
+- 模型只参与候选排序，不直接生成技能；开头无木头时候选锁死为砍树/基础工作台。
 - 完成结果必须带已确认变化；空结果或只有 `unconfirmed` 不推进里程碑。
 - 同一移动策略连续失败后，规划器会换一片区域重新观察，而不是原地循环。
 - 达到失败上限不会永久 `blocked`，而是进入最长 6 秒退避并继续尝试；身体在退避
@@ -84,7 +88,10 @@ CraftMate 同时支持观众驱动和目标驱动，但两者不会混用同一�
 Mod 内的低层自治只服务于“把 Agent 的技能做得像人”，不会替代阶段规划：
 
 - `BoundedPathfinder`：有界 A*，只走可站立、无液体、无碰撞格子；失败返回部分
-  路径和真实原因。
+  路径和真实原因。直线路段会压缩成关键拐点，长距离安全路段自动奔跑。
+- `visibleWood` 感知：每 30 tick 采样 96 格内的已加载地表，按 24/64 格分成
+  密采样、2 格网格和 3 格网格，再做视线确认；缓存随移动超过 8 格或过期失效。
+  日志里的 `columns` / `candidates` 可区分“范围不够”和“扫描没有执行”。
 - `ViewSlew` / `CameraController`：最短弧转向、角速度上限、平滑镜头；交互瞄准仍
   使用真实命中射线。
 - `StairEscape` / `CanopyEscape` / `ShaftEscape`：卡在坑、树冠或竖井时先寻找
@@ -95,10 +102,12 @@ Mod 内的低层自治只服务于“把 Agent 的技能做得像人”，不会
 - `Reflexes`：岩浆、低血、坠落、溺水、着火、饥饿、近身威胁和来箭先松手/闪避；
   后续战斗或撤退仍由 Agent 规划。
 
-## 5. 为什么 API 额度可能长期不变
+## 5. 模型额度为什么可能不变或增长
 
-目标模式是确定性规划器，正常情况下不会产生模型请求。模型成本账本只在实际调用
-成功后记账；没有调用就没有新增 `model_cost` 行。
+目标模式只有出现两个以上合法候选时才请求模型。开局无木头时通常只有一个砍树/
+工作台候选，因此不会调用模型；未配置 API Key、预算超限或供应商失败时也不会产生
+成功调用。模型成本账本只在实际调用成功后记账；没有调用就没有新增 `model_cost`
+行。正常推进到食物、庇护所和发育阶段后，候选增加，额度可能随每次任务决策增长。
 
 检查顺序：
 
@@ -109,9 +118,21 @@ sqlite3 "$HOME/.craftmate/craftmate.db" \
      from model_cost order by occurred_at_ms desc limit 10;"
 ```
 
-如果目标模式正在运行、`model_cost` 没有新行，且日志没有 Stage C 请求，额度不变
-是预期行为，不是账本坏了。若观众评论应触发模型但供应商返回 `502`，同样不会产生
-费用；应先检查供应商端点与模型名，而不是只刷新余额页面。
+供应商自己的账单接口是另一份口径。OpenAI 兼容端点可用下面的请求核对；这里的
+`total_usage` 通常是美分，账户无硬上限时 `soft_limit_usd` 会是一个很大的值：
+
+```bash
+KEY=$(jq -r '.model.apiKey' "$HOME/.craftmate/integrations.json")
+curl -fsS -H "Authorization: Bearer $KEY" \
+  "https://www.yyapi.cloud/v1/dashboard/billing/usage" | jq '.total_usage'
+```
+
+网页额度卡和账单接口可能使用不同统计周期，因此不要只看页面上的“已用”小数；
+同一次目标运行前后两次查询 `total_usage` 增长，才是真实的扣费证据。
+
+如果目标模式正在运行、`model_cost` 没有新行，先看是否只有一个候选、是否未配置
+模型或是否处于失败回退；这些情况下额度不变是预期行为。若供应商返回 `502`，同样
+不会产生费用；应先检查供应商端点与模型名，而不是只刷新余额页面。
 
 从迁移 `0012_model_usage.sql` 起，即使没有配置每百万 token 单价，成功请求也会以
 `cost = 0` 记录 `prompt_tokens` / `completion_tokens`，便于区分“没有调用”和
@@ -124,7 +145,8 @@ sqlite3 "$HOME/.craftmate/craftmate.db" \
 | 角色随机看/走 | 客户端 `idle action=...` | 没有 Agent 任务，Mod 空闲游走 |
 | 有目标但短时不动 | `nextTask`、`retryAt`、`consecutiveFailures` | 退避或等待身体终态 |
 | 一直重复同一路径 | `decision_log` 与 `goto start/escape` | 检查失败策略、地形和重规划日志 |
-| 模型额度不变 | `model_cost`、供应商错误 | 目标模式不调用模型，或请求失败 |
+| 模型额度不变 | `model_cost`、候选数量、供应商错误 | 只有一个确定性候选、未配置模型，或请求失败 |
+| 明明看到树却说没树 | `perception visibleWood` 的 `columns/candidates` | 扫描未执行、加载区块不足或被视线过滤 |
 | 看到动作但没有进度 | skill `changes` / `unconfirmed` | 身体未确认世界变化，不得算成功 |
 
 常用 SQL：
@@ -142,6 +164,15 @@ sqlite3 -header -column "$HOME/.craftmate/craftmate.db" \
 
 客户端日志默认在 Minecraft 实例的 `logs/latest.log`；Bridge 与编排器日志以
 `npm run dev:orchestrator` 的终端输出为准。
+
+怀疑客户端卡顿时，先看树木扫描是否出现 `perception scan took ...ms`。诊断截帧
+上限为 1024 宽、每 2 秒一帧，编码在独立线程；若仍有长帧，可用 JFR 对照：
+
+```bash
+jcmd <minecraft-pid> JFR.start duration=15s filename=/tmp/craftmate.jfr
+$JAVA_HOME/bin/jfr print --events jdk.ExecutionSample \
+  --stack-depth 1 /tmp/craftmate.jfr
+```
 
 ## 7. 当前边界
 

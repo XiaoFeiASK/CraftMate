@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { ModelInvalidOutputError, type ModelProvider, type PlanRequest, type PlanResult } from "../ports/model.ts";
+import {
+  ModelInvalidOutputError,
+  type GoalTaskChoiceRequest,
+  type GoalTaskChoiceResult,
+  type ModelProvider,
+  type PlanRequest,
+  type PlanResult,
+} from "../ports/model.ts";
 
 export interface OpenAICompatibleOptions {
   readonly id?: string;
@@ -26,6 +33,12 @@ const responseSchema = z.object({
     })
     .nullable()
     .default(null),
+});
+
+const goalChoiceSchema = z.object({
+  candidateId: z.string().min(1).max(80),
+  reason: z.string().max(500).default(""),
+  speech: z.string().max(500).default(""),
 });
 
 const completionSchema = z.object({
@@ -138,6 +151,70 @@ export class OpenAICompatibleProvider implements ModelProvider {
       speech: parsed.data.speech,
       skill: skill as PlanResult["skill"],
       reason: parsed.data.reason,
+      provider: this.id,
+      model: this.model,
+      ...(usage === undefined
+        ? {}
+        : { usage: { prompt: usage.prompt_tokens, completion: usage.completion_tokens } }),
+    };
+  }
+
+  async chooseGoalTask(
+    request: GoalTaskChoiceRequest,
+  ): Promise<GoalTaskChoiceResult> {
+    const response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+      method: "POST",
+      signal: request.signal,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: this.model,
+        temperature: Math.min(this.temperature, 0.3),
+        max_tokens: this.maxOutputTokens,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: request.instructions },
+          {
+            role: "user",
+            content: JSON.stringify({
+              goal: {
+                title: request.goalTitle,
+                description: request.goalDescription,
+              },
+              stage: request.stageTitle,
+              milestone: request.milestoneTitle,
+              recentFailure: request.recentFailure,
+              recentFailures: request.recentFailures,
+              candidates: request.candidates,
+              world: request.world,
+            }),
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      throw new ModelInvalidOutputError(`provider returned ${response.status}`);
+    }
+    const parsedCompletion = completionSchema.safeParse(await response.json());
+    if (!parsedCompletion.success) {
+      throw new ModelInvalidOutputError("provider envelope is invalid");
+    }
+    const message = parsedCompletion.data.choices[0]?.message;
+    const content = message?.content || extractJsonFromReasoning(message?.reasoning_content);
+    if (!content) throw new ModelInvalidOutputError("provider returned no content");
+
+    const json = parseJsonObject(content);
+    if (json === null) throw new ModelInvalidOutputError("content is not JSON");
+    const parsed = goalChoiceSchema.safeParse(json);
+    if (!parsed.success) throw new ModelInvalidOutputError(parsed.error.message);
+    const usage = parsedCompletion.data.usage;
+    return {
+      candidateId: parsed.data.candidateId,
+      reason: parsed.data.reason,
+      speech: parsed.data.speech.trim(),
       provider: this.id,
       model: this.model,
       ...(usage === undefined

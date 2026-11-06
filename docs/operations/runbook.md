@@ -243,7 +243,7 @@ cd mods/craftmate-body
 | Ingress `upstream=false` | 未连上 Orchestrator | 检查 4321 和 ingress token |
 | Bridge 未连接 | 游戏未启动、Mod 未安装或 token 不匹配 | 检查 Fabric 日志、版本和 bridge token |
 | 有目标但角色只随机看/走 | 身体处于 `idle action=...`，没有 Agent 任务 | 检查 `retryAt`、失败退避和 Bridge 终态，不要误判为随机寻路 |
-| 模型额度长期不变 | 目标模式走确定性规划器；或供应商请求失败 | 查 `model_cost` 是否有新行，再看 Stage C / 供应商错误 |
+| 模型额度长期不变 | 只有一个确定性候选、未配置模型，或供应商请求失败 | 查 `model_cost`、候选数量和 Stage C / 供应商错误 |
 | 供应商返回 502 | 上游模型服务不可用或模型名不支持 | 保留失败记录，切换模型/端点后再触发一次 Stage C；无成功请求不产生费用 |
 
 ## 10. 停止

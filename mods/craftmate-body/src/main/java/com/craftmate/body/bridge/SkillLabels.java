@@ -24,6 +24,8 @@ final class SkillLabels {
 			case "place_block" -> "放置方块";
 			case "pillar_up" -> "垫高";
 			case "build_schematic" -> "建造";
+			case "descend" -> "向下挖矿";
+			case "smelt" -> "熔炼";
 			case "attack" -> "攻击";
 			case "use_block" -> "使用方块";
 			case "sleep" -> "睡觉";

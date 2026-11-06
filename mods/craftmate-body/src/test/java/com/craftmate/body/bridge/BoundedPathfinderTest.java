@@ -1,5 +1,6 @@
 package com.craftmate.body.bridge;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -196,6 +197,27 @@ class BoundedPathfinderTest {
 			8
 		);
 		assertTrue(result == null || !result.complete());
+	}
+
+	@Test
+	void compressesOnlyStraightRunsAndKeepsCorners() {
+		List<BoundedPathfinder.Cell> path = List.of(
+			new BoundedPathfinder.Cell(0, 0, 0),
+			new BoundedPathfinder.Cell(1, 0, 0),
+			new BoundedPathfinder.Cell(2, 0, 0),
+			new BoundedPathfinder.Cell(2, 0, 1),
+			new BoundedPathfinder.Cell(2, 0, 2),
+			new BoundedPathfinder.Cell(2, 1, 3)
+		);
+		assertEquals(
+			List.of(
+				new BoundedPathfinder.Cell(0, 0, 0),
+				new BoundedPathfinder.Cell(2, 0, 0),
+				new BoundedPathfinder.Cell(2, 0, 2),
+				new BoundedPathfinder.Cell(2, 1, 3)
+			),
+			BoundedPathfinder.compress(path)
+		);
 	}
 
 }

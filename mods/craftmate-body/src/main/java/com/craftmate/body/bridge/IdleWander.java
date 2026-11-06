@@ -24,8 +24,13 @@ import net.minecraft.world.phys.Vec3;
  * work.
  */
 final class IdleWander {
-	/** Long enough that a task hand-off does not produce a twitch. */
-	private static final int QUIET_TICKS = 30;
+	/**
+	 * Half a second is enough for the orchestrator to hand over the next
+	 * autonomous goal step. The old 1.5-second quiet window inserted a visible
+	 * stand-still between every short task and was a large part of why the
+	 * body looked like it walked, stopped, and thought forever.
+	 */
+	private static final int QUIET_TICKS = 10;
 	private static final int MIN_WALK_TICKS = 20 * 4;
 	private static final int MAX_WALK_TICKS = 20 * 10;
 	private static final int MIN_LOOK_TICKS = 20 * 2;

@@ -331,6 +331,21 @@ describe("survival planning", () => {
     assert.equal(plan.task?.skill.name, "place_block");
   });
 
+  test("an existing table with no wood searches for a tree instead of blocking", () => {
+    const plan = planSurvival(
+      facts({
+        inventory: [],
+        nearbyBlocks: [{ id: "minecraft:crafting_table" }],
+      }),
+      goal("dragon"),
+      MAX_ID,
+    );
+    assert.equal(plan.stage, "wood-and-table");
+    assert.equal(plan.task?.skill.name, "goto");
+    assert.match(plan.task?.title ?? "", /寻找原木/u);
+    assert.equal(plan.blocked.length, 0);
+  });
+
   test("walking away from a table this session built does not revert the stage", () => {
     const plan = planSurvival(
       facts({
@@ -373,6 +388,26 @@ describe("survival planning", () => {
     assert.equal(plan.stage, "stone-tools");
     assert.notEqual(plan.task?.title, "制作工作台");
     assert.notEqual(plan.task?.skill?.name, "place_block");
+  });
+
+  test("a reconnect with wood rebuilds a lost table instead of blocking iron", () => {
+    const plan = planSurvival(
+      facts({
+        inventory: [
+          { item: "minecraft:stone_pickaxe", count: 1 },
+          { item: "minecraft:cobblestone", count: 122 },
+          { item: "minecraft:oak_log", count: 43 },
+          { item: "minecraft:oak_planks", count: 4 },
+        ],
+        nearbyBlocks: [{ id: "minecraft:stone", count: 200 }],
+      }),
+      goal("iron"),
+      MAX_ID,
+    );
+    assert.equal(plan.stage, "iron");
+    assert.equal(plan.task?.skill.name, "craft");
+    assert.equal(plan.task?.skill.args["item"], "minecraft:crafting_table");
+    assert.equal(plan.blocked.length, 0);
   });
 
   test("a placed table outside the observation cube still satisfies the station", () => {
@@ -418,7 +453,7 @@ describe("survival planning", () => {
     assert.equal(plan.blocked.length, 0);
   });
 
-  test("a distant unreachable table is replaced with a local one when wood is available", () => {
+  test("a table too far to walk back to is replaced locally", () => {
     const plan = planSurvival(
       facts({
         position: { x: -45, y: 66, z: 191 },
@@ -435,6 +470,70 @@ describe("survival planning", () => {
       MAX_ID,
     );
     assert.equal(plan.stage, "stone-tools");
+    assert.equal(plan.task?.skill.name, "craft");
+    assert.equal(plan.task?.skill.args["item"], "minecraft:crafting_table");
+  });
+
+  test("a truly lost table is replaced only after a long trip", () => {
+    const plan = planSurvival(
+      facts({
+        position: { x: 80, y: 66, z: 80 },
+        inventory: [
+          { item: "minecraft:oak_planks", count: 6 },
+          { item: "minecraft:stick", count: 4 },
+          { item: "minecraft:oak_log", count: 2 },
+        ],
+        craftingTablePlaced: true,
+        craftingTableNearby: false,
+        craftingTable: { x: -31, y: 66, z: 176 },
+      }),
+      goal("stone-tools"),
+      MAX_ID,
+    );
+    assert.equal(plan.stage, "stone-tools");
+    assert.equal(plan.task?.skill.name, "craft");
+    assert.equal(plan.task?.skill.args["item"], "minecraft:crafting_table");
+  });
+
+  test("a table many layers above a mine is replaced in the current layer", () => {
+    const plan = planSurvival(
+      facts({
+        position: { x: 2, y: 54, z: 16 },
+        inventory: [
+          { item: "minecraft:oak_planks", count: 5 },
+          { item: "minecraft:stick", count: 5 },
+          { item: "minecraft:oak_log", count: 44 },
+        ],
+        craftingTablePlaced: true,
+        craftingTableNearby: false,
+        craftingTable: { x: -7, y: 112, z: 4 },
+      }),
+      goal("stone-tools"),
+      MAX_ID,
+    );
+    assert.equal(plan.stage, "stone-tools");
+    assert.equal(plan.task?.skill.name, "craft");
+    assert.equal(plan.task?.skill.args["item"], "minecraft:crafting_table");
+  });
+
+  test("a table one short climb above but behind stone is replaced", () => {
+    const plan = planSurvival(
+      facts({
+        position: { x: 0, y: 32, z: 22 },
+        inventory: [
+          { item: "minecraft:stone_pickaxe", count: 1 },
+          { item: "minecraft:cobblestone", count: 30 },
+          { item: "minecraft:oak_planks", count: 4 },
+          { item: "minecraft:torch", count: 4 },
+        ],
+        craftingTablePlaced: true,
+        craftingTableNearby: false,
+        craftingTable: { x: 0, y: 38, z: 22 },
+      }),
+      goal("iron"),
+      MAX_ID,
+    );
+    assert.equal(plan.stage, "iron");
     assert.equal(plan.task?.skill.name, "craft");
     assert.equal(plan.task?.skill.args["item"], "minecraft:crafting_table");
   });
@@ -574,6 +673,126 @@ describe("survival planning", () => {
     assert.equal(task.skill.name, "attack");
   });
 
+  test("a full backpack walks home before opening a chest one floor above", () => {
+    const inventory = Array.from({ length: 28 }, (_, index) => ({
+      item: index === 0 ? "minecraft:raw_copper" : "minecraft:cobblestone",
+      count: 64,
+    }));
+    const stageFacts = facts({
+      position: { x: 0.5, y: 58, z: 0.5 },
+      inventory,
+      nearbyBlocks: [{ id: "minecraft:chest", count: 1 }],
+      chestPlaced: true,
+      chest: { x: 0, y: 63, z: 2 },
+    });
+    const task = nextTaskForStage({ stage: "iron", facts: stageFacts, newId: () => "x" });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "goto");
+    assert.match(task.title, /回家/u);
+    const target = task.skill.args["target"] as { x: number; y: number; z: number };
+    assert.equal(target.y, 64);
+  });
+
+  test("a full backpack opens a remembered same-level chest instead of skipping it", () => {
+    const inventory = Array.from({ length: 28 }, (_, index) => ({
+      item: index === 0 ? "minecraft:raw_copper" : "minecraft:cobblestone",
+      count: 64,
+    }));
+    const stageFacts = facts({
+      position: { x: 0.5, y: 64, z: 0.5 },
+      inventory,
+      nearbyBlocks: [{ id: "minecraft:chest", count: 1 }],
+      chestPlaced: true,
+      chest: { x: 4, y: 63, z: 2 },
+    });
+    const task = nextTaskForStage({ stage: "iron", facts: stageFacts, newId: () => "x" });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "deposit");
+    assert.equal(task.skill.args["item"], "minecraft:raw_copper");
+    assert.deepEqual(task.skill.args["container"], { x: 4, y: 63, z: 2 });
+  });
+
+  test("a full backpack above the camp descends by safe staircase before storing", () => {
+    const inventory = Array.from({ length: 28 }, (_, index) => ({
+      item: index === 0 ? "minecraft:raw_copper" : "minecraft:cobblestone",
+      count: 64,
+    }));
+    inventory.push({ item: "minecraft:stone_pickaxe", count: 1 });
+    const stageFacts = facts({
+      position: { x: 0.5, y: 116, z: 0.5 },
+      inventory,
+      chestPlaced: true,
+      chest: { x: -7, y: 63, z: -25 },
+    });
+    const task = nextTaskForStage({ stage: "iron", facts: stageFacts, newId: () => "x" });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "descend");
+    assert.equal(task.skill.args["targetY"], 64);
+    assert.equal(task.skill.args["branchLength"], 0);
+    assert.match(task.title, /阶梯|营地/u);
+  });
+
+  test("a full backpack two blocks above the camp keeps using the safe staircase", () => {
+    const inventory = Array.from({ length: 28 }, (_, index) => ({
+      item: index === 0 ? "minecraft:raw_copper" : "minecraft:cobblestone",
+      count: 64,
+    }));
+    inventory.push({ item: "minecraft:stone_pickaxe", count: 1 });
+    const stageFacts = facts({
+      position: { x: -6.7, y: 66, z: -25.7 },
+      inventory,
+      chestPlaced: true,
+      chest: { x: -7, y: 63, z: -25 },
+    });
+    const task = nextTaskForStage({ stage: "iron", facts: stageFacts, newId: () => "x" });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "descend");
+    assert.equal(task.skill.args["targetY"], 64);
+  });
+
+  test("a full backpack above the camp restores a broken pickaxe before storing", () => {
+    const inventory = Array.from({ length: 28 }, (_, index) => ({
+      item: index === 0 ? "minecraft:raw_copper" : "minecraft:cobblestone",
+      count: 64,
+    }));
+    inventory.push({ item: "minecraft:oak_log", count: 5 });
+    inventory.push({ item: "minecraft:oak_planks", count: 2 });
+    const stageFacts = facts({
+      position: { x: 0.5, y: 116, z: 0.5 },
+      inventory,
+      chestPlaced: true,
+      chest: { x: -7, y: 63, z: -25 },
+      craftingTablePlaced: true,
+    });
+    const task = nextTaskForStage({ stage: "wood-and-table", facts: stageFacts, newId: () => "x" });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "craft");
+    assert.equal(task.skill.args["item"], "minecraft:oak_planks");
+    assert.doesNotMatch(task.title, /回家/u);
+  });
+
+  test("a full backpack above the camp upgrades a wooden pickaxe before a long descent", () => {
+    const inventory = Array.from({ length: 28 }, (_, index) => ({
+      item: index === 0 ? "minecraft:raw_copper" : "minecraft:cobblestone",
+      count: 64,
+    }));
+    inventory.push({ item: "minecraft:wooden_pickaxe", count: 1 });
+    inventory.push({ item: "minecraft:stick", count: 2 });
+    const stageFacts = facts({
+      position: { x: 0.5, y: 116, z: 0.5 },
+      inventory,
+      nearbyBlocks: [{ id: "minecraft:crafting_table", count: 1 }],
+      chestPlaced: true,
+      chest: { x: -7, y: 63, z: -25 },
+      craftingTablePlaced: true,
+      craftingTableNearby: true,
+    });
+    const task = nextTaskForStage({ stage: "stone-tools", facts: stageFacts, newId: () => "x" });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "craft");
+    assert.equal(task.skill.args["item"], "minecraft:stone_pickaxe");
+  });
+
   test("deepslate is not a cobblestone source", () => {
     const base = facts({
       inventory: [
@@ -607,6 +826,235 @@ describe("survival planning", () => {
     const problem = toolProblem("minecraft:diamond_ore", woodenFacts);
     assert.equal(problem?.kind, "tool");
     assert.match(problem?.detail ?? "", /iron/);
+  });
+
+  test("iron stage descends to the iron layer when no ore is visible", () => {
+    const task = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        position: { x: 0, y: 80, z: 0 },
+        inventory: [
+          { item: "minecraft:stone_pickaxe", count: 1 },
+          { item: "minecraft:torch", count: 4 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:furnace" },
+        ],
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "descend");
+    assert.equal(task.skill.args["targetY"], 16);
+    assert.equal(task.skill.args["branchLength"], 0);
+  });
+
+  test("a count-only iron sighting in stone plans branch mining, not a failed approach", () => {
+    const task = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        position: { x: 2, y: 16, z: 16 },
+        inventory: [
+          { item: "minecraft:stone_pickaxe", count: 1 },
+          { item: "minecraft:torch", count: 4 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:furnace" },
+          { id: "minecraft:iron_ore", count: 13 },
+        ],
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "descend");
+    assert.equal(task.skill.args["targetY"], 16);
+    assert.equal(task.skill.args["branchLength"], 12);
+    assert.match(task.title, /矿道/u);
+  });
+
+  test("an unreachable placed table is rebuilt instead of walked into forever", () => {
+    const task = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        position: { x: -10, y: 16, z: -39 },
+        inventory: [
+          { item: "minecraft:iron_pickaxe", count: 1 },
+          { item: "minecraft:iron_ingot", count: 2 },
+          { item: "minecraft:oak_planks", count: 4 },
+          { item: "minecraft:torch", count: 4 },
+        ],
+        craftingTablePlaced: true,
+        craftingTableNearby: true,
+        craftingTableReachable: false,
+        craftingTable: { x: -7, y: 17, z: -34 },
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:furnace" },
+        ],
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "craft");
+    assert.equal(task.skill.args["item"], "minecraft:crafting_table");
+  });
+
+  test("a furnace short on cobblestone mines underground instead of exploring", () => {
+    const task = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        position: { x: 80, y: 91, z: 152 },
+        inventory: [
+          { item: "minecraft:stone_pickaxe", count: 1 },
+          { item: "minecraft:cobblestone", count: 5 },
+          { item: "minecraft:oak_log", count: 32 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:stone", count: 587 },
+        ],
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "descend");
+    assert.equal(task.skill.args["targetY"], 16);
+    assert.equal(task.skill.args["branchLength"], 0);
+    assert.match(task.title, /圆石/u);
+  });
+
+  test("raw iron and fuel plan a real furnace smelt", () => {
+    const task = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        inventory: [
+          { item: "minecraft:stone_pickaxe", count: 1 },
+          { item: "minecraft:torch", count: 4 },
+          { item: "minecraft:raw_iron", count: 5 },
+          { item: "minecraft:coal", count: 1 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:furnace" },
+        ],
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "smelt");
+    assert.equal(task.skill.args["input"], "minecraft:raw_iron");
+    assert.equal(task.skill.args["output"], "minecraft:iron_ingot");
+    // The pickaxe is the first upgrade gate; surplus raw iron can wait for
+    // the sword instead of forcing one long five-ore mining trip.
+    assert.equal(task.skill.args["count"], 3);
+    assert.equal(task.skill.args["fuel"], "minecraft:coal");
+  });
+
+  test("torches with coal but no sticks craft an intermediate stick batch", () => {
+    const task = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        inventory: [
+          { item: "minecraft:stone_pickaxe", count: 1 },
+          { item: "minecraft:coal", count: 4 },
+          { item: "minecraft:oak_planks", count: 3 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:furnace" },
+        ],
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "craft");
+    assert.equal(task.skill.args["item"], "minecraft:stick");
+  });
+
+  test("after the iron pickaxe, only the sword's ingots are smelted", () => {
+    const task = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        inventory: [
+          { item: "minecraft:iron_pickaxe", count: 1 },
+          { item: "minecraft:torch", count: 4 },
+          { item: "minecraft:raw_iron", count: 2 },
+          { item: "minecraft:coal", count: 1 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:furnace" },
+        ],
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "smelt");
+    assert.equal(task.skill.args["count"], 2);
+  });
+
+  test("charcoal reserves one log as the input instead of burning the only log", () => {
+    const withFuel = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        inventory: [
+          { item: "minecraft:stone_pickaxe", count: 1 },
+          { item: "minecraft:oak_log", count: 2 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:furnace" },
+        ],
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(withFuel !== null && "skill" in withFuel);
+    assert.equal(withFuel.skill.name, "smelt");
+    assert.equal(withFuel.skill.args["input"], "minecraft:oak_log");
+    assert.equal(withFuel.skill.args["output"], "minecraft:charcoal");
+    assert.equal(withFuel.skill.args["fuel"], "minecraft:oak_log");
+
+    const noFuel = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        position: { x: 0, y: 70, z: 0 },
+        inventory: [
+          { item: "minecraft:stone_pickaxe", count: 1 },
+          { item: "minecraft:oak_log", count: 1 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:furnace" },
+        ],
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(noFuel !== null && "skill" in noFuel);
+    assert.equal(noFuel.skill.name, "descend");
+  });
+
+  test("diamond progress descends to the 1.20.1 deepslate layer instead of surface exploring", () => {
+    const task = nextTaskForStage({
+      stage: "nether",
+      facts: facts({
+        position: { x: 0, y: 70, z: 0 },
+        inventory: [
+          { item: "minecraft:iron_pickaxe", count: 1 },
+          { item: "minecraft:iron_sword", count: 1 },
+          { item: "minecraft:stick", count: 2 },
+          { item: "minecraft:torch", count: 8 },
+        ],
+        nearbyBlocks: [{ id: "minecraft:crafting_table" }],
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "descend");
+    assert.equal(task.skill.args["targetY"], -53);
+    assert.equal(task.skill.args["branchLength"], 0);
+    assert.match(task.title, /钻石/u);
   });
 
   test("eating the last food still completes the food stage", () => {
@@ -679,6 +1127,26 @@ describe("survival planning", () => {
     assert.equal(proper.skill.args["item"], "minecraft:bread");
   });
 
+  test("a hungry underground body climbs toward the surface instead of hunting caves", () => {
+    const task = nextTaskForStage({
+      stage: "food",
+      facts: facts({
+        food: 6,
+        position: { x: 0, y: 16, z: 0 },
+        canSeeSky: false,
+        surfaceY: 64,
+        craftingTable: { x: 10, y: 18, z: 0 },
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "goto");
+    assert.match(task.title, /地表/u);
+    assert.equal(task.skill.args["acceptPartial"], false);
+    const target = task.skill.args["target"] as { x: number; y: number; z: number };
+    assert.equal(target.y, 28);
+  });
+
   test("full hunger with a food reserve does not replan an impossible meal", () => {
     const plan = planSurvival(
       facts({
@@ -713,7 +1181,7 @@ describe("survival planning", () => {
     assert.notEqual(plan.task?.skill.name, "eat");
   });
 
-  test("full hunger without any food does not claim a meal", () => {
+  test("full hunger without any food advances the dynamic food stage", () => {
     const plan = planSurvival(
       facts({
         food: 20,
@@ -732,19 +1200,23 @@ describe("survival planning", () => {
       goal("food"),
       MAX_ID,
     );
-    assert.equal(plan.stage, "food");
+    assert.equal(
+      plan.stages.find((stage) => stage.id === "food")?.status,
+      "complete",
+    );
     assert.equal(
       plan.stages
         .find((stage) => stage.id === "food")
         ?.milestones.find((milestone) => milestone.id === "fed")
         ?.status,
-      "incomplete",
+      "complete",
     );
   });
 
   test("an empty hunt window falls back to oak logs instead of another empty sweep", () => {
     const plan = planSurvival(
       facts({
+        food: 12,
         inventory: [
           { item: "minecraft:oak_log", count: 1 },
           { item: "minecraft:oak_planks", count: 4 },
@@ -806,9 +1278,33 @@ describe("survival planning", () => {
     assert.equal(plan.task?.skill.args["block"], "minecraft:oak_log");
   });
 
+  test("low hunger underground returns to the surface table before hunting", () => {
+    const task = nextTaskForStage({
+      stage: "food",
+      facts: facts({
+        position: { x: 2, y: 16, z: -16 },
+        food: 6,
+        inventory: [
+          { item: "minecraft:stone_pickaxe", count: 1 },
+          { item: "minecraft:cobblestone", count: 32 },
+        ],
+        craftingTablePlaced: true,
+        craftingTable: { x: -7, y: 18, z: -23 },
+        nearbyBlocks: [{ id: "minecraft:crafting_table" }],
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "goto");
+    assert.match(task.title, /返回地面工作台/u);
+    const target = task.skill.args["target"] as { readonly y: number };
+    assert.equal(target.y, 18);
+  });
+
   test("a dropped apple is collected before chopping another tree", () => {
     const plan = planSurvival(
       facts({
+        food: 12,
         inventory: [
           { item: "minecraft:oak_log", count: 8 },
           { item: "minecraft:oak_planks", count: 4 },
@@ -841,9 +1337,10 @@ describe("survival planning", () => {
     assert.match(plan.task?.title ?? "", /苹果/u);
   });
 
-  test("enough wood still chops the accessible trunk instead of breaking leaves", () => {
+  test("a healthy wood reserve switches the food search to oak leaves", () => {
     const plan = planSurvival(
       facts({
+        food: 12,
         inventory: [
           { item: "minecraft:oak_log", count: 20 },
           { item: "minecraft:oak_planks", count: 4 },
@@ -862,14 +1359,15 @@ describe("survival planning", () => {
       MAX_ID,
     );
     assert.equal(plan.task?.skill.name, "mine_block");
-    assert.equal(plan.task?.skill.args["block"], "minecraft:oak_log");
-    assert.equal(plan.task?.skill.args["count"], 6);
+    assert.equal(plan.task?.skill.args["block"], "minecraft:oak_leaves");
+    assert.equal(plan.task?.skill.args["count"], 32);
     assert.match(plan.task?.title ?? "", /苹果/u);
   });
 
   test("a canopy with no reachable trunk still gets a leaf fallback", () => {
     const plan = planSurvival(
       facts({
+        food: 12,
         inventory: [
           { item: "minecraft:oak_log", count: 20 },
           { item: "minecraft:oak_planks", count: 4 },
@@ -888,13 +1386,14 @@ describe("survival planning", () => {
     );
     assert.equal(plan.task?.skill.name, "mine_block");
     assert.equal(plan.task?.skill.args["block"], "minecraft:oak_leaves");
-    assert.equal(plan.task?.skill.args["count"], 48);
+    assert.equal(plan.task?.skill.args["count"], 32);
     assert.match(plan.task?.title ?? "", /树叶/u);
   });
 
   test("night without a bed keeps the body moving instead of mining in place", () => {
     const plan = planSurvival(
       facts({
+        food: 12,
         timeOfDay: 18_000,
         inventory: [
           { item: "minecraft:oak_log", count: 20 },
@@ -921,6 +1420,7 @@ describe("survival planning", () => {
   test("night work still rotates with the safety sweep", () => {
     const plan = planSurvival(
       facts({
+        food: 12,
         timeOfDay: 19_000,
         inventory: [
           { item: "minecraft:oak_log", count: 20 },
@@ -1008,7 +1508,7 @@ describe("survival planning", () => {
   test("dragon target reports P0-P4 and terminal stages", () => {
     const plan = planSurvival(facts(), goal(), MAX_ID);
     const ids = plan.stages.map((stage) => stage.id);
-    assert.deepEqual(ids.slice(0, 5), ["wood-and-table", "stone-tools", "food", "shelter", "iron"]);
+    assert.deepEqual(ids.slice(0, 5), ["wood-and-table", "stone-tools", "food", "iron", "shelter"]);
     assert.ok(ids.includes("nether"));
     assert.ok(ids.includes("dragon"));
     assert.equal(plan.stage, "wood-and-table");
@@ -1016,7 +1516,7 @@ describe("survival planning", () => {
   });
 
   test("progress is derived only from verified milestones", () => {
-    const empty = planSurvival(facts(), goal(), MAX_ID);
+    const empty = planSurvival(facts({ food: 12 }), goal(), MAX_ID);
     assert.equal(empty.completedMilestones, 0);
     assert.equal(empty.verifiedProgress, 0);
     const fed = planSurvival(
@@ -1045,16 +1545,47 @@ describe("survival planning", () => {
     );
   });
 
+  test("an iron tool keeps raw-iron and ingot milestones complete after consumption", () => {
+    const plan = planSurvival(
+      facts({
+        inventory: [
+          { item: "minecraft:iron_pickaxe", count: 1 },
+          { item: "minecraft:torch", count: 4 },
+          { item: "minecraft:coal", count: 1 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:furnace" },
+        ],
+      }),
+      goal("dragon"),
+      MAX_ID,
+    );
+    const iron = plan.stages.find((stage) => stage.id === "iron");
+    assert.equal(
+      iron?.milestones.find((milestone) => milestone.id === "have-raw-iron")?.status,
+      "complete",
+    );
+    assert.equal(
+      iron?.milestones.find((milestone) => milestone.id === "have-iron-ingot")?.status,
+      "complete",
+    );
+    assert.equal(
+      iron?.milestones.find((milestone) => milestone.id === "have-iron-pickaxe")?.status,
+      "complete",
+    );
+  });
+
   test("unobserved facts stay unverified rather than false", () => {
     const plan = planSurvival(
       { inWorld: true, inventory: [{ item: "minecraft:oak_log", count: 1 }] },
       goal("dragon"),
       MAX_ID,
     );
-    const sleep = plan.stages
-      .find((stage) => stage.id === "shelter")
-      ?.milestones.find((entry) => entry.id === "slept");
-    assert.equal(sleep?.status, "unverified");
+    const fed = plan.stages
+      .find((stage) => stage.id === "food")
+      ?.milestones.find((entry) => entry.id === "fed");
+    assert.equal(fed?.status, "unverified");
     assert.equal(plan.stages.find((stage) => stage.id === "dragon")?.status, "pending");
   });
 
@@ -1134,6 +1665,58 @@ describe("survival planning", () => {
     assert.ok(projected.inventory.some((slot) => slot.item === "minecraft:oak_planks"));
     assert.equal(projected.food, undefined);
     assert.equal(projected.sleeping, undefined);
+  });
+
+  test("preserves visible target coordinates and bearing", () => {
+    const projected = worldFactsFromSnapshot({
+      inWorld: true,
+      nearbyBlocks: [{
+        id: "oak_log",
+        count: 1,
+        x: -42,
+        y: 71,
+        z: 108,
+        distance: 27.5,
+        bearing: -12,
+        visible: true,
+      }],
+    });
+    assert.deepEqual(projected.nearbyBlocks, [{
+      id: "minecraft:oak_log",
+      count: 1,
+      x: -42,
+      y: 71,
+      z: 108,
+      distance: 27.5,
+      bearing: -12,
+      visible: true,
+    }]);
+  });
+
+  test("a distant visible tree is approached before chopping", () => {
+    const plan = planSurvival(
+      facts({
+        position: { x: 0, y: 72, z: 0 },
+        nearbyBlocks: [
+          { id: "minecraft:oak_log", count: 3 },
+          {
+            id: "minecraft:oak_log",
+            count: 1,
+            x: 0,
+            y: 69,
+            z: 96,
+            distance: 96,
+            bearing: 0,
+            visible: true,
+          },
+        ],
+      }),
+      goal(),
+      MAX_ID,
+    );
+    assert.equal(plan.task?.skill.name, "goto");
+    assert.equal(plan.task?.skill.args["acceptPartial"], true);
+    assert.deepEqual(plan.task?.skill.args["target"], { x: 0, y: 69, z: 96 });
   });
 
   test("hotbar is used only when the full inventory is absent", () => {

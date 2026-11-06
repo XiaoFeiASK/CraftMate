@@ -40,4 +40,16 @@ class MiningPickupEvidenceTest {
 			MiningPickupEvidence.unconfirmedItems(gained, Set.of("minecraft:oak_log", "minecraft:apple"))
 		);
 	}
+
+	@Test
+	void unrelatedNearbyDropsDoNotConfirmTheTargetBlock() {
+		Map<String, Integer> gained = Map.of(
+			"minecraft:apple", 1,
+			"minecraft:oak_log", 1
+		);
+		assertEquals(
+			Map.of("minecraft:oak_log", 1),
+			MiningPickupEvidence.expectedGains(gained, Set.of("minecraft:oak_log"))
+		);
+	}
 }

@@ -65,8 +65,32 @@ const DROPPED_FOOD_NAME =
   /苹果|apple|腐肉|rotten flesh|牛肉|beef|鸡肉|chicken|猪肉|porkchop|羊肉|mutton|兔肉|rabbit|鳕鱼|cod|鲑鱼|salmon|面包|bread|胡萝卜|carrot|马铃薯|potato|甜菜根|beetroot|甜浆果|sweet berries/iu;
 const HOSTILE_ENTITIES =
   /zombie|husk|drowned|skeleton|stray|creeper|spider|witch|pillager|vindicator|evoker|ravager|enderman|slime|magma_cube|blaze|ghast|wither|piglin|hoglin|phantom|warden/iu;
+const FURNACE_FUEL_ITEMS =
+  /(^|:)(coal|charcoal|lava_bucket|blaze_rod|dried_kelp_block|coal_block|[a-z_]+_planks|[a-z_]+_log|[a-z_]+_wood|stick)$/u;
 /** Below this health a ranged mob is an immediate retreat, not a fair fight. */
 const RETREAT_HEALTH = 14;
+/**
+ * The body's chop search is bounded to 48 blocks. Starting a chop while the
+ * only observed trunk is near that edge often fails after a short approach,
+ * so walk toward the visible landmark first and let the next planning cycle
+ * issue the chop from reliable interaction range.
+ */
+const VISIBLE_WOOD_APPROACH_DISTANCE = 40;
+/**
+ * A placed table is a durable station. Rebuilding one every time the body
+ * explores more than a dozen blocks away burns wood and produces the visible
+ * "planks -> table -> place table" loop. Only treat the remembered station as
+ * lost after a genuinely long trip; the 3x3 craft skill can walk back to the
+ * saved position first.
+ */
+/**
+ * A 3×3 craft needs an interaction station, not a landmark anywhere in the
+ * render distance. A table more than eight blocks away is usually behind a
+ * tunnel wall or on another layer; making a fresh one from carried planks is
+ * both faster and more reliable than pathing back through a mineshaft.
+ */
+const REPLACE_TABLE_DISTANCE = 8;
+const REPLACE_TABLE_VERTICAL = 4;
 
 /**
  * Builds the single next executable task for a stage. When no task is ready,
@@ -77,6 +101,22 @@ export function nextTaskForStage(context: TaskContext): Task | BlockedTask | nul
   const { stage, facts, newId } = context;
   const safety = immediateSafetyTask(stage, facts, newId);
   if (safety !== null) return safety;
+  // Hunger is a survival need in every stage, not only while the food stage
+  // happens to be the current milestone. This keeps a later mining trip from
+  // ignoring a steak in the backpack until the body starves.
+  const meal = immediateFoodTask(stage, facts, newId);
+  if (meal !== null) return meal;
+  // Night and a full backpack are cross-stage needs too. Going home must win
+  // over a mining or exploration task, and offloading bulk items has to win
+  // before a full inventory silently blocks every pickup.
+  const nightHome = nightHomeTask(stage, facts, newId);
+  if (nightHome !== null) return nightHome;
+  const campChest = campChestTask(stage, facts, newId);
+  if (campChest !== null) return campChest;
+  const campBed = campBedTask(stage, facts, newId);
+  if (campBed !== null) return campBed;
+  const storage = homeStorageTask(stage, facts, newId);
+  if (storage !== null) return storage;
   let task: Task | BlockedTask | null;
   switch (stage) {
     case "wood-and-table":
@@ -108,6 +148,28 @@ export function nextTaskForStage(context: TaskContext): Task | BlockedTask | nul
       break;
   }
   return nightMobility(stage, facts, task, newId);
+}
+
+function immediateFoodTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  if (!isHungry(facts)) return null;
+  const food =
+    facts.inventory.find((slot) => FOOD_ITEMS.test(slot.item)) ??
+    facts.inventory.find((slot) => EMERGENCY_FOOD_ITEMS.test(slot.item));
+  if (food === undefined) return null;
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "interact",
+    title: `进食补充饥饿：${shortName(food.item)}`,
+    skill: skill("eat", { item: food.item }, newId),
+    preconditions: ["hunger is below the safe threshold", "food in inventory"],
+    expectedEvidence: [`${food.item} count decreases`, "food_consumed evidence"],
+    verify: (next) => inventoryCount(next, food.item) < inventoryCount(facts, food.item),
+  };
 }
 
 /**
@@ -381,21 +443,13 @@ function craftWithPrerequisite(
     )
   ) {
     if (nearbyHas(facts, WOOD_ITEMS) !== null) {
-      return {
-        id: `task:${newId()}`,
-        stage,
-        kind: "gather",
-        title: "补充原木",
-        skill: skill("chop_tree", { count: 1 }, newId),
-        preconditions: ["a log block is nearby", "no screen is open"],
-        expectedEvidence: ["a log enters the inventory"],
-        verify: (next) => next.inventory.some((slot) => WOOD_ITEMS.test(slot.item)),
-      };
+      const gather = woodGatherTask(facts, stage, "补充原木", newId);
+      if (gather !== null) return gather;
     }
     // No tree in this observation is not proof that the recipe is
-    // impossible. Walk one bounded step and look again instead of parking
-    // the whole season goal on an unseen log.
-    return explore(facts, stage, "寻找原木", "原木", 1, newId);
+    // impossible. Sweep far enough that a later snapshot is a genuinely new
+    // area; an 8–16 block leg kept the body orbiting the same clearing.
+    return explore(facts, stage, "寻找原木", "原木", 1, newId, 32, 48, true);
   }
   return blockedWith(stage, "craft", title, missing);
 }
@@ -475,6 +529,62 @@ function isRawWood(item: string): boolean {
 }
 
 /**
+ * Returns the correct next step for observed wood: chop what is close, or
+ * approach a tree that is visible but outside a reliable chop/route window.
+ * A visible far tree is still useful evidence; ignoring it caused the body
+ * to choose an unrelated exploration heading while the tree filled the view.
+ */
+export function woodGatherTask(
+  facts: WorldFacts,
+  stage: GoalId,
+  title: string,
+  newId: () => string,
+  count = 1,
+): Task | null {
+  const nearbyLog = nearbyHas(facts, WOOD_ITEMS);
+  if (nearbyLog === null) return null;
+  const hasTarget =
+    nearbyLog.visible === true &&
+    nearbyLog.distance !== undefined &&
+    nearbyLog.distance > VISIBLE_WOOD_APPROACH_DISTANCE &&
+    nearbyLog.x !== undefined &&
+    nearbyLog.z !== undefined;
+  if (!hasTarget) {
+    return {
+      id: `task:${newId()}`,
+      stage,
+      kind: "gather",
+      title,
+      skill: skill("chop_tree", { count }, newId),
+      preconditions: ["a log block is nearby", "no screen is open"],
+      expectedEvidence: ["a log enters the inventory"],
+      verify: (next) => next.inventory.some((slot) => WOOD_ITEMS.test(slot.item)),
+    };
+  }
+  const target = {
+    x: nearbyLog.x!,
+    y: nearbyLog.y ?? facts.position?.y ?? 64,
+    z: nearbyLog.z!,
+  };
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "navigate",
+    title: `接近可见树木：${title}`,
+    skill: skill("goto", { target, acceptPartial: true }, newId),
+    preconditions: [
+      "a log is visible but beyond reliable interaction range",
+      "a bounded safe route exists toward the tree's column",
+    ],
+    expectedEvidence: [
+      "the body reaches a closer observation point",
+      "a later snapshot places the log within chop range",
+    ],
+    verify: () => true,
+  };
+}
+
+/**
  * A missing table is itself a dependency. If planks are available on the
  * spot, turn the log/plank stock into the table first; otherwise keep the
  * explicit "need a station" reason.
@@ -483,12 +593,13 @@ function placeOrBuildTable(
   table: Task | BlockedTask,
   facts: WorldFacts,
   newId: () => string,
+  stage: GoalId = "stone-tools",
 ): Task | BlockedTask {
   if ("skill" in table) return table;
   if (!hasItem(facts, "minecraft:crafting_table")) {
     const tableRecipe = queryRecipe("minecraft:crafting_table");
     if (tableRecipe !== null && missingForRecipe(tableRecipe, facts).length === 0) {
-      return craftTask(tableRecipe, "stone-tools", facts, newId);
+      return craftTask(tableRecipe, stage, facts, newId);
     }
   }
   return table;
@@ -518,16 +629,7 @@ function woodAndTable(facts: WorldFacts, newId: () => string): Task | BlockedTas
       }
       const nearbyLog = nearbyHas(facts, WOOD_ITEMS);
       if (nearbyLog !== null) {
-        return {
-          id: `task:${newId()}`,
-          stage: "wood-and-table",
-          kind: "gather",
-          title: "砍树补齐工作台材料",
-          skill: skill("chop_tree", { count: 1 }, newId),
-          preconditions: ["a log block is nearby", "no screen is open"],
-          expectedEvidence: ["a log enters the inventory"],
-          verify: (next) => next.inventory.some((slot) => WOOD_ITEMS.test(slot.item)),
-        };
+        return woodGatherTask(facts, "wood-and-table", "砍树补齐工作台材料", newId);
       }
       return blockedWith("wood-and-table", "craft", "补齐工作台材料", [
         {
@@ -546,20 +648,21 @@ function woodAndTable(facts: WorldFacts, newId: () => string): Task | BlockedTas
     if (log === undefined) {
       const nearbyLog = nearbyHas(facts, WOOD_ITEMS);
       if (nearbyLog !== null) {
-        return {
-          id: `task:${newId()}`,
-          stage: "wood-and-table",
-          kind: "gather",
-          title: "砍树并获得原木",
-          skill: skill("chop_tree", { count: 1 }, newId),
-          preconditions: ["a log block is nearby", "no screen is open"],
-          expectedEvidence: ["a log enters the inventory"],
-          verify: (next) => next.inventory.some((slot) => WOOD_ITEMS.test(slot.item)),
-        };
+        return woodGatherTask(facts, "wood-and-table", "砍树并获得原木", newId);
       }
-      return blockedWith("wood-and-table", "gather", "寻找并砍原木", [
-        { kind: "resource", detail: "背包没有原木，附近也没有可观察到的原木" },
-      ]);
+      // "No log in this local observation" is not "no tree exists". Commit to
+      // a long, steady sweep so the next snapshot is genuinely new terrain.
+      return explore(
+        facts,
+        "wood-and-table",
+        "寻找树木",
+        "树木",
+        1,
+        newId,
+        32,
+        48,
+        true,
+      );
     }
     const planksRecipe = planksRecipeFor(facts);
     if (planksRecipe === null) return blocked("wood-and-table", "craft", "制作木板");
@@ -589,20 +692,19 @@ function woodAndTable(facts: WorldFacts, newId: () => string): Task | BlockedTas
     if (log === undefined) {
       const nearbyLog = nearbyHas(facts, WOOD_ITEMS);
       if (nearbyLog !== null) {
-        return {
-          id: `task:${newId()}`,
-          stage: "wood-and-table",
-          kind: "gather",
-          title: "砍树并获得原木",
-          skill: skill("chop_tree", { count: 1 }, newId),
-          preconditions: ["a log block is nearby", "no screen is open"],
-          expectedEvidence: ["a log enters the inventory"],
-          verify: (next) => next.inventory.some((slot) => WOOD_ITEMS.test(slot.item)),
-        };
+        return woodGatherTask(facts, "wood-and-table", "砍树并获得原木", newId);
       }
-      return blockedWith("wood-and-table", "gather", "寻找并砍原木", [
-        { kind: "resource", detail: "工作台已存在，但背包还没有木板或原木" },
-      ]);
+      return explore(
+        facts,
+        "wood-and-table",
+        "寻找原木",
+        "原木",
+        1,
+        newId,
+        32,
+        48,
+        true,
+      );
     }
     const recipe = planksRecipeFor(facts);
     if (recipe === null) return blocked("wood-and-table", "craft", "制作木板");
@@ -691,6 +793,10 @@ function reachableStone(facts: WorldFacts): NearbyBlock | null {
   return nearbyHas(facts, /(^|:)stone$/u);
 }
 
+function blockHasLocation(block: NearbyBlock): boolean {
+  return block.x !== undefined && block.y !== undefined && block.z !== undefined;
+}
+
 function logCount(facts: WorldFacts): number {
   return facts.inventory.reduce(
     (total, slot) => (WOOD_ITEMS.test(slot.item) ? total + slot.count : total),
@@ -741,6 +847,121 @@ function foodTask(facts: WorldFacts, newId: () => string): Task | BlockedTask | 
         detail: `${food.item} 在满饥饿时不可食用；保留作为下一段行程的储备`,
       },
     ]);
+  }
+  if (
+    facts.food !== undefined &&
+    facts.food !== null &&
+    facts.food >= 18 &&
+    (facts.health === undefined || facts.health === null || facts.health >= 12)
+  ) {
+    // The milestone advances in this state; do not keep chopping trees for an
+    // apple that is not needed. If hunger falls later, the stage reopens.
+    return null;
+  }
+  const position = facts.position;
+  if (
+    position !== undefined &&
+    position !== null &&
+    isHungry(facts) &&
+    facts.canSeeSky === false &&
+    (facts.health ?? 20) >= 12
+  ) {
+    // Cave animals are rare, but zombies are common and drop emergency
+    // food. A starving body should take that fight before committing to a
+    // hundred-block staircase; the eat task already knows rotten flesh is
+    // an emergency meal.
+    const zombie = nearestEntity(facts, /(^|:)(zombie|husk|drowned)$/u, 14);
+    if (zombie !== null) {
+      return {
+        id: `task:${newId()}`,
+        stage: "food",
+        kind: "combat",
+        title: `猎取 ${shortName(zombie.type)} 获取应急食物`,
+        skill: skill("attack", {
+          target: zombie.type,
+          count: 1,
+          radius: 14,
+          lethal: true,
+          collect: true,
+        }, newId),
+        preconditions: ["hunger is low", "a zombie is within the cave search radius"],
+        expectedEvidence: ["an entity is damaged", "rotten flesh enters the inventory"],
+        verify: (next) => inventoryCount(next, "minecraft:rotten_flesh") > 0,
+      };
+    }
+  }
+  const surfaceY = facts.surfaceY;
+  if (
+    position !== undefined &&
+    position !== null &&
+    isHungry(facts) &&
+    facts.canSeeSky === false &&
+    surfaceY !== undefined &&
+    surfaceY !== null &&
+    surfaceY > position.y + 1
+  ) {
+    // Passive animals live on the surface. Exploring a cave at y=16 for a
+    // meal is not a hunt, it is a slow starvation: the body has no surface
+    // fact to steer by, so it sweeps the same dark tunnels until hunger
+    // empties. Climb in bounded 12-block stages; the next snapshot re-reads
+    // the real surface height and either continues or starts hunting.
+    const targetY = Math.min(surfaceY, position.y + 12);
+    return {
+      id: `task:${newId()}`,
+      stage: "food",
+      kind: "navigate",
+      title: `挖阶梯接近地表寻找食物（还差 ${surfaceY - position.y} 格）`,
+      skill: skill("goto", {
+        target: {
+          x: position.x,
+          y: targetY,
+          z: position.z,
+        },
+        acceptPartial: false,
+      }, newId),
+      preconditions: ["hunger is low", "the body is underground", "no food in inventory"],
+      expectedEvidence: ["the body gains height toward the surface layer"],
+      verify: (next) =>
+        next.position === undefined ||
+        next.position === null ||
+        next.position.y > position.y,
+    };
+  }
+  const surfaceAnchor = facts.craftingTable;
+  if (
+    position !== undefined &&
+    position !== null &&
+    surfaceAnchor !== undefined &&
+    surfaceAnchor !== null &&
+    position.y < 60 &&
+    surfaceAnchor.y > position.y + 1
+  ) {
+    // Passive animals and oak canopies live on the surface. Sweeping the
+    // mining layer at y=16 forever cannot create a meal; use the table the
+    // body placed above ground as a known route back to daylight.
+    const candidates = [
+      { x: surfaceAnchor.x + 1, y: surfaceAnchor.y, z: surfaceAnchor.z },
+      { x: surfaceAnchor.x - 1, y: surfaceAnchor.y, z: surfaceAnchor.z },
+      { x: surfaceAnchor.x, y: surfaceAnchor.y, z: surfaceAnchor.z + 1 },
+      { x: surfaceAnchor.x, y: surfaceAnchor.y, z: surfaceAnchor.z - 1 },
+    ];
+    return {
+      id: `task:${newId()}`,
+      stage: "food",
+      kind: "navigate",
+      title: "返回地面工作台寻找食物",
+      skill: skill("goto", {
+        target: candidates[0]!,
+        candidates,
+        acceptPartial: false,
+      }, newId),
+      preconditions: ["hunger is low", "no food or visible animal nearby"],
+      expectedEvidence: ["the body reaches the surface workstation layer"],
+      verify: (next) =>
+        next.position === undefined ||
+        next.position === null ||
+        next.position.y >= surfaceAnchor.y - 1,
+    };
   }
   const foodAnimals = /(^|:)(cow|pig|chicken|rabbit|sheep)$/u;
   // The body observes further than it can see through terrain, and the attack
@@ -825,6 +1046,24 @@ function foodTask(facts: WorldFacts, newId: () => string): Task | BlockedTask | 
   // species-specific; `chop_tree` could pick a birch and produce no apples.
   const oakLog = nearbyHas(facts, /(^|:)(dark_oak|oak)_log$/u);
   const oakLeaves = nearbyHas(facts, /(^|:)(dark_oak|oak)_leaves$/u);
+  const hasWoodReserve = logCount(facts) >= 16;
+  if (oakLeaves !== null && (hasWoodReserve || oakLog === null)) {
+    // A healthy log reserve does not need another tree. Sweep the canopy for
+    // the only food drop it can produce instead of filling the backpack with
+    // more construction wood.
+    return {
+      id: `task:${newId()}`,
+      stage: "food",
+      kind: "gather",
+      title: "打落橡树叶寻找苹果",
+      skill: skill("mine_block", { block: oakLeaves.id, count: 32 }, newId),
+      preconditions: ["oak leaves are nearby", "no passive animal is in the hunt window"],
+      expectedEvidence: ["oak leaves are broken", "the leaf drop table may produce an apple"],
+      verify: (next) =>
+        next.foodAcquired === true ||
+        next.inventory.some((slot) => FOOD_ITEMS.test(slot.item)),
+    };
+  }
   if (oakLog !== null) {
     // Chopping logs is the reliable half of the apple strategy. It produces
     // a drop at the body's feet, so the mining task can confirm pickup and
@@ -845,23 +1084,6 @@ function foodTask(facts: WorldFacts, newId: () => string): Task | BlockedTask | 
       verify: (next) => logCount(next) > logCount(facts),
     };
   }
-  if (oakLeaves !== null) {
-    // No trunk is reachable, but a canopy is. This is the last land-food
-    // chance; a failed pickup still leaves the body somewhere new, and the
-    // runtime's bounded backoff prevents a tight retry loop.
-    return {
-      id: `task:${newId()}`,
-      stage: "food",
-      kind: "gather",
-      title: "打落橡树叶寻找苹果",
-      skill: skill("mine_block", { block: oakLeaves.id, count: 48 }, newId),
-      preconditions: ["oak leaves are nearby", "no reachable oak trunk"],
-      expectedEvidence: ["oak leaves are broken", "the leaf drop table may produce an apple"],
-      verify: (next) =>
-        next.foodAcquired === true ||
-        next.inventory.some((slot) => FOOD_ITEMS.test(slot.item)),
-    };
-  }
   // There is no visible animal. An attack with no target fails in the same
   // tick and the runtime then retries byte-identical work after every
   // backoff, which looks exactly like an idle agent. Walking to a new
@@ -873,15 +1095,25 @@ function foodTask(facts: WorldFacts, newId: () => string): Task | BlockedTask | 
 }
 
 function shelter(facts: WorldFacts, newId: () => string): Task | BlockedTask | null {
+  if (facts.sleeping === true) return null;
+
+  const bedNearby = nearbyHas(facts, BED_ITEMS);
+  const bedItem = facts.inventory.find((slot) => BED_ITEMS.test(slot.item));
   const hasBed =
-    facts.inventory.some((slot) => BED_ITEMS.test(slot.item)) ||
-    nearbyHas(facts, BED_ITEMS) !== null;
+    facts.bedPlaced === true ||
+    bedNearby !== null ||
+    bedItem !== undefined;
+  let bedRecipe: CraftingRecipe | null = null;
+  let bedMissing: readonly Missing[] = [];
   if (!hasBed) {
-    const recipe = queryRecipe("minecraft:white_bed");
-    if (recipe === null) return blocked("shelter", "craft", "制作床");
-    const missing = missingForRecipe(recipe, facts);
-    const woolMissing = missing.find((entry) => /_wool$/u.test(entry.item ?? ""));
+    bedRecipe = queryRecipe("minecraft:white_bed");
+    if (bedRecipe === null) return blocked("shelter", "craft", "制作床");
+    bedMissing = missingForRecipe(bedRecipe, facts);
+    const woolMissing = bedMissing.find((entry) => /_wool$/u.test(entry.item ?? ""));
     if (woolMissing !== undefined) {
+      // Wool is the gate for a bed and does not need a crafting table yet.
+      // Hunt a flock before walking to a station, otherwise a missing table
+      // can send the body on a 200-block wood sweep while a sheep is nearby.
       const sheep = nearestEntityWithinHeight(facts, /(^|:)sheep$/u, 40);
       if (sheep !== null) {
         const approach = approachEntity(facts, "shelter", sheep, "绵羊", newId);
@@ -903,96 +1135,556 @@ function shelter(facts: WorldFacts, newId: () => string): Task | BlockedTask | n
           verify: (next) => next.inventory.some((slot) => WOOL_ITEMS.test(slot.item)),
         };
       }
-      // A wool shortage is not a dead end when no sheep is in the bounded
-      // observation. Search a new area, then re-plan from the new facts.
-      // A forest can be empty of sheep for a long time. The generic 8–16
-      // block sweep kept the body orbiting the same clearing; a bed needs a
-      // real trip to a new biome, so use the same longer, steady heading as
-      // the animal hunt instead of re-observing the same trees.
+      // A forest can be empty of sheep for a long time. Sweep a new area for
+      // a real flock instead of orbiting the same clearing forever.
       return explore(facts, "shelter", "寻找绵羊", "羊", woolMissing.count ?? 2, newId, 24, 40, true);
     }
-    return missing.length === 0
-      ? craftTask(recipe, "shelter", facts, newId)
-      : blockedWith("shelter", "craft", "制作床", missing);
   }
-  if (facts.sleeping === true) return null;
-  if (isNight(facts) === false) {
-    return blockedWith("shelter", "interact", "等待夜晚后睡觉", [
-      { kind: "resource", detail: "白天无法睡觉；先继续准备铁器或等待入夜" },
-    ]);
+
+  // The placed crafting table is the camp anchor. If the remembered table is
+  // far away or unreachable, ensureTable builds a fresh one here, so every
+  // camp task works from a real, current workstation instead of a stale
+  // coordinate from an earlier cave trip.
+  const table = ensureTable(facts, "shelter", newId);
+  if (table !== null) return placeOrBuildTable(table, facts, newId, "shelter");
+
+  const chestNearby = nearbyHas(facts, /(^|:)chest$/u);
+  const chestItem = facts.inventory.find((slot) => /(^|:)chest$/u.test(slot.item));
+  const hasChest =
+    facts.chestPlaced === true ||
+    chestNearby !== null ||
+    chestItem !== undefined;
+  if (!hasChest) {
+    const recipe = queryRecipe("minecraft:chest");
+    if (recipe === null) return blocked("shelter", "craft", "制作箱子");
+    const missing = missingForRecipe(recipe, facts);
+    if (missing.length === 0) return craftTask(recipe, "shelter", facts, newId);
+    const prerequisite = craftWithPrerequisite(recipe, "shelter", facts, newId, "制作箱子");
+    if ("skill" in prerequisite) return prerequisite;
+    return blockedWith("shelter", "craft", "制作箱子", missing);
   }
-  if (nearbyHas(facts, BED_ITEMS) === null) {
-    return {
-      id: `task:${newId()}`,
-      stage: "shelter",
-      kind: "place",
-      title: "放置床",
-      skill: skill("place_block", {
-        block: facts.inventory.find((slot) => BED_ITEMS.test(slot.item))?.item ?? "minecraft:white_bed",
-        count: 1,
-      }, newId),
-      preconditions: ["a bed is in inventory", "a safe two-block space exists"],
-      expectedEvidence: ["nearbyBlocks contains a bed"],
-      verify: (next) => nearbyHas(next, BED_ITEMS) !== null,
-    };
+  if (chestItem !== undefined && chestNearby === null && facts.chestPlaced !== true) {
+    return placeChestTask("shelter", facts, chestItem.item, newId);
   }
+
+  const home = homeAnchor(facts);
+  if (
+    home !== null &&
+    facts.position !== undefined &&
+    facts.position !== null &&
+    distanceTo(facts.position, home) > 6 &&
+    chestNearby === null &&
+    nearbyHas(facts, BED_ITEMS) === null
+  ) {
+    const goHome = gotoHomeTask("shelter", facts, newId);
+    if (goHome !== null) return goHome;
+  }
+
+  if (!hasBed) {
+    if (bedRecipe === null) return blocked("shelter", "craft", "制作床");
+    return bedMissing.length === 0
+      ? craftTask(bedRecipe, "shelter", facts, newId)
+      : craftWithPrerequisite(bedRecipe, "shelter", facts, newId, "制作床");
+  }
+  if (bedItem !== undefined && bedNearby === null && facts.bedPlaced !== true) {
+    return placeBedTask("shelter", facts, bedItem.item, newId);
+  }
+  if (isNight(facts) === true && bedNearby !== null) {
+    return sleepTask("shelter", facts, newId);
+  }
+  return null;
+}
+
+/**
+ * The camp anchor is the first durable station the body placed. Prefer the
+ * chest: it is the storage destination and usually sits beside the bed.
+ */
+function homeAnchor(
+  facts: WorldFacts,
+): { readonly x: number; readonly y: number; readonly z: number } | null {
+  return facts.chest ?? facts.bed ?? facts.craftingTable ?? null;
+}
+
+function distanceTo(
+  left: { readonly x: number; readonly y: number; readonly z: number },
+  right: { readonly x: number; readonly y: number; readonly z: number },
+): number {
+  return Math.hypot(left.x - right.x, left.y - right.y, left.z - right.z);
+}
+
+function nearbyPoint(block: NearbyBlock | null): { x: number; y: number; z: number } | undefined {
+  return block !== null && blockHasLocation(block)
+    ? { x: block.x!, y: block.y!, z: block.z! }
+    : undefined;
+}
+
+function gotoHomeTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  const home = homeAnchor(facts);
+  const position = facts.position;
+  if (home === null || position === undefined || position === null) return null;
+  // Stand beside the station, never inside its own cell. The top face of a
+  // chest/table is one block above the block coordinate.
+  const y = home.y + 1;
+  const candidates = [
+    { x: home.x + 1, y, z: home.z },
+    { x: home.x - 1, y, z: home.z },
+    { x: home.x, y, z: home.z + 1 },
+    { x: home.x, y, z: home.z - 1 },
+  ];
   return {
     id: `task:${newId()}`,
-    stage: "shelter",
+    stage,
+    kind: "navigate",
+    title: "回家",
+    skill: skill("goto", {
+      target: candidates[0],
+      candidates,
+      acceptPartial: false,
+    }, newId),
+    preconditions: ["a placed home station is remembered", "a safe route home exists"],
+    expectedEvidence: ["the body reaches the camp"],
+    verify: () => true,
+  };
+}
+
+function placeChestTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  item: string,
+  newId: () => string,
+): Task {
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "place",
+    title: "在家放置箱子",
+    skill: skill("place_block", { block: item, count: 1 }, newId),
+    preconditions: ["a chest item is in the inventory", "a safe adjacent block face exists"],
+    expectedEvidence: ["the body reports a placed camp chest"],
+    verify: (next) => next.chestPlaced === true || nearbyHas(next, /(^|:)chest$/u) !== null,
+  };
+}
+
+function placeBedTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  item: string,
+  newId: () => string,
+): Task {
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "place",
+    title: "在家放置床",
+    skill: skill("place_block", { block: item, count: 1 }, newId),
+    preconditions: ["a bed is in inventory", "a safe two-block space exists"],
+    expectedEvidence: ["the body reports a placed camp bed"],
+    verify: (next) => next.bedPlaced === true || nearbyHas(next, BED_ITEMS) !== null,
+  };
+}
+
+function sleepTask(stage: GoalId, facts: WorldFacts, newId: () => string): Task {
+  return {
+    id: `task:${newId()}`,
+    stage,
     kind: "interact",
-    title: "睡到第二天",
+    title: "回家睡觉",
     skill: skill("sleep", {}, newId),
-    preconditions: ["night time", "bed is nearby"],
+    preconditions: ["night time", "the camp bed is nearby"],
     expectedEvidence: ["sleeping is confirmed", "day advances"],
     verify: (next) => next.sleeping === true || (next.day ?? 0) > (facts.day ?? 0),
   };
 }
 
+/**
+ * Night is not a stage. Whatever the body was doing, it should walk back to
+ * the camp and sleep rather than stand in the dark next to a creeper.
+ */
+function nightHomeTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  if (isNight(facts) !== true || facts.sleeping === true) return null;
+  const bedNearby = nearbyHas(facts, BED_ITEMS);
+  if (bedNearby !== null) return sleepTask(stage, facts, newId);
+  const bedItem = facts.inventory.find((slot) => BED_ITEMS.test(slot.item));
+  const home = homeAnchor(facts);
+  const position = facts.position;
+  if (bedItem !== undefined) {
+    if (
+      home !== null &&
+      position !== undefined &&
+      position !== null &&
+      distanceTo(position, home) > 6
+    ) {
+      return gotoHomeTask(stage, facts, newId);
+    }
+    return placeBedTask(stage, facts, bedItem.item, newId);
+  }
+  if (
+    facts.bedPlaced === true &&
+    home !== null &&
+    position !== undefined &&
+    position !== null &&
+    distanceTo(position, home) > 6
+  ) {
+    return gotoHomeTask(stage, facts, newId);
+  }
+  return null;
+}
+
+const STORAGE_ITEMS =
+  /(^|:)(cobblestone|raw_copper|dirt|oak_sapling|gravel|andesite|diorite|granite|tuff|deepslate|netherrack)$/u;
+
+function usedInventorySlots(facts: WorldFacts): number {
+  return facts.inventory.filter((slot) => slot.count > 0).length;
+}
+
+function storageChoice(facts: WorldFacts): string | null {
+  const candidates = facts.inventory
+    .filter((slot) => STORAGE_ITEMS.test(slot.item) && slot.count > 0)
+    .filter(
+      (slot) =>
+        !(
+          slot.item === "minecraft:cobblestone" &&
+          pickaxeTier(facts) < 2 &&
+          slot.count < 32
+        ),
+    )
+    .sort((left, right) => right.count - left.count);
+  return candidates[0]?.item ?? null;
+}
+
+/**
+ * A full backpack is a real blocker: the body cannot pick up iron or food.
+ * When the camp chest is close, offload one bulk material per task. The
+ * whitelist deliberately excludes tools, food, coal, planks and logs.
+ */
+function homeStorageTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  if (usedInventorySlots(facts) < 28) return null;
+  const chestNearby = nearbyHas(facts, /(^|:)chest$/u);
+  const container = facts.chest ?? nearbyPoint(chestNearby);
+  // A remembered chest may be one floor above the body. Euclidean distance
+  // does not prove that it is reachable or that the body is standing at the
+  // container, so travel home first when the chest is not on this level.
+  if (container === undefined) {
+    if (facts.chestPlaced !== true) return null;
+    return gotoHomeTask(stage, facts, newId);
+  }
+  const position = facts.position;
+  if (
+    position !== undefined &&
+    position !== null &&
+    position.y > container.y + 1
+  ) {
+    // A long staircase can wear out the only pickaxe. Do not fall through to
+    // a plain goto: the surface route cannot reach a camp dozens of blocks
+    // below, and the body has enough wood/cobblestone to restore its tools.
+    // Let the current survival stage craft that pickaxe first, then storage
+    // will plan the descent again from the fresher observation.
+    if (pickaxeTier(facts) < 1) return null;
+    // A wooden pickaxe is a bad staircase tool: a full backpack can force a
+    // forty-block descent, which is close to its whole durability. When the
+    // carried cobblestone can make a stone pickaxe, let the tool stage do
+    // that first instead of preempting it with the urgent storage trip.
+    if (
+      pickaxeTier(facts) < 2 &&
+      inventoryCount(facts, "minecraft:cobblestone") >= 3
+    ) {
+      return null;
+    }
+    return {
+      id: `task:${newId()}`,
+      stage,
+      kind: "mine",
+      title: "挖安全阶梯下到营地",
+      skill: skill("descend", {
+        targetY: container.y + 1,
+        branchLength: 0,
+      }, newId),
+      preconditions: [
+        "the remembered camp is below the body",
+        "a pickaxe is available",
+        "a safe staircase can keep a return route",
+      ],
+      expectedEvidence: ["the body reaches the camp layer"],
+      verify: (next) =>
+        (next.position?.y ?? Number.POSITIVE_INFINITY) <= container.y + 1,
+    };
+  }
+  if (
+    position !== undefined &&
+    position !== null &&
+    (distanceTo(position, container) > 6 ||
+      Math.abs(position.y - container.y) > 2)
+  ) {
+    return gotoHomeTask(stage, facts, newId);
+  }
+  const item = storageChoice(facts);
+  if (item === null) return null;
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "gather",
+    title: `把 ${shortName(item)} 存进家里箱子`,
+    skill: skill("deposit", {
+      item,
+      container,
+    }, newId),
+    preconditions: ["the camp chest is remembered", "a bulk material is filling the backpack"],
+    expectedEvidence: ["the item count in the inventory decreases", "the chest receives the items"],
+    verify: (next) => inventoryCount(next, item) < inventoryCount(facts, item),
+  };
+}
+
+/**
+ * Storage is a cross-stage need. A full backpack during an iron trip is the
+ * point where a player walks home and makes a chest; waiting for the shelter
+ * stage would mean mining cannot pick up any more ore.
+ */
+function campChestTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | BlockedTask | null {
+  const chestNearby = nearbyHas(facts, /(^|:)chest$/u);
+  const chestItem = facts.inventory.find((slot) => /(^|:)chest$/u.test(slot.item));
+  if (facts.chestPlaced === true || chestNearby !== null) return null;
+  if (chestItem !== undefined) {
+    const home = homeAnchor(facts);
+    if (
+      home !== null &&
+      facts.position !== undefined &&
+      facts.position !== null &&
+      distanceTo(facts.position, home) > 6
+    ) {
+      return gotoHomeTask(stage, facts, newId);
+    }
+    return placeChestTask(stage, facts, chestItem.item, newId);
+  }
+  // Do not turn an empty backpack into a chest project. Once the body is
+  // carrying a real load, storage is worth the wood and table time.
+  if (usedInventorySlots(facts) < 24) return null;
+  const table = ensureTable(facts, stage, newId);
+  if (table !== null) return placeOrBuildTable(table, facts, newId, stage);
+  const recipe = queryRecipe("minecraft:chest");
+  if (recipe === null) return null;
+  const missing = missingForRecipe(recipe, facts);
+  if (missing.length === 0) return craftTask(recipe, stage, facts, newId);
+  const prerequisite = craftWithPrerequisite(recipe, stage, facts, newId, "制作箱子");
+  return "skill" in prerequisite ? prerequisite : null;
+}
+
+/**
+ * A bed is also useful before the shelter stage: if the flock is already
+ * dead and the wool is in the backpack, craft and place the bed at home as
+ * soon as a table is reachable rather than carrying three wool for hours.
+ */
+function campBedTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | BlockedTask | null {
+  if (facts.bedPlaced === true || nearbyHas(facts, BED_ITEMS) !== null) return null;
+  const bedItem = facts.inventory.find((slot) => BED_ITEMS.test(slot.item));
+  if (bedItem !== undefined) {
+    const home = homeAnchor(facts);
+    if (
+      home !== null &&
+      facts.position !== undefined &&
+      facts.position !== null &&
+      distanceTo(facts.position, home) > 6
+    ) {
+      return gotoHomeTask(stage, facts, newId);
+    }
+    return placeBedTask(stage, facts, bedItem.item, newId);
+  }
+  const wool = facts.inventory
+    .filter((slot) => WOOL_ITEMS.test(slot.item))
+    .reduce((total, slot) => total + slot.count, 0);
+  if (wool < 3) return null;
+  const table = ensureTable(facts, stage, newId);
+  if (table !== null) return placeOrBuildTable(table, facts, newId, stage);
+  const recipe = queryRecipe("minecraft:white_bed");
+  if (recipe === null) return null;
+  const missing = missingForRecipe(recipe, facts);
+  if (missing.length === 0) return craftTask(recipe, stage, facts, newId);
+  const prerequisite = craftWithPrerequisite(recipe, stage, facts, newId, "制作床");
+  return "skill" in prerequisite ? prerequisite : null;
+}
+
 function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null {
   const table = ensureTable(facts, "iron", newId);
   if (table !== null) return table;
-  if (!hasItem(facts, "minecraft:furnace") && !hasStation(facts, "furnace")) {
+  if (!hasStation(facts, "furnace")) {
+    if (hasItem(facts, "minecraft:furnace")) {
+      return {
+        id: `task:${newId()}`,
+        stage: "iron",
+        kind: "place",
+        title: "放置熔炉",
+        skill: skill("place_block", { block: "minecraft:furnace", count: 1 }, newId),
+        preconditions: ["furnace in inventory", "a safe adjacent block face exists"],
+        expectedEvidence: ["nearbyBlocks contains furnace"],
+        verify: (next) => nearbyHas(next, /furnace$/u) !== null,
+      };
+    }
     const recipe = queryRecipe("minecraft:furnace");
     if (recipe === null) return blocked("iron", "craft", "制作熔炉");
     const missing = missingForRecipe(recipe, facts);
     if (missing.length === 0) return craftTask(recipe, "iron", facts, newId);
     const prerequisite = craftWithPrerequisite(recipe, "iron", facts, newId, "制作熔炉");
     if ("skill" in prerequisite) return prerequisite;
+    const cobblestoneMissing = recipe.ingredients
+      .filter((ingredient) => ingredient.choices.includes("minecraft:cobblestone"))
+      .reduce(
+        (total, ingredient) =>
+          total +
+          Math.max(
+            0,
+            ingredient.count -
+              ingredient.choices.reduce(
+                (available, choice) => available + inventoryCount(facts, choice),
+                0,
+              ),
+          ),
+        0,
+      );
+    if (cobblestoneMissing > 0) {
+      // A furnace needs eight cobblestone. Surface exploration cannot create
+      // stone, and the body already carries a pickaxe by this stage, so go
+      // down and mine it. The staircase also exposes coal and iron for the
+      // following milestones instead of wandering across the same clearing.
+      return miningLayerTask(
+        "iron",
+        facts,
+        newId,
+        16,
+        8,
+        `下矿采集 ${cobblestoneMissing} 块圆石并寻找煤铁`,
+      );
+    }
     return missing.some((entry) => entry.kind === "station")
       ? prerequisite
       : explore(facts, "iron", "寻找熔炉材料", "圆石", 8, newId);
   }
-  if (inventoryCount(facts, "minecraft:raw_iron") < 3 && inventoryCount(facts, "minecraft:iron_ingot") < 3) {
-    const ore = nearbyHas(facts, /iron_ore$/u);
-    if (ore === null) {
-      return explore(facts, "iron", "寻找铁矿石", "铁矿石", 3, newId);
+  if (inventoryCount(facts, "minecraft:torch") < 4) {
+    const coal =
+      inventoryCount(facts, "minecraft:coal") +
+      inventoryCount(facts, "minecraft:charcoal");
+    const torchRecipe = queryRecipe("minecraft:torch");
+    if (coal > 0 && torchRecipe !== null) {
+      return craftWithPrerequisite(
+        torchRecipe,
+        "iron",
+        facts,
+        newId,
+        "制作火把",
+      );
     }
-    return {
-      id: `task:${newId()}`,
-      stage: "iron",
-      kind: "mine",
-      title: "挖 3 块铁矿石",
-      skill: skill("mine_block", { block: ore.id, count: 3 }, newId),
-      preconditions: ["stone pickaxe or better", "iron ore nearby"],
-      expectedEvidence: ["raw_iron count reaches 3"],
-      verify: (next) => inventoryCount(next, "minecraft:raw_iron") >= 3,
-    };
+    const coalOre = nearbyHas(facts, /coal_ore$/u);
+    if (coalOre !== null && blockHasLocation(coalOre)) {
+      return {
+        id: `task:${newId()}`,
+        stage: "iron",
+        kind: "mine",
+        title: "挖煤制作火把",
+        skill: skill("mine_block", { block: coalOre.id, count: 1 }, newId),
+        preconditions: ["stone pickaxe or better", "coal ore nearby"],
+        expectedEvidence: ["coal count increases"],
+        verify: (next) => inventoryCount(next, "minecraft:coal") > inventoryCount(facts, "minecraft:coal"),
+      };
+    }
+    const log = facts.inventory.find((slot) => WOOD_ITEMS.test(slot.item));
+    const fuel = fuelChoice(facts, log?.item, 1);
+    if (log !== undefined && fuel !== null && hasStation(facts, "furnace")) {
+      return smeltTask(
+        "iron",
+        log.item,
+        "minecraft:charcoal",
+        1,
+        fuel,
+        facts,
+        newId,
+      );
+    }
+    return miningLayerTask(
+      "iron",
+      facts,
+      newId,
+        16,
+      12,
+      "开挖矿道寻找煤炭",
+    );
   }
-  if (inventoryCount(facts, "minecraft:iron_ingot") < 3) {
-    const recipe = smeltingFor("minecraft:iron_ingot").find((entry) => entry.station === "furnace");
-    if (recipe === undefined) return blocked("iron", "smelt", "熔炼铁锭");
-    return {
-      id: `task:${newId()}`,
-      stage: "iron",
-      kind: "smelt",
-      title: "熔炼 3 个铁锭",
-      skill: skill("use_block", { block: "minecraft:furnace" }, newId),
-      preconditions: ["furnace in reach", "fuel available", "raw iron in inventory"],
-      expectedEvidence: ["iron_ingot count increases"],
-      verify: (next) => inventoryCount(next, "minecraft:iron_ingot") > inventoryCount(facts, "minecraft:iron_ingot"),
-    };
-  }
-  if (!hasItem(facts, "minecraft:iron_pickaxe")) {
+  const pickaxeMissing = !hasItem(facts, "minecraft:iron_pickaxe");
+  const swordMissing = !hasItem(facts, "minecraft:iron_sword");
+  const ingots = inventoryCount(facts, "minecraft:iron_ingot");
+  const rawIron = inventoryCount(facts, "minecraft:raw_iron");
+  /**
+   * A player upgrades the pickaxe as soon as three ingots exist; waiting for
+   * the sword's two extra ingots made the body keep branch-mining while four
+   * usable raw iron sat in the backpack. Each tool is therefore its own gate.
+   */
+  const toolPlan = (neededIngots: number): Task | BlockedTask | null => {
+    const missingMetal = Math.max(0, neededIngots - ingots - rawIron);
+    if (missingMetal > 0) {
+      const ore = nearbyHas(facts, /iron_ore$/u);
+      if (ore === null || !blockHasLocation(ore)) {
+        return miningLayerTask(
+          "iron",
+          facts,
+          newId,
+          16,
+          12,
+          "开挖矿道寻找铁矿石",
+        );
+      }
+      return {
+        id: `task:${newId()}`,
+        stage: "iron",
+        kind: "mine",
+        title: `挖 ${missingMetal} 块铁矿石`,
+        skill: skill("mine_block", { block: ore.id, count: missingMetal }, newId),
+        preconditions: ["stone pickaxe or better", "iron ore nearby"],
+        expectedEvidence: [`raw_iron count increases by ${missingMetal}`],
+        verify: (next) =>
+          inventoryCount(next, "minecraft:raw_iron") >= rawIron + missingMetal,
+      };
+    }
+    if (ingots < neededIngots) {
+      const recipe = smeltingFor("minecraft:iron_ingot").find(
+        (entry) => entry.station === "furnace",
+      );
+      if (recipe === undefined) return blocked("iron", "smelt", "熔炼铁锭");
+      const fuel = fuelChoice(facts);
+      if (fuel === null) {
+        return explore(facts, "iron", "寻找熔炉燃料", "燃料", 1, newId);
+      }
+      return smeltTask(
+        "iron",
+        "minecraft:raw_iron",
+        "minecraft:iron_ingot",
+        neededIngots - ingots,
+        fuel,
+        facts,
+        newId,
+      );
+    }
+    return null;
+  };
+  if (pickaxeMissing) {
+    const preparation = toolPlan(3);
+    if (preparation !== null) return preparation;
     const recipe = queryRecipe("minecraft:iron_pickaxe");
     if (recipe === null) return blocked("iron", "craft", "制作铁镐");
     const missing = missingForRecipe(recipe, facts);
@@ -1000,7 +1692,113 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
       ? craftTask(recipe, "iron", facts, newId)
       : craftWithPrerequisite(recipe, "iron", facts, newId, "制作铁镐");
   }
+  if (swordMissing) {
+    const preparation = toolPlan(2);
+    if (preparation !== null) return preparation;
+    const recipe = queryRecipe("minecraft:iron_sword");
+    if (recipe === null) return blocked("iron", "craft", "制作铁剑");
+    const missing = missingForRecipe(recipe, facts);
+    return missing.length === 0
+      ? craftTask(recipe, "iron", facts, newId)
+      : craftWithPrerequisite(recipe, "iron", facts, newId, "制作铁剑");
+  }
   return null;
+}
+
+function smeltTask(
+  stage: GoalId,
+  input: string,
+  output: string,
+  count: number,
+  fuel: string,
+  facts: WorldFacts,
+  newId: () => string,
+): Task {
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "smelt",
+    title: `熔炼 ${shortName(output)} ×${count}`,
+    skill: skill("smelt", { input, output, count, fuel }, newId),
+    preconditions: ["furnace in reach", `${fuel} as fuel`, `${input} in inventory`],
+    expectedEvidence: [`${output} count increases by ${count}`],
+    verify: (next) =>
+      inventoryCount(next, output) >= inventoryCount(facts, output) + count,
+  };
+}
+
+function fuelChoice(
+  facts: WorldFacts,
+  reservedItem?: string,
+  reservedCount = 0,
+): string | null {
+  const preferred = [
+    "minecraft:coal",
+    "minecraft:charcoal",
+    "minecraft:coal_block",
+    "minecraft:blaze_rod",
+    "minecraft:dried_kelp_block",
+    "minecraft:oak_planks",
+    "minecraft:oak_log",
+    "minecraft:stick",
+  ];
+  for (const item of preferred) {
+    const reserved = item === reservedItem ? reservedCount : 0;
+    if (item === "minecraft:oak_planks") {
+      const planks = facts.inventory
+        .filter((slot) => PLANK_ITEMS.test(slot.item))
+        .reduce((total, slot) => total + slot.count, 0);
+      if (planks > reserved) return item;
+      continue;
+    }
+    if (inventoryCount(facts, item) > reserved) return item;
+  }
+  const found = facts.inventory.find(
+    (slot) =>
+      FURNACE_FUEL_ITEMS.test(slot.item) &&
+      inventoryCount(facts, slot.item) > (slot.item === reservedItem ? reservedCount : 0),
+  );
+  return found?.item ?? null;
+}
+
+/**
+ * A surface sweep cannot expose buried coal, iron or diamonds. Once the body
+ * has a pickaxe, the reliable move is a safe staircase to the right layer and
+ * a short branch tunnel there; the next snapshot then sees the fresh faces.
+ */
+function miningLayerTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+  targetY: number,
+  branchLength: number,
+  title: string,
+): Task {
+  const y = facts.position?.y;
+  const descending = y === undefined || y === null || y > targetY + 1;
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "mine",
+    title,
+    skill: skill("descend", {
+      targetY,
+      branchLength: descending ? 0 : branchLength,
+    }, newId),
+    preconditions: [
+      "a pickaxe is in the hotbar",
+      "solid floor below the landing of each staircase step",
+      "no fluid in the mining path",
+    ],
+    expectedEvidence: [
+      "the body reaches the target mining layer",
+      "fresh branch blocks are broken",
+      "ore or stone drops enter the inventory",
+    ],
+    verify: (next) =>
+      (next.position?.y ?? Number.POSITIVE_INFINITY) <= targetY ||
+      next.inventory.length !== facts.inventory.length,
+  };
 }
 
 function nether(facts: WorldFacts, newId: () => string): Task | BlockedTask | null {
@@ -1014,9 +1812,31 @@ function nether(facts: WorldFacts, newId: () => string): Task | BlockedTask | nu
     const prerequisite = craftWithPrerequisite(recipe, "nether", facts, newId, "制作钻石镐");
     if ("skill" in prerequisite) return prerequisite;
     const diamond = missing.find((entry) => /diamond$/u.test(entry.item ?? ""));
-    return diamond === undefined
-      ? prerequisite
-      : explore(facts, "nether", "寻找钻石矿石", "钻石矿石", 3, newId);
+    if (diamond === undefined) return prerequisite;
+    const diamondOre = nearbyHas(facts, /diamond_ore$/u);
+    if (diamondOre !== null && blockHasLocation(diamondOre)) {
+      return {
+        id: `task:${newId()}`,
+        stage: "nether",
+        kind: "mine",
+        title: "挖 3 块钻石矿石",
+        skill: skill("mine_block", { block: diamondOre.id, count: 3 }, newId),
+        preconditions: ["iron pickaxe or better", "diamond ore nearby"],
+        expectedEvidence: ["diamond count reaches 3"],
+        verify: (next) => inventoryCount(next, "minecraft:diamond") >= 3,
+      };
+    }
+    return miningLayerTask(
+      "nether",
+      facts,
+      newId,
+      // 1.20.1 diamond distribution peaks in the deepslate layer around
+      // y=-59..-53. The old y=11 target was a pre-1.18 habit and spends much
+      // longer branch-mining for the same three diamonds.
+      -53,
+      16,
+      "下潜到钻石层并开挖矿道",
+    );
   }
   if (inventoryCount(facts, "minecraft:obsidian") < 10) {
     const obsidian = nearbyHas(facts, /obsidian$/u);
@@ -1185,6 +2005,7 @@ export function explore(
   minRadius = 8,
   maxRadius = 16,
   steady = false,
+  headingOffset = 0,
 ): Task {
   const origin = facts.position ?? { x: 0, y: 64, z: 0 };
   let hash = 0;
@@ -1211,9 +2032,23 @@ export function explore(
   // direction, so the body random-walked inside a small clearing for minutes.
   const drift = steady ? 0 : Math.trunc(origin.x) + Math.trunc(origin.z);
   const radius = minRadius + ((hash + drift + clock) % steps) * 4;
+  // Prefer the direction the body is already facing. A pure hash/time
+  // heading made consecutive explore legs point at unrelated compass
+  // directions, so a long walk was immediately followed by a long walk back.
+  // The eight candidates still cover every direction; the pathfinder picks
+  // the first safe one, starting with straight ahead.
+  // Body yaw is the current movement intent; the camera yaw is a spring
+  // follower and can still point at the previous leg when the next plan is
+  // made. Prefer the body so a new leg does not immediately reverse.
+  const facing = facts.yaw ?? facts.cameraYaw;
   const baseAngle =
-    ((hash % 360) + (steady ? 0 : Math.trunc(origin.x) * 7 + Math.trunc(origin.z) * 13) + clock * 45) %
-    360;
+    typeof facing === "number" && Number.isFinite(facing)
+      ? (facing + 90 + headingOffset + 360) % 360
+      : ((hash % 360) +
+          (steady ? 0 : Math.trunc(origin.x) * 7 + Math.trunc(origin.z) * 13) +
+          clock * 45 +
+          headingOffset) %
+        360;
   const candidates = Array.from({ length: 8 }, (_, index) => {
     const radians = ((baseAngle + index * 45) * Math.PI) / 180;
     return {
@@ -1320,34 +2155,46 @@ function ensureTable(
   stage: GoalId,
   newId: () => string,
 ): Task | BlockedTask | null {
-  if (hasStation(facts, "crafting_table")) return null;
+  const table = facts.craftingTable;
+  const position = facts.position;
+  const distance =
+    table === undefined || table === null || position === undefined || position === null
+      ? null
+      : Math.hypot(table.x - position.x, table.y - position.y, table.z - position.z);
+  const layerChanged =
+    table !== undefined &&
+    table !== null &&
+    position !== undefined &&
+    position !== null &&
+    Math.abs(table.y - position.y) > REPLACE_TABLE_VERTICAL;
   /**
    * A table on a tree platform or across a ravine can be visible in the
    * snapshot while having no legal route. Walking at it forever is the
    * failure mode the operator sees as a frozen body. When the body carries
    * the wood for a replacement, make a fresh table here instead.
    */
-  if (!hasItem(facts, "minecraft:crafting_table") && facts.craftingTablePlaced === true) {
-    const table = facts.craftingTable;
-    const position = facts.position;
-    const distance =
-      table === undefined || table === null || position === undefined || position === null
-        ? null
-        : Math.hypot(table.x - position.x, table.y - position.y, table.z - position.z);
-    if (facts.craftingTableNearby !== true && distance !== null && distance > 12) {
-      const recipe = queryRecipe("minecraft:crafting_table");
-      if (recipe !== null) {
-        const replacement = craftWithPrerequisite(
-          recipe,
-          stage,
-          facts,
-          newId,
-          "制作备用工作台",
-        );
-        if ("skill" in replacement) return replacement;
-      }
+  if (
+    !hasItem(facts, "minecraft:crafting_table") &&
+    facts.craftingTablePlaced === true &&
+    distance !== null &&
+    (facts.craftingTableReachable === false ||
+      facts.craftingTableNearby !== true ||
+      distance > REPLACE_TABLE_DISTANCE ||
+      layerChanged)
+  ) {
+    const recipe = queryRecipe("minecraft:crafting_table");
+    if (recipe !== null) {
+      const replacement = craftWithPrerequisite(
+        recipe,
+        stage,
+        facts,
+        newId,
+        "制作备用工作台",
+      );
+      if ("skill" in replacement) return replacement;
     }
   }
+  if (hasStation(facts, "crafting_table")) return null;
   // A table the body already placed is a known station. Do not demand a
   // second table simply because the agent walked away. If its exact position
   // is known, walk back first so the 3x3 craft has a real station in reach.
@@ -1356,15 +2203,38 @@ function ensureTable(
   // menu out of reach.
   if (!hasItem(facts, "minecraft:crafting_table")) {
     if (facts.craftingTablePlaced === true) {
+      if (facts.craftingTableReachable === false) {
+        const tableRecipe = queryRecipe("minecraft:crafting_table");
+        if (tableRecipe !== null) {
+          const replacement = craftWithPrerequisite(
+            tableRecipe,
+            stage,
+            facts,
+            newId,
+            "重建可达的工作台",
+          );
+          if ("skill" in replacement) return replacement;
+        }
+      }
       // The table exists in the world and the body remembers where it is.
       // There is nothing for the planner to build; the craft skill owns the
       // walk back to the station.
       return null;
     }
-    // A 3x3 product in the backpack proves that this run already owned a
-    // usable table. After a reconnect the session coordinate is gone, so do
-    // not send the body back to the wood stage merely because the table is
-    // out of the snapshot's observation range.
+    // A 3x3 product proves a table existed before a reconnect, but not that
+    // one is reachable now: the session coordinate is gone. Rebuild it from
+    // carried wood instead of blocking every later 3x3 recipe.
+    const tableRecipe = queryRecipe("minecraft:crafting_table");
+    if (tableRecipe !== null) {
+      const replacement = craftWithPrerequisite(
+        tableRecipe,
+        stage,
+        facts,
+        newId,
+        "重新制作工作台",
+      );
+      if ("skill" in replacement) return replacement;
+    }
     if (hasCraftingTableProduct(facts)) return null;
     return blockedWith(stage, "craft", "制作工作台", [
       { kind: "station", item: "minecraft:crafting_table", detail: "3×3 配方需要工作台" },

@@ -82,8 +82,20 @@ export const worldSnapshotSchema = z.object({
   onGround: z.boolean().nullable().optional(),
   fallDistance: z.number().nonnegative().nullable().optional(),
   verticalVelocity: z.number().nullable().optional(),
+  /**
+   * Terrain surface height at the body's current column. When the body is in
+   * a cave this is well above `position.y`, which lets the planner climb out
+   * instead of sweeping the underground layer for animals.
+   */
+  surfaceY: z.number().int().nullable().optional(),
+  /** True only when the current cell has an unobstructed view of the sky. */
+  canSeeSky: z.boolean().nullable().optional(),
+  /** Local block light at the body's feet; darkness is a real fact here. */
+  lightLevel: z.number().int().nonnegative().nullable().optional(),
   /** A screen the player opened; the agent must pause instead of closing it. */
   screenOpen: z.boolean().nullable().optional(),
+  /** Class name of the open screen; useful for diagnosing a stuck menu. */
+  screen: z.string().max(160).nullable().optional(),
   floor: z.string().max(160).nullable().optional(),
   /** World spawn; available to future goal-directed navigation. */
   spawn: z.object({
@@ -115,6 +127,7 @@ export const worldSnapshotSchema = z.object({
   timeOfDay: z.number().int().min(0).max(23_999).optional(),
   /** True while a crafting table is within the body's observation radius. */
   craftingTableNearby: z.boolean().optional(),
+  craftingTableReachable: z.boolean().optional(),
   /** Whole Minecraft days elapsed in this world. */
   day: z.number().int().nonnegative().optional(),
   /** True while the player is lying in a bed. */
@@ -133,6 +146,20 @@ export const worldSnapshotSchema = z.object({
   craftingTableCrafted: z.boolean().optional(),
   /** True once this body session placed a crafting table in the world. */
   craftingTablePlaced: z.boolean().optional(),
+  /** Home-camp evidence: a chest and bed the body crafted/placed. */
+  chestCrafted: z.boolean().optional(),
+  chestPlaced: z.boolean().optional(),
+  bedPlaced: z.boolean().optional(),
+  chest: z.object({
+    x: z.number().finite(),
+    y: z.number().finite(),
+    z: z.number().finite(),
+  }).optional(),
+  bed: z.object({
+    x: z.number().finite(),
+    y: z.number().finite(),
+    z: z.number().finite(),
+  }).optional(),
   /** Last crafting table this body placed, so a later craft can walk back. */
   craftingTable: z.object({
     x: z.number().finite(),
@@ -152,10 +179,24 @@ export const worldSnapshotSchema = z.object({
     y: z.number().finite().optional(),
     z: z.number().finite().optional(),
   })).max(32).optional(),
+  /**
+   * Nearby blocks are a mix of local counts and individually observed
+   * targets. A `visible: true` entry came from the body's bounded line-of-
+   * sight survey and carries a position, distance and bearing; the planner
+   * must treat it as evidence of a real target rather than a nearby-count
+   * guess. Entries without coordinates keep the older count-only shape.
+   */
   nearbyBlocks: z.array(z.object({
     id: z.string().min(1).max(160),
     count: z.number().int().positive().optional(),
-  })).max(32).optional(),
+    x: z.number().finite().optional(),
+    y: z.number().finite().optional(),
+    z: z.number().finite().optional(),
+    distance: z.number().nonnegative().optional(),
+    /** Degrees relative to the player's facing, -180..180. */
+    bearing: z.number().min(-180).max(180).optional(),
+    visible: z.boolean().optional(),
+  })).max(64).optional(),
   /**
    * A block the body can actually reach and aim at right now. Existence in
    * `nearbyBlocks` is not enough: stone under the floor is nearby but not a

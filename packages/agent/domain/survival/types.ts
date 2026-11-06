@@ -7,8 +7,8 @@ export const STAGE_ORDER: readonly GoalId[] = [
   "wood-and-table",
   "stone-tools",
   "food",
-  "shelter",
   "iron",
+  "shelter",
   "nether",
   "eyes",
   "stronghold",
@@ -25,6 +25,14 @@ export interface InventorySlot {
 export interface NearbyBlock {
   readonly id: string;
   readonly count?: number;
+  /** Present when the body has a line-of-sight target, not just a count. */
+  readonly x?: number;
+  readonly y?: number;
+  readonly z?: number;
+  readonly distance?: number;
+  /** Degrees relative to the player's facing, -180..180. */
+  readonly bearing?: number;
+  readonly visible?: boolean;
 }
 
 export interface NearbyEntity {
@@ -52,6 +60,10 @@ export interface WorldFacts {
   readonly world?: string | null;
   readonly dimension?: string | null;
   readonly position?: Position | null;
+  /** Body yaw in degrees; 0 faces south (+Z), -90 faces east (+X). */
+  readonly yaw?: number | null;
+  /** Smoothed camera yaw shown to the audience, when available. */
+  readonly cameraYaw?: number | null;
   readonly health?: number | null;
   readonly food?: number | null;
   /** True once this body session observed a food item in its inventory. */
@@ -62,8 +74,20 @@ export interface WorldFacts {
   readonly craftingTableCrafted?: boolean | null;
   /** True once this body session placed a crafting table in the world. */
   readonly craftingTablePlaced?: boolean | null;
+  /** True once this body session crafted a chest. */
+  readonly chestCrafted?: boolean | null;
+  /** True once this body session placed its camp chest. */
+  readonly chestPlaced?: boolean | null;
+  /** True once this body session placed a bed. */
+  readonly bedPlaced?: boolean | null;
+  /** Camp chest position, when the body still remembers it. */
+  readonly chest?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  /** Camp bed position, when the body still remembers it. */
+  readonly bed?: { readonly x: number; readonly y: number; readonly z: number } | null;
   /** True while a crafting table is within the body's observation radius. */
   readonly craftingTableNearby?: boolean | null;
+  /** True only when the body can actually open the nearby table. */
+  readonly craftingTableReachable?: boolean | null;
   /** Last crafting table this body placed. */
   readonly craftingTable?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly timeOfDay?: number | null;
@@ -73,6 +97,12 @@ export interface WorldFacts {
   readonly sleptThroughNight?: boolean | null;
   readonly screenOpen?: boolean | null;
   readonly onGround?: boolean | null;
+  /** Terrain surface height at the current column, not the body height. */
+  readonly surfaceY?: number | null;
+  /** True only when the current cell can see the sky. */
+  readonly canSeeSky?: boolean | null;
+  /** Local block light at the body's feet. */
+  readonly lightLevel?: number | null;
   readonly inventory: readonly InventorySlot[];
   readonly nearbyBlocks?: readonly NearbyBlock[];
   readonly entities?: readonly NearbyEntity[];

@@ -197,6 +197,39 @@ public final class BoundedPathfinder {
 		return path;
 	}
 
+	/**
+	 * Removes intermediate points on a straight run. The walker only needs the
+	 * next corner, not every block in a corridor; feeding it dense collinear
+	 * points made steering jitter and swapped sprint on and off at cell
+	 * boundaries. Corners and endpoints are preserved.
+	 */
+	public static List<Cell> compress(List<Cell> path) {
+		if (path.size() < 3) return List.copyOf(path);
+		List<Cell> result = new ArrayList<>();
+		result.add(path.get(0));
+		for (int index = 1; index < path.size() - 1; index++) {
+			Cell previous = result.get(result.size() - 1);
+			Cell current = path.get(index);
+			Cell next = path.get(index + 1);
+			int firstX = current.x() - previous.x();
+			int firstY = current.y() - previous.y();
+			int firstZ = current.z() - previous.z();
+			int secondX = next.x() - current.x();
+			int secondY = next.y() - current.y();
+			int secondZ = next.z() - current.z();
+			if (
+				Integer.signum(firstX) == Integer.signum(secondX)
+					&& Integer.signum(firstY) == Integer.signum(secondY)
+					&& Integer.signum(firstZ) == Integer.signum(secondZ)
+			) {
+				continue;
+			}
+			result.add(current);
+		}
+		result.add(path.get(path.size() - 1));
+		return List.copyOf(result);
+	}
+
 	private static double heuristic(Cell cell, Cell goal) {
 		double horizontal = Math.hypot(cell.x - goal.x, cell.z - goal.z);
 		return horizontal + Math.abs(cell.y - goal.y) * 0.25;

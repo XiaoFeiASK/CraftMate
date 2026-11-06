@@ -3,10 +3,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { CommitmentLedger, Show, dafeiyu, type Persona } from "@craftmate/agent";
 import {
+  AutonomousGoalPlanner,
   GoalRuntime,
   OpenAICompatibleProvider,
   Planner,
-  SurvivalGoalPlanner,
   SurvivalProposalEvaluator,
   type GoalPlanner,
 } from "@craftmate/agent/application";
@@ -136,6 +136,51 @@ export function createPersistentShow(options: {
   }
 
   let provider = modelProvider(runtime);
+  const overModelBudget = (): boolean => {
+    if (provider === null) return false;
+    const budget = costs.budget({
+      hourlyLimit: Number(env.CRAFTMATE_MODEL_HOURLY_LIMIT ?? 0),
+      keyLimit: Number(env.CRAFTMATE_MODEL_KEY_LIMIT ?? 0),
+      provider: provider.id,
+    });
+    return budget.degraded;
+  };
+  const recordModelUsage = (entry: {
+    readonly provider: string;
+    readonly model: string;
+    readonly prompt: number;
+    readonly completion: number;
+  }): void => {
+    const price = provider?.pricePerMillion ?? { input: 0, output: 0 };
+    const cost =
+      (entry.prompt / 1_000_000) * price.input +
+      (entry.completion / 1_000_000) * price.output;
+    costs.record({
+      sessionId: context.sessionId,
+      provider: entry.provider,
+      model: entry.model,
+      cost,
+      promptTokens: entry.prompt,
+      completionTokens: entry.completion,
+    });
+  };
+  const recordModelIncident = (incident: {
+    readonly code: string;
+    readonly severity: "info" | "warn" | "error";
+    readonly detail: Record<string, unknown>;
+  }): void => {
+    db.prepare(
+      `INSERT INTO incident (id, session_id, severity, code, detail_json, created_at_ms)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(
+      crypto.randomUUID(),
+      context.sessionId,
+      incident.severity,
+      incident.code,
+      JSON.stringify(incident.detail),
+      Date.now(),
+    );
+  };
   const goalRecord = goalStore.load();
 
   const show = new Show({
@@ -154,44 +199,12 @@ export function createPersistentShow(options: {
     planner: new Planner({
       provider,
       deadlineMs: runtime.model.timeoutMs,
-      overBudget: () => {
-        if (provider === null) return false;
-        const budget = costs.budget({
-          hourlyLimit: Number(env.CRAFTMATE_MODEL_HOURLY_LIMIT ?? 0),
-          keyLimit: Number(env.CRAFTMATE_MODEL_KEY_LIMIT ?? 0),
-          provider: provider.id,
-        });
-        return budget.degraded;
-      },
-      onUsage: ({ provider: providerId, model, prompt, completion }) => {
-        const price = provider?.pricePerMillion ?? { input: 0, output: 0 };
-        const cost =
-          (prompt / 1_000_000) * price.input + (completion / 1_000_000) * price.output;
-        costs.record({
-          sessionId: context.sessionId,
-          provider: providerId,
-          model,
-          cost,
-          promptTokens: prompt,
-          completionTokens: completion,
-        });
-      },
+      overBudget: overModelBudget,
+      onUsage: recordModelUsage,
       onDegraded: (detail) => {
         console.warn(`orchestrator: planner degraded — ${detail}`);
       },
-      onIncident: (incident) => {
-        db.prepare(
-          `INSERT INTO incident (id, session_id, severity, code, detail_json, created_at_ms)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-        ).run(
-          crypto.randomUUID(),
-          context.sessionId,
-          incident.severity,
-          incident.code,
-          JSON.stringify(incident.detail),
-          Date.now(),
-        );
-      },
+      onIncident: recordModelIncident,
     }),
     history: history.reverse(),
     totals: { ...totals, openCommitments: commitments.openCount() },
@@ -215,7 +228,16 @@ export function createPersistentShow(options: {
   reconcileCommitments();
   const goals = new GoalRuntime({
     store: goalStore,
-    planner: options.goalPlanner ?? new SurvivalGoalPlanner(),
+    planner: options.goalPlanner ?? new AutonomousGoalPlanner({
+      provider,
+      deadlineMs: runtime.model.timeoutMs,
+      overBudget: overModelBudget,
+      onUsage: recordModelUsage,
+      onIncident: recordModelIncident,
+      onDegraded: (detail) => {
+        console.warn(`orchestrator: goal planner degraded — ${detail}`);
+      },
+    }),
     proposals: () => show.proposals(null, 20),
     recordDecision: (decision) => recordGoalDecision(decision),
     onUpdate: (progress) => show.setGoalProgress(progress),
@@ -308,7 +330,9 @@ export function createPersistentShow(options: {
       settingsStore.write(context.sessionId, withModel);
       provider = modelProvider(saved);
       show.updatePlannerProvider(provider);
+      goals.updatePlannerProvider(provider);
       show.updatePlannerDeadline(saved.model.timeoutMs);
+      goals.updatePlannerDeadline(saved.model.timeoutMs);
       return { settings: withModel, runtime: saved };
     },
     readIntegrations: () => publicRuntimeConfig(runtimeConfig.read()),

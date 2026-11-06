@@ -15,6 +15,14 @@ final class PlacementTarget {
 
 		/** The adjacent cell is free and will hold the placed block. */
 		boolean destinationFree();
+
+		/**
+		 * Right-clicking this support opens a menu instead of placing the held
+		 * block unless the player is sneaking. Prefer any other legal face.
+		 */
+		default boolean opensMenu() {
+			return false;
+		}
 	}
 
 	/**
@@ -28,7 +36,10 @@ final class PlacementTarget {
 		for (T candidate : candidates) {
 			double distance = candidate.distanceSqr();
 			if (distance > MAX_EYE_DISTANCE * MAX_EYE_DISTANCE) continue;
-			double score = (candidate.destinationFree() ? 0.0 : 1_000_000.0) + distance;
+			double score =
+				(candidate.destinationFree() ? 0.0 : 1_000_000.0)
+				+ (candidate.opensMenu() ? 1_000.0 : 0.0)
+				+ distance;
 			if (score < bestScore) {
 				bestScore = score;
 				best = candidate;

@@ -82,3 +82,44 @@ test("reasoning_content that is prose rather than JSON is rejected", async () =>
 
   await assert.rejects(provider.plan(request()), /provider returned no content/);
 });
+
+test("goal selection returns only a candidate id and never a skill", async () => {
+  let body: Record<string, unknown> = {};
+  const provider = new OpenAICompatibleProvider({
+    baseUrl: "https://example.invalid/v1",
+    apiKey: "secret",
+    model: "goal-model",
+    fetchImpl: async (_input, init) => {
+      body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return completion({
+        content: '{"candidateId":"survival-food","reason":"先补食物","speech":"我先把肚子填饱。"}',
+      });
+    },
+  });
+
+  const choice = await provider.chooseGoalTask({
+    instructions: "只选候选。",
+    goalTitle: "自由生存并建设家园",
+    goalDescription: "先砍树",
+    stageTitle: "庇护所与床",
+    milestoneTitle: "有床",
+    candidates: [
+      {
+        id: "survival-food",
+        title: "吃面包",
+        skill: "eat",
+        rationale: "饥饿偏低",
+        expectedEvidence: ["food_consumed"],
+      },
+    ],
+    recentFailure: null,
+    recentFailures: [],
+    world: { inWorld: true, food: 7 },
+    signal: new AbortController().signal,
+  });
+  assert.equal(choice.candidateId, "survival-food");
+  assert.equal(choice.speech, "我先把肚子填饱。");
+  assert.deepEqual(choice.usage, { prompt: 10, completion: 20 });
+  assert.match(JSON.stringify(body), /survival-food/u);
+  assert.equal("skill" in body, false);
+});

@@ -29,11 +29,14 @@ import {
 } from "../domain/index.ts";
 import type { Clock } from "./ports/clock.ts";
 import { systemClock } from "./ports/clock.ts";
+import type { ModelProvider } from "./ports/model.ts";
 
 export interface GoalTask {
   readonly intent: Decision["intent"];
   readonly text: string;
   readonly reason: string;
+  /** Optional model-authored line; the runtime supplies a plain fallback. */
+  readonly speech?: string;
   readonly skill: SkillCall;
   /** Domain task identity; `strategyKey` may change independently. */
   readonly taskId?: string;
@@ -73,6 +76,12 @@ export interface GoalPlanningInput {
  */
 export interface GoalPlanner {
   plan(input: GoalPlanningInput): GoalPlan | null;
+  /** Optional model-assisted path. Hosts fall back to `plan` when absent. */
+  planAsync?(input: GoalPlanningInput): Promise<GoalPlan | null>;
+  /** Hot-reloads model credentials without recreating the runtime. */
+  updateProvider?(provider: ModelProvider | null): void;
+  /** Applies an operator-saved model timeout to the next request. */
+  updateDeadline?(deadlineMs: number): void;
 }
 
 export interface GoalRuntimeRecord {
@@ -129,6 +138,12 @@ export interface GoalInterruption {
   readonly decision: Decision;
 }
 
+interface PreparedGoalStep {
+  readonly input: GoalPlanningInput;
+  readonly goalId: string;
+  readonly goalVersion: number;
+}
+
 interface GoalRuntimeOptions {
   readonly store: GoalRuntimeStore;
   readonly planner: GoalPlanner;
@@ -181,6 +196,7 @@ export class GoalRuntime {
   private readonly failureBaseMs: number;
   private readonly failureMaxMs: number;
   private readonly maxConsecutiveFailures: number;
+  private expiryHandler: ((interruption: GoalInterruption) => void) | null = null;
 
   private goal: SeasonGoal | null = null;
   private progress: GoalProgress | null = null;
@@ -190,7 +206,7 @@ export class GoalRuntime {
     readonly commandId: string;
     readonly taskId: string;
     readonly strategyKey: string;
-    readonly startedAt: number;
+    startedAt: number;
   } | null = null;
   private lastFailure: string | null = null;
   private lastFailureStrategy: string | null = null;
@@ -386,16 +402,79 @@ export class GoalRuntime {
   }
 
   /**
+   * The host owns transport cancellation. A timeout must stop the body's old
+   * command, not only forget it locally, or the stale skill keeps changing
+   * the world while a new plan is queued behind it.
+   */
+  setExpiryHandler(handler: ((interruption: GoalInterruption) => void) | null): void {
+    this.expiryHandler = handler;
+  }
+
+  /** A body progress frame proves a long skill is alive, not stuck. */
+  noteProgress(commandId: string, at = this.clock.now()): boolean {
+    if (this.inFlight === null || this.inFlight.commandId !== commandId) return false;
+    this.inFlight.startedAt = at;
+    return true;
+  }
+
+  /**
    * Returns the single next task, or null while paused, busy, backing off, or
    * waiting for a terminal outcome. The caller issues `commandId` to the body.
    */
   beginStep(context: GoalRuntimeContext): GoalDispatch | null {
+    const prepared = this.prepareStep(context);
+    if (prepared === null) return null;
+    let plan: GoalPlan | null;
+    try {
+      plan = this.planner.plan(prepared.input);
+    } catch (error) {
+      this.recordPlanningError(error);
+      return null;
+    }
+    return this.commitStep(prepared, plan, context);
+  }
+
+  /**
+   * Model-assisted variant. The model only ranks deterministic candidates;
+   * all state gates are re-checked after the await so a takeover, goal edit or
+   * disconnect during the request cannot dispatch a stale plan.
+   */
+  async beginStepAsync(context: GoalRuntimeContext): Promise<GoalDispatch | null> {
+    const prepared = this.prepareStep(context);
+    if (prepared === null) return null;
+    let plan: GoalPlan | null;
+    try {
+      plan = this.planner.planAsync === undefined
+        ? this.planner.plan(prepared.input)
+        : await this.planner.planAsync(prepared.input);
+    } catch (error) {
+      this.recordPlanningError(error);
+      return null;
+    }
+    return this.commitStep(prepared, plan, context);
+  }
+
+  /** Applies a newly saved model provider to an autonomous planner. */
+  updatePlannerProvider(provider: ModelProvider | null): void {
+    this.planner.updateProvider?.(provider);
+  }
+
+  updatePlannerDeadline(deadlineMs: number): void {
+    this.planner.updateDeadline?.(deadlineMs);
+  }
+
+  private prepareStep(context: GoalRuntimeContext): PreparedGoalStep | null {
     if (!this.enabled || this.goal === null || this.progress === null) return null;
     if (this.goal.status === "paused" || this.goal.status === "completed") return null;
     if (this.inFlight !== null) {
       if (this.clock.now() - this.inFlight.startedAt > this.taskTimeoutMs) {
         const stale = this.inFlight;
         this.inFlight = null;
+        const interruption: GoalInterruption = {
+          decisionId: stale.decision.id,
+          commandId: stale.commandId,
+          decision: stale.decision,
+        };
         this.recordFailure(
           stale.taskId,
           stale.strategyKey,
@@ -405,6 +484,7 @@ export class GoalRuntime {
           stale.decision.text,
           stale.decision.intent,
         );
+        this.expiryHandler?.(interruption);
         return null;
       }
       return null;
@@ -424,9 +504,10 @@ export class GoalRuntime {
       return null;
     }
 
-    let plan: GoalPlan | null;
-    try {
-      plan = this.planner.plan({
+    return {
+      goalId: this.goal.id,
+      goalVersion: this.goal.version,
+      input: {
         goal: this.goal,
         progress: this.progress,
         world: context.world,
@@ -436,14 +517,26 @@ export class GoalRuntime {
         consecutiveFailures: this.consecutiveFailures,
         failures: this.failures,
         lastFailureStrategy: this.lastFailureStrategy,
-      });
-    } catch (error) {
-      this.recordFailure(
-        null,
-        null,
-        `目标规划失败：${error instanceof Error ? error.message : String(error)}`,
-        "failed",
-      );
+      },
+    };
+  }
+
+  private commitStep(
+    prepared: PreparedGoalStep,
+    plan: GoalPlan | null,
+    context: GoalRuntimeContext,
+  ): GoalDispatch | null {
+    if (
+      !this.enabled ||
+      this.goal === null ||
+      this.progress === null ||
+      this.inFlight !== null ||
+      this.goal.id !== prepared.goalId ||
+      this.goal.version !== prepared.goalVersion ||
+      this.goal.status === "paused" ||
+      this.goal.status === "completed" ||
+      this.clock.now() < this.retryAt
+    ) {
       return null;
     }
     if (plan === null) {
@@ -559,7 +652,7 @@ export class GoalRuntime {
       score: 1,
       stage: "planned",
       skill: issuedSkill,
-      speech: "",
+      speech: goalSpeech(plan.nextTask),
       audienceRef: "",
       trace: null,
       at: now,
@@ -575,6 +668,15 @@ export class GoalRuntime {
     this.recordDecision?.(decision);
     this.persist();
     return { commandId, taskId, strategyKey, decision };
+  }
+
+  private recordPlanningError(error: unknown): void {
+    this.recordFailure(
+      null,
+      null,
+      `目标规划失败：${error instanceof Error ? error.message : String(error)}`,
+      "failed",
+    );
   }
 
   /** Applies the body's terminal result. Unknown or duplicate ids are ignored. */
@@ -800,8 +902,8 @@ const GOAL_STAGE_ORDER = [
   "wood-and-table",
   "stone-tools",
   "food",
-  "shelter",
   "iron",
+  "shelter",
   "nether",
   "eyes",
   "stronghold",
@@ -860,6 +962,10 @@ export class SurvivalGoalPlanner implements GoalPlanner {
           normalizedCurrent.kind === "navigate" ||
           (normalizedCurrent.kind === "gather" &&
             /deadline|timeout|no progress|reach|route|超时|寻路|接近|没有安全/u.test(
+              failure.detail,
+            )) ||
+          (normalizedCurrent.kind === "mine" &&
+            /deadline|timeout|no progress|reach|route|visible|obstruct|no safe|超时|寻路|接近|受阻|遮挡|看不见|找不到|no .* within/iu.test(
               failure.detail,
             )) ||
           (normalizedCurrent.kind === "craft" &&
@@ -1039,6 +1145,7 @@ function toSurvivalGoal(goal: SeasonGoal): import("../domain/index.ts").SeasonGo
 
 /** Presets are display text; unknown goals still explore the full chain. */
 function targetForTitle(title: string): GoalId {
+  if (/自由生存|持续发育|完整生存链/u.test(title)) return "dragon";
   if (/末影龙|dragon|末地/u.test(title)) return "dragon";
   if (/要塞|stronghold/u.test(title)) return "stronghold";
   if (/末影之眼|之眼|eyes/u.test(title)) return "eyes";
@@ -1171,6 +1278,19 @@ function pauseReason(
 
 function stableSkillKey(skill: SkillCall): string {
   return `${skill.name}:${JSON.stringify(skill.args)}`;
+}
+
+/**
+ * Autonomous decisions have no audience ref and therefore cannot use the
+ * conversational promise path. A short first-person line is still useful to
+ * the voice service and keeps the body from silently issuing skills forever.
+ */
+function goalSpeech(task: GoalTask): string {
+  const authored = task.speech?.trim() ?? "";
+  if (authored.length > 0) return authored.slice(0, 280);
+  const title = task.text.trim().replace(/[。！？!?]+$/u, "");
+  if (title.length === 0) return "";
+  return `我先${title}。`;
 }
 
 /**

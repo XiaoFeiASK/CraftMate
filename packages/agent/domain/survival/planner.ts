@@ -34,8 +34,9 @@ export function planSurvival(
   // are complete the target itself is done; the caller must not manufacture
   // another task for the last stage.
   let active: StageResult | null = null;
-  for (const stage of stages) {
-    if (stage.index > targetIndex) break;
+  for (const id of STAGE_ORDER) {
+    const stage = stages.find((entry) => entry.id === id);
+    if (stage === undefined || stage.index > targetIndex) continue;
     if (stage.status !== "complete") {
       active = stage;
       break;

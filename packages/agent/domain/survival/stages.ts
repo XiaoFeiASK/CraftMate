@@ -121,12 +121,25 @@ export const STAGES: readonly Stage[] = [
   stage("food", 2, "食物", "获得并吃下食物，避免饥饿中断采集", ["stone-tools"], [
     milestone(
       "have-food",
-      "已获得食物",
-      "this session observed food, or the inventory contains a recognized food item",
+      "食物保障",
+      "a meal is available, this session already found food, or hunger is still safe",
       (facts) => {
         // A meal may have consumed the last item. The session fact keeps the
         // milestone complete instead of sending the planner back to hunting.
         if (facts.foodAcquired === true) return "complete";
+        // Full hunger is not a reason to chop trees forever waiting for an
+        // apple. An unbounded food stage blocked every later milestone even
+        // though the body was in no danger. Keep the stage dynamic: if hunger
+        // later drops below the safety threshold, this milestone becomes
+        // incomplete again and the planner resumes eating/hunting.
+        if (
+          facts.food !== undefined &&
+          facts.food !== null &&
+          facts.food >= 18 &&
+          (facts.health === undefined || facts.health === null || facts.health >= 12)
+        ) {
+          return "complete";
+        }
         // An empty inventory is an observation ("nothing"), not a missing one.
         if (facts.inventory.length === 0) return "incomplete";
         return facts.inventory.some((slot) => FOOD.test(slot.item)) ? "complete" : "incomplete";
@@ -138,14 +151,13 @@ export const STAGES: readonly Stage[] = [
       "a meal was confirmed, or hunger is already full while food is available",
       (facts) => {
         if (facts.foodConsumed === true) return "complete";
-        // Vanilla does not consume ordinary food at 20/20 hunger. Treating
-        // that state as "must eat" makes the body retry an impossible use
-        // forever. Full hunger with a food item in reserve is already safe
-        // for the next gathering trip; the planner must not claim a meal
-        // that never happened, hence the distinct milestone title.
+        // A safe hunger bar is the actual survival condition. Requiring a
+        // reserve at 20/20 made the first food stage endless and produced
+        // apple-farming loops. If hunger falls later, the stage reopens.
         if (
-          facts.food === 20 &&
-          facts.inventory.some((slot) => FOOD.test(slot.item))
+          facts.food !== undefined &&
+          facts.food !== null &&
+          facts.food >= 18
         ) {
           return "complete";
         }
@@ -165,31 +177,7 @@ export const STAGES: readonly Stage[] = [
       },
     ),
   ]),
-  stage("shelter", 3, "庇护所与床", "在天黑前建立安全落脚点并能跳过夜晚", ["food"], [
-    milestone(
-      "have-bed",
-      "背包或附近有床",
-      "inventory has a bed or a nearby bed block exists",
-      (facts) => {
-        if (facts.inventory.length === 0 && facts.nearbyBlocks === undefined) return "unverified";
-        return hasAnyByRegex(facts, BED_ITEMS) || nearbyHas(facts, BED_ITEMS) !== null
-          ? "complete"
-          : "incomplete";
-      },
-    ),
-    milestone(
-      "slept",
-      "已睡过一夜",
-      "body confirms sleeping, or this body completed a night",
-      (facts) => {
-        if (facts.sleeping === true) return "complete";
-        if (facts.sleptThroughNight === true) return "complete";
-        if (facts.sleeping === false) return "incomplete";
-        return "unverified";
-      },
-    ),
-  ]),
-  stage("iron", 4, "铁器与熔炉", "采集铁矿石、建造熔炉并升级到铁镐", ["shelter"], [
+  stage("iron", 3, "铁器与熔炉", "采集铁矿石、建造熔炉并升级到铁镐", ["food"], [
     milestone(
       "have-furnace",
       "背包或附近有熔炉",
@@ -202,16 +190,30 @@ export const STAGES: readonly Stage[] = [
       },
     ),
     milestone(
+      "have-torches",
+      "背包有 4 个火把",
+      "inventory contains at least 4 torches",
+      (facts) => (inventoryCount(facts, "minecraft:torch") >= 4 ? "complete" : "incomplete"),
+    ),
+    milestone(
       "have-raw-iron",
       "背包有粗铁",
-      "inventory contains raw_iron",
-      (facts) => hasItem(facts, "minecraft:raw_iron") ? "complete" : "incomplete",
+      "inventory contains raw iron, or an iron tool proves it was already smelted",
+      (facts) =>
+        hasItem(facts, "minecraft:raw_iron") ||
+        hasItem(facts, "minecraft:iron_ingot") ||
+        hasIronTool(facts)
+          ? "complete"
+          : "incomplete",
     ),
     milestone(
       "have-iron-ingot",
       "背包有铁锭",
-      "inventory contains iron_ingot",
-      (facts) => hasItem(facts, "minecraft:iron_ingot") ? "complete" : "incomplete",
+      "inventory contains iron_ingot, or an iron tool proves one was produced",
+      (facts) =>
+        hasItem(facts, "minecraft:iron_ingot") || hasIronTool(facts)
+          ? "complete"
+          : "incomplete",
     ),
     milestone(
       "have-iron-pickaxe",
@@ -219,8 +221,51 @@ export const STAGES: readonly Stage[] = [
       "inventory contains iron_pickaxe",
       (facts) => hasItem(facts, "minecraft:iron_pickaxe") ? "complete" : "incomplete",
     ),
+    milestone(
+      "have-iron-sword",
+      "背包有铁剑",
+      "inventory contains iron_sword",
+      (facts) => hasItem(facts, "minecraft:iron_sword") ? "complete" : "incomplete",
+    ),
+  ]),
+  stage("shelter", 4, "营地与床", "建立有箱子和床的家，天黑回家睡觉", ["iron"], [
+    milestone(
+      "have-chest",
+      "营地有箱子",
+      "inventory has a chest, a nearby chest exists, or this body placed one",
+      (facts) => {
+        if (facts.chestPlaced === true) return "complete";
+        return hasItem(facts, "minecraft:chest") ||
+          nearbyHas(facts, /(^|:)chest$/u) !== null
+          ? "complete"
+          : "incomplete";
+      },
+    ),
+    milestone(
+      "have-bed",
+      "营地有床",
+      "inventory has a bed, a nearby bed exists, or this body placed one",
+      (facts) => {
+        if (facts.bedPlaced === true) return "complete";
+        return hasAnyByRegex(facts, BED_ITEMS) || nearbyHas(facts, BED_ITEMS) !== null
+          ? "complete"
+          : "incomplete";
+      },
+    ),
   ]),
   stage("nether", 5, "下界与烈焰棒", "获得黑曜石、进入下界并击杀烈焰人", ["iron"], [
+    milestone(
+      "have-diamonds",
+      "背包有 3 颗钻石",
+      "inventory contains at least 3 diamond",
+      (facts) => (inventoryCount(facts, "minecraft:diamond") >= 3 ? "complete" : "incomplete"),
+    ),
+    milestone(
+      "have-diamond-pickaxe",
+      "背包有钻石镐",
+      "inventory contains diamond_pickaxe",
+      (facts) => hasItem(facts, "minecraft:diamond_pickaxe") ? "complete" : "incomplete",
+    ),
     milestone(
       "have-obsidian",
       "背包有黑曜石",
@@ -341,6 +386,12 @@ function milestone(
 
 function hasAnyByRegex(facts: WorldFacts, pattern: RegExp): boolean {
   return facts.inventory.some((slot) => pattern.test(slot.item));
+}
+
+function hasIronTool(facts: WorldFacts): boolean {
+  return facts.inventory.some((slot) =>
+    /^minecraft:iron_(pickaxe|sword|axe|shovel|hoe)$/u.test(slot.item),
+  );
 }
 
 const FOOD =

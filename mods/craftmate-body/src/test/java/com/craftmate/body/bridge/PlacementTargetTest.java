@@ -11,28 +11,40 @@ import net.minecraft.world.phys.AABB;
 import org.junit.jupiter.api.Test;
 
 class PlacementTargetTest {
-	private record Candidate(String name, double distanceSqr, boolean destinationFree)
+	private record Candidate(
+		String name,
+		double distanceSqr,
+		boolean destinationFree,
+		boolean opensMenu
+	)
 		implements PlacementTarget.Surface {}
 
 	@Test
 	void prefersAFreeDestinationThenDistance() {
-		Candidate occupied = new Candidate("occupied", 0.2, false);
-		Candidate farFree = new Candidate("far-free", 9.0, true);
-		Candidate nearFree = new Candidate("near-free", 4.0, true);
+		Candidate occupied = new Candidate("occupied", 0.2, false, false);
+		Candidate farFree = new Candidate("far-free", 9.0, true, false);
+		Candidate nearFree = new Candidate("near-free", 4.0, true, false);
 		Candidate chosen = PlacementTarget.choose(List.of(occupied, farFree, nearFree));
 		assertEquals("near-free", chosen.name());
 	}
 
 	@Test
 	void ignoresSurfacesBeyondInteractionReach() {
-		Candidate far = new Candidate("far", 30.0, true);
+		Candidate far = new Candidate("far", 30.0, true, false);
 		assertNull(PlacementTarget.choose(List.of(far)));
 	}
 
 	@Test
 	void acceptsAFaceInsideReach() {
-		Candidate near = new Candidate("near", 4.0, true);
+		Candidate near = new Candidate("near", 4.0, true, false);
 		assertEquals("near", PlacementTarget.choose(List.of(near)).name());
+	}
+
+	@Test
+	void prefersAPlainFaceOverAnInteractiveSupport() {
+		Candidate table = new Candidate("crafting-table", 1.0, true, true);
+		Candidate stone = new Candidate("stone", 12.0, true, false);
+		assertEquals("stone", PlacementTarget.choose(List.of(table, stone)).name());
 	}
 
 	@Test
