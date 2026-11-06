@@ -4,6 +4,7 @@ export * from "./control.ts";
 export * from "./decision.ts";
 export * from "./ingress.ts";
 export * from "./memory.ts";
+export * from "./model-providers.ts";
 export * from "./ops.ts";
 export * from "./outcome.ts";
 export * from "./replay.ts";

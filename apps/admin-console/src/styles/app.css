@@ -2506,6 +2506,8 @@
 
 .settings-view .input--short { max-width: 190px; }
 .settings-view .input--area { resize: vertical; min-height: 54px; line-height: 1.6; }
+.settings-provider { display: grid; gap: 8px; }
+.settings-provider__caption { color: var(--ink-faint); font-size: calc(11px * var(--ui-scale)); }
 
 .inline-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 

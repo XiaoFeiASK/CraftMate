@@ -458,7 +458,10 @@ public final class GameActions {
 			return StartDecision.rejected("E_PRECONDITION", task.validationError);
 		}
 		TASKS.put(id, task);
-		showStatus(client, op + " · " + id.substring(0, Math.min(8, id.length())));
+		showStatus(
+			client,
+			SkillLabels.displayName(op) + " · " + id.substring(0, Math.min(8, id.length()))
+		);
 		return StartDecision.accept();
 	}
 

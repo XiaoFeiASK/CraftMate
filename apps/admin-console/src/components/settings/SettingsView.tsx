@@ -8,6 +8,8 @@ import {
   type ShowSnapshot,
   type PersonaProfile,
   type ShowSettings,
+  MODEL_PROVIDER_PRESETS,
+  modelProviderPresetFor,
   SEASON_GOAL_PRESETS,
 } from "@craftmate/contracts";
 import type { WireState } from "../../lib/connection.ts";
@@ -35,6 +37,7 @@ interface SettingsViewProps {
 }
 
 const VALUE_LABEL = "每行一条，最多 8 条";
+const CUSTOM_PROVIDER = "__custom__";
 
 export function SettingsView({
   settings,
@@ -128,6 +131,15 @@ export function SettingsView({
     integrationDraft !== null &&
     integrations !== null &&
     JSON.stringify(integrationDraft) !== JSON.stringify(integrations);
+  const providerPreset = integrationDraft
+    ? modelProviderPresetFor(integrationDraft.model.provider, integrationDraft.model.baseUrl)
+    : undefined;
+  const modelTargetChanged =
+    integrationDraft !== null &&
+    integrations !== null &&
+    (integrationDraft.model.provider !== integrations.model.provider ||
+      normalizeBaseUrl(integrationDraft.model.baseUrl) !==
+        normalizeBaseUrl(integrations.model.baseUrl));
   const canSave =
     !saving && state === "open" &&
     (dirty || integrationDirty || secrets.model.length > 0 || secrets.voice.length > 0) &&
@@ -150,7 +162,9 @@ export function SettingsView({
         baseUrl: integrationDraft.model.baseUrl,
         model: integrationDraft.model.model,
         ...(secrets.model.trim() ? { apiKey: secrets.model.trim() } : {}),
-        clearApiKey: false,
+        // A key belongs to its vendor. Never carry an old secret into a new
+        // provider when the operator has not entered a replacement key.
+        clearApiKey: modelTargetChanged && !secrets.model.trim(),
         timeoutMs: integrationDraft.model.timeoutMs,
       },
       voice: {
@@ -441,22 +455,65 @@ export function SettingsView({
           <p>{model?.state === "error" ? model.detail : "新 Key 保存在本机配置中，后续运行会立即使用；无需另存到 .env。"}</p>
           <small>凭据已保存与模型调用成功分别显示。</small>
         </div>
-        <Field label="模型供应商">
-          <div>
-            <input
+        <Field
+          label="模型供应商"
+          hint="选择预设会自动填入 API 地址和默认模型；中转站和自建网关可选自定义"
+        >
+          <div className="settings-provider">
+            <select
               className="input"
               aria-label="模型供应商"
-              value={integrationDraft.model.provider}
-              maxLength={32}
-              onChange={(event) =>
+              value={providerPreset?.id ?? CUSTOM_PROVIDER}
+              onChange={(event) => {
+                if (event.target.value === CUSTOM_PROVIDER) {
+                  setIntegrationsDraft({ model: { provider: "" } });
+                  return;
+                }
+                const preset = MODEL_PROVIDER_PRESETS.find(
+                  (candidate) => candidate.id === event.target.value,
+                );
+                if (!preset) return;
                 setIntegrationsDraft({
-                  model: { provider: event.target.value },
-                })
-              }
-            />
+                  model: {
+                    provider: preset.id,
+                    baseUrl: preset.baseUrl,
+                    model: preset.defaultModel,
+                  },
+                });
+              }}
+            >
+              {MODEL_PROVIDER_PRESETS.map((preset) => (
+                <option key={preset.id} value={preset.id}>
+                  {preset.label}
+                </option>
+              ))}
+              <option value={CUSTOM_PROVIDER}>自定义 / 中转站</option>
+            </select>
+            {providerPreset ? null : (
+              <>
+                <input
+                  className="input"
+                  aria-label="自定义模型供应商标识"
+                  value={integrationDraft.model.provider}
+                  maxLength={32}
+                  placeholder="例如 yyapi、proxy、vllm"
+                  onChange={(event) =>
+                    setIntegrationsDraft({
+                      model: { provider: event.target.value },
+                    })
+                  }
+                />
+                <small className="settings-provider__caption">
+                  供应商标识会写入日志、成本和预算统计
+                </small>
+              </>
+            )}
           </div>
         </Field>
-        <Field label="模型名称" hint="DeepSeek 官方接口使用 deepseek-flash 或 deepseek-v4-pro">
+        <Field
+          label="模型名称"
+          hint={providerPreset?.modelHint ?? "填写供应商提供的完整模型 ID"}
+        >
           <div>
             <input
               className="input"
@@ -482,7 +539,13 @@ export function SettingsView({
         </Field>
         <Field
           label="模型 API Key"
-          hint={integrationDraft.model.apiKeyConfigured ? "已保存；留空保持不变" : "尚未保存"}
+          hint={
+            modelTargetChanged
+              ? "供应商或地址已变更，请重新输入 Key；留空会清除旧 Key"
+              : integrationDraft.model.apiKeyConfigured
+                ? "已保存；留空保持不变"
+                : "尚未保存"
+          }
         >
           <input
             className="input"
@@ -712,4 +775,8 @@ function lines(value: string): string[] {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .slice(0, 8);
+}
+
+function normalizeBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/u, "");
 }

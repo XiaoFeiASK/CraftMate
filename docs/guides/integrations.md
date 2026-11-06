@@ -4,8 +4,11 @@
 
 ## 1. 模型：OpenAI 兼容接口
 
-CraftMate 通过 `OpenAICompatibleProvider` 调用模型；当前使用 YYAPI 的 DeepSeek
-`deepseek-v4.1-flash`，但不绑定该网关。
+CraftMate 通过 `OpenAICompatibleProvider` 调用模型，不绑定单一网关。管理端可选择
+DeepSeek、OpenAI、OpenRouter、硅基流动、阿里云百炼、月之暗面 Kimi、智谱 GLM 和
+Ollama 本地预设；选择后会填入默认 API 地址与模型，所有字段仍可手动修改。YYAPI
+等中转站或自建网关选择“自定义 / 中转站”即可。切换供应商或 API 地址时需重新输入
+Key；留空会清除旧 Key，避免把凭据发送到另一个端点。
 
 ### 配置
 
