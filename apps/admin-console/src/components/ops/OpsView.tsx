@@ -35,7 +35,7 @@ export function OpsView({
   onActivate,
 }: OpsViewProps): React.JSX.Element {
   if (!ops) {
-    return <p className="panel-note">正在读取运营数据…</p>;
+    return <p className="panel-note">正在读取…</p>;
   }
 
   const active = settings?.persona;
@@ -65,7 +65,7 @@ export function OpsView({
       <section aria-labelledby="versions-title">
         <h3 id="versions-title">人格版本 · {versions.length}</h3>
         {versions.length === 0 ? (
-          <p className="panel-note">还没有历史版本。保存一次人格修改后会生成新版本。</p>
+          <p className="panel-note">暂无历史版本。</p>
         ) : (
           <ul className="ops-list">
             {versions.map((version) => (

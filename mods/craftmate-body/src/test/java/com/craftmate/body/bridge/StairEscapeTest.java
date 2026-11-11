@@ -25,4 +25,12 @@ class StairEscapeTest {
 		assertTrue(StairEscape.obstructionNeedsWork(false));
 		assertFalse(StairEscape.obstructionNeedsWork(true));
 	}
+
+	@Test
+	void replansAFailedJumpFromTheLandedLevel() {
+		assertTrue(StairEscape.canRetryAfterFall(68, 69, 0));
+		assertTrue(StairEscape.canRetryAfterFall(68, 69, 3));
+		assertFalse(StairEscape.canRetryAfterFall(68, 69, 4));
+		assertFalse(StairEscape.canRetryAfterFall(69, 69, 0));
+	}
 }

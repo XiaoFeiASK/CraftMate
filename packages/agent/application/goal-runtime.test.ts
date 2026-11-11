@@ -287,6 +287,27 @@ describe("goal runtime", () => {
     assert.equal(stored.lastFailureStrategy, "wood:chop");
   });
 
+  test("a timed-out segmented task keeps progress and its continuation hint", () => {
+    const { value } = runtime();
+    const first = value.beginStep(context());
+    assert.ok(first);
+    value.settle(first.decision.id, {
+      status: "timeout",
+      detail: "到本轮预算上限",
+      at: 1_000,
+      progress: { done: 12, total: 32, unit: "个" },
+      remaining: "20 个铁矿石",
+      resumable: true,
+      nextHint: "清空背包后从原矿道继续",
+    });
+
+    const detail = value.currentProgress?.lastFailure ?? "";
+    assert.match(detail, /进度：12\/32 个/u);
+    assert.match(detail, /还差：20 个铁矿石/u);
+    assert.match(detail, /可续跑/u);
+    assert.match(detail, /下一步：清空背包后从原矿道继续/u);
+  });
+
   test("goal replacement increments the version and invalidates work", () => {
     const { value } = runtime();
     const first = value.beginStep(context());

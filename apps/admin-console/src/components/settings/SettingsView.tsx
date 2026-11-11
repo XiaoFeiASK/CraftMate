@@ -167,7 +167,7 @@ export function SettingsView({
   if (!draft || !integrationDraft) {
     return (
       <div className="settings-view">
-        <p className="panel-note">正在从本地内核读取配置和脱敏凭据状态。</p>
+        <p className="panel-note">正在读取配置…</p>
       </div>
     );
   }
@@ -274,8 +274,8 @@ export function SettingsView({
         ))}
       </div>
       <fieldset className="settings-fields" disabled={saving}>
-      <Section activeTab={tab} title="直播资料" hint="保存后立即写入 SQLite，并在下次启动时恢复">
-        <Field label="终极目标" hint="只读描述由预设提供；观众不能修改目标">
+      <Section activeTab={tab} title="直播资料">
+        <Field label="终极目标">
           <select
             className="input"
             value={draft.goal}
@@ -297,11 +297,9 @@ export function SettingsView({
             )}
           </select>
         </Field>
-        <Field label="目标说明" align="stack">
-          <p className="panel-note panel-note--inline">
-            {draft.goalDescription || "尚未写入说明。"}
-          </p>
-        </Field>
+        {draft.goalDescription ? (
+          <p className="settings-description">{draft.goalDescription}</p>
+        ) : null}
         <Field label="世界名称">
           <input
             className="input"
@@ -318,7 +316,7 @@ export function SettingsView({
             onChange={(event) => patch({ gameVersion: event.target.value })}
           />
         </Field>
-        <Field label="账号说明" hint="侧栏账户卡片下的那行小字">
+        <Field label="账号说明">
           <input
             className="input"
             value={draft.accountLabel}
@@ -328,15 +326,8 @@ export function SettingsView({
         </Field>
       </Section>
 
-      <Section activeTab={tab} title="目标模式" hint="只由操作员开关；运行状态与里程碑来自目标运行时">
-        <Field
-          label="目标模式"
-          hint={
-            draft.goalMode
-              ? "开启：运行时一次只下达一个任务，终态后才重新观察和规划"
-              : "关闭：停止自主任务，观众评论按常规仲裁处理"
-          }
-        >
+      <Section activeTab={tab} title="目标模式">
+        <Field label="目标模式">
           <button
             type="button"
             className="toggle"
@@ -387,7 +378,7 @@ export function SettingsView({
         </Field>
       </Section>
 
-      <Section activeTab={tab} title="角色与人格" hint="权重会直接进入仲裁打分，不只是展示">
+      <Section activeTab={tab} title="角色与人格">
         <Field label="角色名">
           <input
             className="input"
@@ -462,7 +453,7 @@ export function SettingsView({
         </div>
       </Section>
 
-      <Section activeTab={tab} title="接入" hint="保存后立即替换运行中的模型和端到端实时语音连接">
+      <Section activeTab={tab} title="接入">
         <div className="settings-connection" data-state={model?.state ?? "disabled"} role="status">
           <strong>{model?.state === "ready"
             ? "模型最近调用成功"
@@ -471,13 +462,9 @@ export function SettingsView({
               : integrationDraft.model.apiKeyConfigured
                 ? "API Key 已保存，等待下一次模型请求验证"
                 : "模型连接尚未配置"}</strong>
-          <p>{model?.state === "error" ? model.detail : "新 Key 保存在本机配置中，后续运行会立即使用；无需另存到 .env。"}</p>
-          <small>凭据已保存与模型调用成功分别显示。</small>
+          {model?.state === "error" ? <p>{model.detail}</p> : null}
         </div>
-        <Field
-          label="模型供应商"
-          hint="选择预设会自动填入 API 地址和默认模型；中转站和自建网关可选自定义"
-        >
+        <Field label="模型供应商">
           <div className="settings-provider">
             <select
               className="input"
@@ -522,21 +509,11 @@ export function SettingsView({
                     })
                   }
                 />
-                <small className="settings-provider__caption">
-                  供应商标识会写入日志、成本和预算统计
-                </small>
               </>
             )}
           </div>
         </Field>
-        <Field
-          label="模型名称"
-          hint={
-            catalogForEndpoint?.ok
-              ? `已获取 ${catalogForEndpoint.models.length} 个模型，可在下方选择`
-              : providerPreset?.modelHint ?? "填写供应商提供的完整模型 ID"
-          }
-        >
+        <Field label="模型名称">
           <div className="settings-model">
             <div className="settings-model__row">
               <input
@@ -586,13 +563,11 @@ export function SettingsView({
               <small className="settings-model__status" data-state="error" role="status">
                 {catalogForEndpoint.detail}
               </small>
-            ) : (
+            ) : modelTargetChanged && secrets.model.trim().length === 0 ? (
               <small className="settings-model__caption">
-                {modelTargetChanged && secrets.model.trim().length === 0
-                  ? "地址已变更，请先输入 API Key 再获取模型。"
-                  : "先用当前 API 地址和 Key 读取模型列表；已保存的 Key 可以留空。"}
+                更换地址后需要重新输入 API Key 才能获取模型。
               </small>
-            )}
+            ) : null}
           </div>
         </Field>
         <Field label="模型 API 地址">
@@ -646,7 +621,7 @@ export function SettingsView({
             }
           />
         </Field>
-        <Field label="语音音色 ID" hint="豆包端到端实时语音（Seeduplex）">
+        <Field label="语音音色 ID">
           <input
             className="input"
             value={integrationDraft.voice.voiceId}
@@ -681,7 +656,7 @@ export function SettingsView({
         </Field>
       </Section>
 
-      <Section activeTab={tab} title="界面" hint="只保存在这台机器，立即生效，不写入直播数据">
+      <Section activeTab={tab} title="界面">
         <Field label="外观">
           <Segmented
             value={preferences.theme}
@@ -729,7 +704,7 @@ export function SettingsView({
             ))}
           </div>
         </Field>
-        <Field label="减弱动态效果" hint="关闭场景淡入、卡片上浮与角色摆动">
+        <Field label="减弱动态效果">
           <button
             type="button"
             className="toggle"
@@ -748,7 +723,7 @@ export function SettingsView({
         <p role="status">
           {validation && !validation.success
             ? `有 ${validation.error.issues.length} 项需要修正`
-            : saved ?? (dirty || integrationDirty || secrets.model || secrets.voice ? "有未保存的修改" : "配置已读取；API Key 留空会保留已保存的凭据")}
+            : saved ?? (dirty || integrationDirty || secrets.model || secrets.voice ? "有未保存的修改" : "")}
         </p>
         <div>
           <button type="button" className="action" onClick={onResetPreferences}>
@@ -766,20 +741,14 @@ export function SettingsView({
 function Section({
   activeTab,
   title,
-  hint,
   children,
 }: {
   readonly activeTab: string;
   readonly title: string;
-  readonly hint: string;
   readonly children: ReactNode;
 }): React.JSX.Element {
   return (
     <section className="settings-section" role="tabpanel" aria-label={title} hidden={activeTab !== title}>
-      <header>
-        <h3>{title}</h3>
-        <p>{hint}</p>
-      </header>
       <div className="settings-section__rows">{children}</div>
     </section>
   );

@@ -14,6 +14,13 @@ public final class AudienceLight {
 	 * receive the largest lift, while full daylight remains untouched.
 	 */
 	private static final double LIGHT_GAMMA = 0.45;
+	/**
+	 * A pure gamma curve maps zero to zero, so a completely unlit cave still
+	 * renders as black. Keep a small additive floor in the audience lightmap:
+	 * gameplay light and mob spawning still use the real world value, but a
+	 * viewer can see the body's surroundings.
+	 */
+	private static final double LIGHT_FLOOR = 38.0;
 	private static final int[] CURVE = buildCurve();
 
 	private AudienceLight() {
@@ -46,7 +53,8 @@ public final class AudienceLight {
 		int[] curve = new int[256];
 		for (int value = 0; value < curve.length; value++) {
 			curve[value] = (int) Math.round(
-				255.0 * Math.pow(value / 255.0, LIGHT_GAMMA)
+				LIGHT_FLOOR
+					+ (255.0 - LIGHT_FLOOR) * Math.pow(value / 255.0, LIGHT_GAMMA)
 			);
 		}
 		return curve;

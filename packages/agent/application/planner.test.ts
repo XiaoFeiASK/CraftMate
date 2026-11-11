@@ -483,4 +483,47 @@ describe("stage C planner", () => {
       [12, 5],
     ]);
   });
+
+  test("a read-only decision gets one correction instead of keeping a skill", async () => {
+    const requests: PlanRequest[] = [];
+    const planner = new Planner({
+      provider: provider(async (request) => {
+        requests.push(request);
+        if (requests.length === 1) {
+          return {
+            speech: "收到。",
+            skill: {
+              name: "chop_tree",
+              args: { count: 1 },
+              idempotencyKey: "read-only-1",
+            },
+            reason: "错误地附带动作",
+            provider: "fake",
+            model: "fake-1",
+          };
+        }
+        return {
+          speech: "收到，等我一下。",
+          skill: null,
+          reason: "只回应",
+          provider: "fake",
+          model: "fake-1",
+        };
+      }),
+    });
+
+    const planned = await planner.plan({
+      decision: decision({ decision: "ACK_ONLY" }),
+      goal: "盖房",
+      persona,
+      availableSkills: ["chop_tree"],
+    });
+
+    assert.equal(requests.length, 2);
+    assert.match(requests[1]?.instructions ?? "", /不是 EXECUTE/u);
+    assert.match(requests[1]?.instructions ?? "", /skill 必须为 null/u);
+    assert.equal(planned.skill, null);
+    assert.equal(planned.degraded, false);
+    assert.equal(planner.status.state, "ready");
+  });
 });

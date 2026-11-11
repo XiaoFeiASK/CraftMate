@@ -9,6 +9,12 @@ export interface ShowRecorder {
   recordSource(event: AudienceEvent): boolean;
   recordDecision(decision: Decision): void;
   /**
+   * A locally authored decision (reflex reaction, ambient beat). It still
+   * needs a traceable source row, but it is not an audience event and must
+   * not inflate viewer statistics.
+   */
+  recordSystemDecision?(decision: Decision): void;
+  /**
    * Stage C rewrites the same decision row in place. Optional so an in-memory
    * recorder does not have to implement a second write path.
    */

@@ -25,5 +25,20 @@ export const skillOutcomeSchema = z.object({
   unconfirmed: z.array(z.string().min(1).max(240)).max(16).optional(),
   attempts: z.array(z.string().min(1).max(240)).max(16).optional(),
   problem: z.string().min(1).max(600).optional(),
+  /**
+   * Partial progress for a segmented long task. A body that stops at its
+   * budget reports what it finished, what remains, and whether the same
+   * command can be resumed without duplicating side effects.
+   */
+  progress: z
+    .object({
+      done: z.number().int().nonnegative(),
+      total: z.number().int().nonnegative().optional(),
+      unit: z.string().trim().min(1).max(24).optional(),
+    })
+    .optional(),
+  remaining: z.string().trim().min(1).max(240).optional(),
+  resumable: z.boolean().optional(),
+  nextHint: z.string().trim().min(1).max(240).optional(),
 });
 export type SkillOutcome = z.infer<typeof skillOutcomeSchema>;

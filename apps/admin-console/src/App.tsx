@@ -74,11 +74,11 @@ export function App(): React.JSX.Element {
             state={state}
             snapshot={snapshot}
             telemetry={telemetry}
-            timeline={timeline}
-            timelineTraceId={timelineTraceId}
-            timelinePending={timelinePending}
-            budget={ops?.budget ?? null}
-            onLookupTrace={lookupTrace}
+            personaName={personaName}
+            onLookupTrace={(traceId) => {
+              lookupTrace(traceId);
+              setView("replay");
+            }}
           />
         ) : (
           <OperationsPage

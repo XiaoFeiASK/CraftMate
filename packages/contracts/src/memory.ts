@@ -32,6 +32,13 @@ export const memorySchema = z.object({
   revision: z.number().int().positive(),
   evidenceSourceIds: z.array(z.string()).readonly(),
   createdAt: z.number().int().nonnegative(),
+  /** How often this fact helped or failed, accumulated across sessions. */
+  successCount: z.number().int().nonnegative().default(0),
+  failureCount: z.number().int().nonnegative().default(0),
+  /** The concrete situation in which the memory failed, not a permanent ban. */
+  conditions: z.string().trim().max(600).nullable().default(null),
+  /** Game or body version this note was learned on. */
+  applicableVersion: z.string().trim().max(64).nullable().default(null),
 });
 export type Memory = z.infer<typeof memorySchema>;
 
@@ -43,6 +50,10 @@ export const memoryDraftSchema = z.object({
   disclosure: disclosureLevelSchema.default("paraphrase"),
   confidence: z.number().min(0).max(1).default(0.6),
   evidenceSourceIds: z.array(z.string()).default([]),
+  successCount: z.number().int().nonnegative().optional(),
+  failureCount: z.number().int().nonnegative().optional(),
+  conditions: z.string().trim().max(600).nullable().optional(),
+  applicableVersion: z.string().trim().max(64).nullable().optional(),
 });
 export type MemoryDraft = z.infer<typeof memoryDraftSchema>;
 

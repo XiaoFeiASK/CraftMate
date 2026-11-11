@@ -33,7 +33,7 @@ export function ReplayView({ entries, pending, onLookup }: ReplayViewProps): Rea
         <input
           className="input"
           value={traceId}
-          placeholder="输入 traceId 或平台事件 id"
+          placeholder="traceId / 平台事件 ID"
           aria-label="traceId"
           onChange={(event) => setTraceId(event.target.value)}
         />
@@ -43,7 +43,7 @@ export function ReplayView({ entries, pending, onLookup }: ReplayViewProps): Rea
       </form>
 
       {entries.length === 0 ? (
-        <p className="panel-note">没有记录。先发一条评论，再用它的事件 id 查询。</p>
+        <p className="panel-note">输入 ID 查询回放。</p>
       ) : (
         <ol className="timeline">
           {entries.map((entry) => (
@@ -79,11 +79,11 @@ function describeId(entry: TimelineEntry): string {
 function describe(entry: TimelineEntry): string {
   switch (entry.kind) {
     case "source":
-      return `${entry.eventKind} · 来源 ${entry.sourceId} · 原文仅在数据库留存`;
+      return `${entry.eventKind} · 来源 ${entry.sourceId}`;
     case "decision":
       return `${entry.decision} · ${entry.intent} · ${entry.stage}${entry.skill ? ` · ${entry.skill}` : ""}${entry.provider ? ` · ${entry.provider}/${entry.model}` : ""}`;
     case "commitment":
-      return `${entry.status} · 承诺 ${entry.commitmentId} · 语音原文不进入管理端`;
+      return `${entry.status} · 承诺 ${entry.commitmentId}`;
     case "action":
       return `${entry.skill} · ${entry.status}${entry.errorCode ? ` · ${entry.errorCode}` : ""}`;
     default:

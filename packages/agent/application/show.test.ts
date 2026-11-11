@@ -24,7 +24,11 @@ function createShow(): { show: Show; advance: (ms: number) => void } {
     newId: () => `id-${(sequence += 1)}`,
   };
   return {
-    show: new Show({ persona: dafeiyu, clock }),
+    show: new Show({
+      persona: dafeiyu,
+      clock,
+      world: () => ({ inWorld: true, health: 20, food: 20 }),
+    }),
     advance: (ms) => {
       now += ms;
     },
@@ -98,6 +102,88 @@ describe("show settings", () => {
     assert.equal(show.personaSummary().weights.obedience, 0.1);
     assert.notEqual(before, show.personaSummary().weights.obedience);
     assert.equal(show.currentSettings().goal, "去钓鱼");
+  });
+});
+
+describe("proactive reflex reactions", () => {
+  test("turns a body incident into a short line without authorising a skill", () => {
+    const { show } = createShow();
+    const decision = show.reactToIncident({
+      kind: "lava",
+      detail: "站在岩浆里或离岩浆只有一格",
+      at: 1_000,
+    });
+
+    assert.notEqual(decision, null);
+    assert.equal(decision?.decision, "ACK_ONLY");
+    assert.equal(decision?.intent, "danger");
+    assert.equal(decision?.skill, null);
+    assert.match(decision?.speech ?? "", /岩浆/);
+  });
+
+  test("does not repeat the same incident kind inside its cooldown", () => {
+    const { show, advance } = createShow();
+    assert.notEqual(
+      show.reactToIncident({ kind: "threat", detail: "僵尸贴脸", at: 1_000 }),
+      null,
+    );
+
+    advance(1_000);
+    assert.equal(
+      show.reactToIncident({ kind: "threat", detail: "僵尸还在", at: 2_000 }),
+      null,
+    );
+
+    advance(30_000);
+    assert.notEqual(
+      show.reactToIncident({ kind: "threat", detail: "又来一只", at: 32_000 }),
+      null,
+    );
+  });
+
+  test("stays silent while the operator owns the show", () => {
+    const { show } = createShow();
+    show.applyOperator({ kind: "takeover", text: "我来" });
+
+    assert.equal(
+      show.reactToIncident({ kind: "low_health", detail: "血量只剩 3 点", at: 1_000 }),
+      null,
+    );
+  });
+});
+
+describe("downtime ambient beats", () => {
+  test("stays quiet until the room has been empty for the cooldown", () => {
+    const { show, advance } = createShow();
+    advance(10_000);
+    assert.equal(show.downtimeBeat(), null);
+
+    advance(40_000);
+    const beat = show.downtimeBeat();
+    assert.notEqual(beat, null);
+    assert.equal(beat?.decision, "ACK_ONLY");
+    assert.equal(beat?.priority, "ambient");
+    assert.equal(beat?.skill, null);
+    assert.ok((beat?.speech.length ?? 0) > 0);
+  });
+
+  test("a fresh comment resets the empty-room clock", () => {
+    const { show, advance } = createShow();
+    advance(40_000);
+    assert.notEqual(show.ingest(comment("c1", 41_000)), null);
+    advance(10_000);
+
+    assert.equal(show.downtimeBeat(), null);
+    advance(40_000);
+    assert.notEqual(show.downtimeBeat(), null);
+  });
+
+  test("goal mode owns the narration instead of the ambient loop", () => {
+    const { show, advance } = createShow();
+    show.setGoalMode(true);
+    advance(60_000);
+
+    assert.equal(show.downtimeBeat(), null);
   });
 });
 

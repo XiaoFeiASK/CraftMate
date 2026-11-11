@@ -78,14 +78,14 @@ interface OperationsPageProps {
   ) => void;
 }
 
-const TITLES: Record<WorkspaceView, { readonly title: string; readonly detail: string }> = {
-  decisions: { title: "评论与决策", detail: "每条弹幕为什么被执行、排队或拒绝" },
-  persona: { title: "角色与人格", detail: "当前以单一人格运行，可在这里查看设定" },
-  connections: { title: "接入与语音", detail: "抖音评论、模型与语音的连接状态" },
-  settings: { title: "设置", detail: "直播资料、人格权重与界面偏好" },
-  proposals: { title: "观众提议", detail: "三层闸门后的收件箱与决定理由" },
-  memory: { title: "记忆与版本", detail: "审核经验、回滚人格版本、查看模型成本" },
-  replay: { title: "回放", detail: "按 traceId 查看来源、决策、承诺与动作" },
+const TITLES: Record<WorkspaceView, string> = {
+  decisions: "评论与决策",
+  persona: "角色与人格",
+  connections: "接入与语音",
+  settings: "设置",
+  proposals: "观众提议",
+  memory: "记忆与版本",
+  replay: "回放",
 };
 
 export function OperationsPage({
@@ -129,13 +129,8 @@ export function OperationsPage({
   return (
     <main className="operations-page" aria-labelledby="operations-title">
         <header className="drawer__head">
-          <div>
-            <span className="drawer__kicker">CRAFTMATE / FIELD CONSOLE</span>
-            <h1 id="operations-title">{title.title}</h1>
-            <p>{title.detail}</p>
-          </div>
+          <h1 id="operations-title">{title}</h1>
           <span className="drawer__status" data-state={state}>
-            <span aria-hidden="true" />
             {state === "open" ? modeLabel(showMode) : state === "connecting" ? "连接中" : "离线"}
           </span>
         </header>
@@ -258,7 +253,6 @@ function PersonaView({
           <img src={mascot} alt="" />
         </div>
         <div>
-          <span className="eyebrow">当前人格</span>
           <h3>{personaName}</h3>
           <p>{persona?.identity ?? "正在读取人格设定…"}</p>
         </div>
@@ -288,7 +282,6 @@ function PersonaView({
             ))
           : null}
       </div>
-      <p className="panel-note">人格修改在「设置」里保存后立即影响仲裁；录音色前可在「接入与语音」试听。</p>
     </div>
   );
 }
@@ -392,12 +385,10 @@ function ConnectionsView({
       <VoicePreview disabled={state !== "open"} onSpeak={onSpeak} />
       {subtitles.length > 0 ? (
         <section className="subtitle-log" aria-label="最近语音">
-          <h3>语音状态</h3>
           {subtitles.slice(0, 5).map((subtitle) => (
             <p key={`${subtitle.id}-${subtitle.state}`} data-state={subtitle.state}>
               <span>{subtitle.state === "spoken" ? "已播" : subtitle.state === "speaking" ? "正在说" : "未播出"}</span>
               {`#${subtitle.id.slice(-6)}`}
-              <small>语音原文不进入管理端</small>
               {subtitle.state === "failed" && subtitle.detail ? (
                 <small>播放器错误：{subtitle.detail}</small>
               ) : null}
@@ -405,9 +396,6 @@ function ConnectionsView({
           ))}
         </section>
       ) : null}
-      <p className="panel-note">
-        语音状态来自独立 Voice 服务；没有连接时界面会明确显示，不会假装在线。
-      </p>
     </div>
   );
 }
@@ -501,7 +489,7 @@ function ReflexLog({
   const recent = incidents.slice(-4);
   return (
     <section aria-labelledby="reflex-title">
-      <h3 id="reflex-title">身体避险 · {incidents.length}</h3>
+      <h3 id="reflex-title">身体避险</h3>
       <ul className="ops-list">
         {recent.map((incident, index) => (
           <li key={`${incident.at}-${index}`} className="ops-item">
@@ -560,9 +548,8 @@ interface ConnectionRowProps {
 function ConnectionRow({ label, value, tone }: ConnectionRowProps): React.JSX.Element {
   return (
     <div className="connection-row">
-      <span className="connection-row__dot" data-tone={tone} aria-hidden="true" />
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong data-tone={tone}>{value}</strong>
     </div>
   );
 }
@@ -627,7 +614,7 @@ function ProposalsView({
         ))}
       </div>
       {visible.length === 0 ? (
-        <p className="panel-note">这个分组里还没有提议。目标模式开启后，评论会先入箱再评估。</p>
+        <p className="panel-note">这个分组里还没有提议。</p>
       ) : (
         <ol className="proposal-list">
           {visible.map((proposal) => (
@@ -644,7 +631,7 @@ function ProposalsView({
                 意图 {proposal.intent} · 观众 {audienceRef(proposal.audienceRef)}
               </p>
               <p className="proposal-item__reason">
-                {proposal.reason}（原始提议留在数据库，管理端不展示）
+                {proposal.reason}
               </p>
               {proposal.status === "pending" ? (
                 <div className="proposal-item__actions">
@@ -688,7 +675,9 @@ function ProposalsView({
                   ))}
                 </div>
               ) : proposal.decidedAt ? (
-                <small className="proposal-item__time">决定于 {clock(proposal.decidedAt)}</small>
+                proposal.decidedAt === proposal.createdAt ? null : (
+                  <small className="proposal-item__time">决定于 {clock(proposal.decidedAt)}</small>
+                )
               ) : null}
             </li>
           ))}

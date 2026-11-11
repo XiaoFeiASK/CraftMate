@@ -119,6 +119,42 @@ class BoundedPathfinderTest {
 	}
 
 	@Test
+	void followsADeepStaircasePastTheDefaultVerticalWindow() {
+		// A mine staircase forty blocks below the surface is a normal route,
+		// but the old fixed sixteen-block window rejected it. Returning from
+		// the mine then looked impossible and fell through to hand mining.
+		BoundedPathfinder.Cell goal = new BoundedPathfinder.Cell(40, 40, 0);
+		BoundedPathfinder.Goal reached = (cell) ->
+			cell.x() == goal.x() && cell.y() == goal.y() && cell.z() == goal.z();
+		BoundedPathfinder.Grid staircase = (x, y, z) ->
+			z == 0 && y == Math.min(x, 40);
+
+		BoundedPathfinder.Result shallow = BoundedPathfinder.find(
+			new BoundedPathfinder.Cell(0, 0, 0),
+			goal,
+			reached,
+			staircase,
+			8_000,
+			64
+		);
+		assertFalse(shallow != null && shallow.complete());
+
+		BoundedPathfinder.Result deep = BoundedPathfinder.find(
+			new BoundedPathfinder.Cell(0, 0, 0),
+			goal,
+			reached,
+			staircase,
+			BoundedPathfinder.Traversal.ANY,
+			8_000,
+			64,
+			44
+		);
+		assertNotNull(deep);
+		assertTrue(deep.complete());
+		assertEquals(40, deep.path().get(deep.path().size() - 1).y());
+	}
+
+	@Test
 	void diagonalStepReachesASlopeAOrthogonalGridCannot() {
 		// A single diagonal rise is ordinary terrain, but a four-direction
 		// search has to detour around it. The eight-direction search must

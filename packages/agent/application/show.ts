@@ -17,6 +17,7 @@ import {
   type SourceHealth,
   type VoiceStatus,
   type VoiceSubtitle,
+  type WorldSnapshot,
 } from "@craftmate/contracts";
 import type { BridgeHealth } from "@craftmate/contracts";
 import { createHash } from "node:crypto";
@@ -32,6 +33,7 @@ import { systemClock } from "./ports/clock.ts";
 import type { MemoryPort } from "./ports/memory.ts";
 import type { ShowRecorder } from "./ports/recorder.ts";
 import { Planner } from "./planner.ts";
+import { compactIncidents, compactMemories, compactWorld } from "./context.ts";
 import type {
   ProposalEvaluator,
   ProposalExecutionContext,
@@ -117,6 +119,14 @@ interface ShowOptions {
   readonly availableSkills?: () => readonly string[];
   /** Recall budget per decision, in approximate tokens. */
   readonly memoryBudgetTokens?: number;
+  /** Minimum gap between two proactive reactions to body incidents. */
+  readonly reactionCooldownMs?: number;
+  /** Hard cap so a long stream cannot turn safety events into a narration loop. */
+  readonly reactionMaxPerHour?: number;
+  /** Minimum quiet time before the character starts an ambient beat. */
+  readonly downtimeCooldownMs?: number;
+  /** Hard cap on ambient beats so an empty room cannot burn the voice budget. */
+  readonly downtimeMaxPerHour?: number;
   /** Proposal persistence. Absent means the inbox is in-memory only. */
   readonly proposals?: ProposalRepository;
   /** #42's goal-alignment evaluator; absent keeps proposals pending. */
@@ -193,6 +203,15 @@ export class Show {
   private readonly world: (() => unknown) | null;
   private readonly availableSkills: (() => readonly string[]) | null;
   private readonly memoryBudgetTokens: number;
+  private readonly reactionCooldownMs: number;
+  private readonly reactionMaxPerHour: number;
+  private readonly reactionTimes: number[] = [];
+  private readonly lastReactionAt = new Map<string, number>();
+  private readonly downtimeCooldownMs: number;
+  private readonly downtimeMaxPerHour: number;
+  private readonly downtimeTimes: number[] = [];
+  private lastAudienceAt: number;
+  private lastDowntimeAt = Number.NEGATIVE_INFINITY;
   private readonly incidents: WorldIncident[] = [];
   private readonly proposalInbox: ProposalInbox;
   private goal: GoalProgress | null;
@@ -218,6 +237,11 @@ export class Show {
     this.world = options.world ?? null;
     this.availableSkills = options.availableSkills ?? null;
     this.memoryBudgetTokens = options.memoryBudgetTokens ?? 1_200;
+    this.reactionCooldownMs = options.reactionCooldownMs ?? 30_000;
+    this.reactionMaxPerHour = options.reactionMaxPerHour ?? 30;
+    this.downtimeCooldownMs = options.downtimeCooldownMs ?? 45_000;
+    this.downtimeMaxPerHour = options.downtimeMaxPerHour ?? 40;
+    this.lastAudienceAt = this.clock.now();
     this.proposalInbox = new ProposalInbox({
       repository: options.proposals ?? new MemoryProposalRepository(),
       ...(options.proposalEvaluator ? { evaluator: options.proposalEvaluator } : {}),
@@ -253,6 +277,7 @@ export class Show {
 
     this.rememberSeen(event.id);
     this.received += 1;
+    this.lastAudienceAt = this.clock.now();
     // Audience text enters the inbox first. Natural conversation still reaches
     // arbitration, but an actionable proposal is not dispatched from here; the
     // GoalRuntime issues at most one task after the operator's gates.
@@ -361,20 +386,22 @@ export class Show {
       decision,
       goal: this.settings.goal,
       persona: this.personaSummary(),
-      ...(this.incidents.length > 0 ? { incidents: this.incidents.slice(-4) } : {}),
-      ...(this.world ? { world: this.world() } : {}),
+      ...(this.incidents.length > 0 ? { incidents: compactIncidents(this.incidents) } : {}),
+      ...(this.world ? { world: compactWorld(this.world()) } : {}),
       ...(this.availableSkills
         ? { availableSkills: this.availableSkills() }
         : {}),
       ...(this.memory
         ? {
-            memories: this.memory
-              .recall({
-                subjectRef: decision.audienceRef,
-                query: decision.text,
-                budgetTokens: this.memoryBudgetTokens,
-              })
-              .map((item) => item.memory.content),
+            memories: compactMemories(
+              this.memory
+                .recall({
+                  subjectRef: decision.audienceRef,
+                  query: decision.text,
+                  budgetTokens: this.memoryBudgetTokens,
+                })
+                .map((item) => item.memory.content),
+            ),
           }
         : {}),
     };
@@ -421,12 +448,92 @@ export class Show {
    * an hour of scrapes, and the show never grows with the session.
    */
   recordIncident(incident: WorldIncident): void {
-    this.incidents.push(incident);
+    this.incidents.push({ ...incident, detail: incident.detail.slice(0, 240) });
     if (this.incidents.length > 8) this.incidents.splice(0, this.incidents.length - 8);
   }
 
   currentIncidents(): readonly WorldIncident[] {
     return [...this.incidents];
+  }
+
+  /**
+   * Turns a body reflex into a short, proactive line. This is deliberately
+   * not a skill: the reflex already stopped the body, and the next move must
+   * come from a normal plan or the operator. The reaction only keeps the
+   * character present instead of silently absorbing a dramatic moment.
+   */
+  reactToIncident(incident: WorldIncident): Decision | null {
+    if (this.mode !== "agent") return null;
+    const kind = incident.kind.trim().toLowerCase();
+    const now = this.clock.now();
+    const last = this.lastReactionAt.get(kind) ?? Number.NEGATIVE_INFINITY;
+    if (now - last < this.reactionCooldownMs) return null;
+    this.pruneReactionTimes(now);
+    if (this.reactionTimes.length >= this.reactionMaxPerHour) return null;
+    const speech = reactionSpeech(kind);
+    if (speech === null) return null;
+    const decision: Decision = {
+      id: this.clock.newId(),
+      eventId: `reflex:${kind}:${incident.at}`,
+      nickname: "系统",
+      text: incident.detail,
+      intent: "danger",
+      decision: "ACK_ONLY",
+      priority: "safety",
+      reason: "安全反射后的即时反应",
+      score: 0,
+      stage: "rules",
+      skill: null,
+      speech,
+      audienceRef: "",
+      trace: null,
+      at: now,
+    };
+    this.lastReactionAt.set(kind, now);
+    this.reactionTimes.push(now);
+    this.lastAudienceAt = now;
+    this.recorder?.recordSystemDecision?.(decision);
+    this.remember(decision);
+    return decision;
+  }
+
+  /**
+   * Ambient beat for an empty room. It never authorises a skill: the body's
+   * idle wanderer keeps the character moving, while this keeps the character
+   * audible. Goal mode takes over this job because its speech gate already
+   * narrates verified task transitions.
+   */
+  downtimeBeat(): Decision | null {
+    if (this.mode !== "agent" || this.goalMode) return null;
+    const now = this.clock.now();
+    if (now - this.lastAudienceAt < this.downtimeCooldownMs) return null;
+    if (now - this.lastDowntimeAt < this.downtimeCooldownMs) return null;
+    this.pruneWindow(this.downtimeTimes, now);
+    if (this.downtimeTimes.length >= this.downtimeMaxPerHour) return null;
+    const speech = this.downtimeSpeech();
+    if (speech === null) return null;
+    const decision: Decision = {
+      id: this.clock.newId(),
+      eventId: `idle:${now}`,
+      nickname: "系统",
+      text: "评论空窗，自主找点事做",
+      intent: "chat",
+      decision: "ACK_ONLY",
+      priority: "ambient",
+      reason: "空场自主节拍",
+      score: 0,
+      stage: "rules",
+      skill: null,
+      speech,
+      audienceRef: "",
+      trace: null,
+      at: now,
+    };
+    this.lastDowntimeAt = now;
+    this.downtimeTimes.push(now);
+    this.recorder?.recordSystemDecision?.(decision);
+    this.remember(decision);
+    return decision;
   }
 
   /**
@@ -679,6 +786,11 @@ export class Show {
     return this.goalMode;
   }
 
+  /** How long the room has been quiet; used by the optional idle goal start. */
+  quietForMs(): number {
+    return Math.max(0, this.clock.now() - this.lastAudienceAt);
+  }
+
   private notice(command: OperatorCommand, detail: string): OperatorNotice {
     return {
       kind: command.kind,
@@ -723,6 +835,34 @@ export class Show {
     }
   }
 
+  private pruneReactionTimes(now: number): void {
+    this.pruneWindow(this.reactionTimes, now);
+  }
+
+  private pruneWindow(times: number[], now: number): void {
+    const cutoff = now - 60 * 60 * 1000;
+    while (times.length > 0 && times[0]! < cutoff) times.shift();
+  }
+
+  private downtimeSpeech(): string | null {
+    const world = this.world?.() as Partial<WorldSnapshot> | null | undefined;
+    if (world?.inWorld !== true) return null;
+    if (world.health != null && world.health <= 6) {
+      return "血不多了，我先找个安全的地方缓一缓。";
+    }
+    if (world.food != null && world.food <= 6) {
+      return "有点饿了，我去找点吃的。";
+    }
+    if (world.timeOfDay != null && world.timeOfDay >= 13_000 && world.timeOfDay <= 23_000) {
+      return "天黑了，先把周围看一圈，别让怪摸过来。";
+    }
+    const held = world.selectedItem?.trim();
+    if (held !== undefined && held.length > 0) {
+      return `手上拿着${held}，我再去周围转转。`;
+    }
+    return "暂时没人点单，我先自己找点事做。";
+  }
+
   private personaFor(settings: ShowSettings): Persona {
     const { persona } = settings;
     return {
@@ -740,6 +880,28 @@ export class Show {
       weights: persona.weights,
       voice: persona.voice,
     };
+  }
+}
+
+/** Short first-person lines. No promises, so no commitment is created. */
+function reactionSpeech(kind: string): string | null {
+  switch (kind) {
+    case "lava":
+      return "哎哟，脚下就是岩浆，先退开再说。";
+    case "low_health":
+      return "血不多了，得先找机会回一口。";
+    case "falling":
+      return "这一下摔得不轻，先稳住。";
+    case "drowning":
+      return "气快没了，先浮上去。";
+    case "on_fire":
+      return "着火了，先离火源远一点。";
+    case "starving":
+      return "肚子饿了，得找点吃的。";
+    case "threat":
+      return "有东西盯上我了，先看清是谁。";
+    default:
+      return null;
   }
 }
 

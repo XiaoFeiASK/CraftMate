@@ -7,8 +7,8 @@ import org.junit.jupiter.api.Test;
 
 class AudienceLightTest {
 	@Test
-	void leavesFullBrightAndBlackUntouched() {
-		assertEquals(0, AudienceLight.liftChannel(0));
+	void liftsBlackToAVisibleFloorAndLeavesFullBrightAlone() {
+		assertEquals(38, AudienceLight.liftChannel(0));
 		assertEquals(255, AudienceLight.liftChannel(255));
 	}
 

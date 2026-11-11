@@ -29,6 +29,22 @@ class ShaftEscapeTest {
 	}
 
 	@Test
+	void aToolOutsideTheHotbarMustBeEquippedBeforeMining() {
+		assertTrue(ShaftEscape.needsToolEquip(true, false));
+		assertFalse(ShaftEscape.needsToolEquip(true, true));
+		assertFalse(ShaftEscape.needsToolEquip(false, false));
+	}
+
+	@Test
+	void sameLevelAndDownhillTargetsUseATunnelRatherThanStairsUp() {
+		assertTrue(ShaftEscape.shouldTunnel(true, 0.0, 12.0));
+		assertTrue(ShaftEscape.shouldTunnel(true, -8.0, 12.0));
+		assertFalse(ShaftEscape.shouldTunnel(false, 0.0, 12.0));
+		assertFalse(ShaftEscape.shouldTunnel(true, 4.0, 12.0));
+		assertFalse(ShaftEscape.shouldTunnel(true, 0.0, 2.0));
+	}
+
+	@Test
 	void openSkyAtACliffIsNotAPillarSite() {
 		assertFalse(ShaftEscape.shouldStartPillar(false, 0));
 		assertFalse(ShaftEscape.shouldStartPillar(false, 2));
@@ -39,5 +55,19 @@ class ShaftEscapeTest {
 		assertTrue(ShaftEscape.shouldStartPillar(true, 0));
 		assertTrue(ShaftEscape.shouldStartPillar(false, 3));
 		assertTrue(ShaftEscape.shouldStartPillar(false, 4));
+	}
+
+	@Test
+	void anUndergroundCaveCanPillarWithoutAPlayerMadeShaft() {
+		assertTrue(ShaftEscape.shouldStartPillar(false, 0, true));
+		assertTrue(ShaftEscape.shouldStartPillar(false, 2, true));
+		assertFalse(ShaftEscape.shouldStartPillar(false, 0, false));
+	}
+
+	@Test
+	void aPillarNeedsSkyOrAWayToBreakItsOwnSupport() {
+		assertTrue(ShaftEscape.canRecoverFromPillar(true, false));
+		assertTrue(ShaftEscape.canRecoverFromPillar(false, true));
+		assertFalse(ShaftEscape.canRecoverFromPillar(false, false));
 	}
 }

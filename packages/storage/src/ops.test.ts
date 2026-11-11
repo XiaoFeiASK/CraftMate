@@ -98,6 +98,39 @@ describe("memory review and recall", () => {
     });
   });
 
+  test("outcomes accumulate and a failure keeps its concrete condition", () => {
+    withDb((db, context) => {
+      const memory = new MemoryStore(db, context.sessionId);
+      const memoryId = memory.approveCandidate(
+        memory.propose(
+          {
+            subjectRef: "viewer:abc",
+            family: "experience",
+            content: "从矿区西侧回营地更安全",
+            disclosure: "paraphrase",
+            confidence: 0.7,
+            evidenceSourceIds: [],
+          },
+          context.sessionId,
+        ),
+      );
+
+      assert.equal(memory.get(memoryId)?.successCount, 0);
+      memory.recordOutcome(memoryId, { ok: true });
+      const updated = memory.recordOutcome(memoryId, {
+        ok: false,
+        condition: "背包满时会被迫绕路",
+        version: "1.20.1",
+      });
+
+      assert.equal(updated?.successCount, 1);
+      assert.equal(updated?.failureCount, 1);
+      assert.match(updated?.conditions ?? "", /背包满/);
+      assert.equal(updated?.applicableVersion, "1.20.1");
+      assert.equal(memory.recordOutcome("missing", { ok: true }), null);
+    });
+  });
+
   test("a rejected candidate is never written as a memory", () => {
     withDb((db, context) => {
       const memory = new MemoryStore(db, context.sessionId);

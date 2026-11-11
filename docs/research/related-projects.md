@@ -9,6 +9,7 @@
 | [MaiBot](https://github.com/Mai-with-u/MaiBot) | 面向聊天与陪伴的通用 Agent | [README](https://github.com/Mai-with-u/MaiBot/blob/main/README.md)、[文档](https://docs.mai-mai.org) |
 | [MaiCraftMod](https://github.com/Mai-with-u/MaiCraftMod) | 通过 MCP 控制 Minecraft 客户端玩家的 Fabric / NeoForge Mod | [README](https://github.com/Mai-with-u/MaiCraftMod/blob/main/README.md)、[设计总览](https://github.com/Mai-with-u/MaiCraftMod/blob/main/docs/design/README.md) |
 | [Amaidesu](https://github.com/Mai-with-u/Amaidesu) | AI 虚拟主播框架，含直播编排和游戏 Agent | [README](https://github.com/Mai-with-u/Amaidesu/blob/main/README.md)、[架构说明](https://github.com/Mai-with-u/Amaidesu/blob/main/docs/architecture/v2-architecture.md)、[Minecraft Agent](https://github.com/Mai-with-u/Amaidesu/blob/main/docs/architecture/minecraft-agent.md)、[主播记忆](https://github.com/Mai-with-u/Amaidesu/blob/main/docs/architecture/streamer-memory.md) |
+| [dsh-mc-agent](https://github.com/blueziii/dsh-mc-agent) | DSH 插件：用 Mineflayer 身体让通用 Agent 自主玩 Minecraft | [README](https://github.com/blueziii/dsh-mc-agent/blob/main/README.md)、[插件说明](https://github.com/blueziii/dsh-mc-agent/blob/main/插件说明.md)、[开发说明](https://github.com/blueziii/dsh-mc-agent/blob/main/开发说明.md)、[踩坑档案](https://github.com/blueziii/dsh-mc-agent/blob/main/踩坑档案.md) |
 
 ## 对 CraftMate 的对比
 
@@ -20,6 +21,8 @@
 | 直播节奏 | Amaidesu 用 Rundown 流程单和自主 Planner 设计空场时继续推进内容，并由 Replyer 专注表达 | CraftMate 已有观众驱动和确定性目标模式两条路径；目标模式仍偏生存执行，不是节目流程单或空场话题编排 |
 | 记忆 | Amaidesu 有场次回顾、观众画像、长期笔记和本场备忘录；MaiBot 强调长期理解与个性化互动 | CraftMate 将证据、待审记忆、已批准记忆、人格版本和承诺分开管理，强调来源、审批与可回滚 |
 | 直播输出 | Amaidesu 集成 TTS、虚拟形象、OBS、字幕和屏幕感知 | CraftMate 已有语音和字幕链路，但 OBS/实播音频路由与完整虚拟形象联动尚未验收 |
+| 自主循环 | dsh-mc-agent 用反射事件叫醒、空闲叫醒和长期目标让角色在无人指挥时继续行动；单次工具调用只做一件事，到点带 `remaining` 和 `hint` 返回 | CraftMate 已有 `GoalRuntime` 的连续目标闭环和 `GoalSpeechGate`，但空场时是否自动进入目标、反射事件后是否主动起反应仍取决于操作员设置 |
+| 失败记忆 | dsh-mc-agent 的记忆条目带来源、成功/失败次数、适用版本和失败条件；同一 key 再记会累加而不是堆重复条目 | CraftMate 的记忆有证据、置信度、披露级别和审核队列，但缺少跨会话的成功/失败计数与“在什么条件下失败”的结构化字段 |
 
 ## 值得持续观察的方向
 
@@ -41,9 +44,17 @@ CraftMate 不应因此直接替换现有 Bridge。Bridge 继续围绕单机安�
 
 适用前提是先建立可靠的游戏状态和真机任务终态；否则自主节目循环可能会围绕过时或未经确认的状态继续叙述。Amaidesu README 标记为早期开发，其文档中的主动推进也明确依赖流程单和提示词质量，应视为方向性设计而非成熟能力保证。
 
+### 4. dsh-mc-agent：事件叫醒与单动作闭环
+
+它把“自主”拆成四层：反射层只监测危险和玩家发言，用插件提示叫醒同一个会话；空闲层在角色停下一段时间后，带着长期目标、背包、附近玩家和未完成任务叫醒它；模型每次只做一个可验证动作，做完先看结果再决定下一步；长动作被切成约 10 秒一段，到点返回 `remaining`、`hint` 和已完成进度，由模型决定是否续跑。
+
+值得 CraftMate 借鉴的是“叫醒”而不是“替模型行动”：反射层只报告事实，吃什么、捡什么、跟不跟随、往哪撤由模型决定；叫醒文案明确要求“做一个动作、看结果、再决定”，不允许用等待或反问代替行动。空闲叫醒还有每小时配额、最小间隔、无动作指数退避，危险叫醒单独配额，避免挂机空转把保命额度烧光。
+
+dsh-mc-agent 也暴露了几个反例：41 个工具语义重叠、部分工具内部仍会自动换工具/补中间产物/挑燃料/开门/挖路，和“让 AI 决定”的原则冲突；`selfcheck` 有“打 ❌ 但不影响退出码”的历史，提醒 CraftMate 继续把 `typecheck`、单测和真机证据作为硬门禁，而不是只靠文档自检。
+
 ## 初步结论
 
-目前最直接的工程参考是 MaiCraftMod 的目标生命周期和证据化结果；最贴近产品体验的参考是 Amaidesu 的空场节目编排和跨场记忆；MaiBot 更适合作为自然互动、观众连续性和扩展生态的长期对照。
+目前最直接的工程参考是 MaiCraftMod 的目标生命周期和证据化结果；最贴近产品体验的参考是 Amaidesu 的空场节目编排和跨场记忆；dsh-mc-agent 最适合作为“事件叫醒、单动作闭环、分段预算、失败记忆”的运行时参照；MaiBot 更适合作为自然互动、观众连续性和扩展生态的长期对照。
 
 短期优先继续完成 CraftMate 已有的 Bridge、身体事件、技能终态和完整生存链真机验收。目标级跟踪已经由 `GoalRuntime` 落地，但节目单驱动、场次回顾和观众画像仍应等待游戏状态与终态证据稳定后再扩展。
 
@@ -65,6 +76,17 @@ CraftMate 不应因此直接替换现有 Bridge。Bridge 继续围绕单机安�
 不是外部项目的 LLM Planner；这样可以先验证身体和证据链，再评估是否引入模型级
 目标推理。
 
+2026-11-11 吸收 dsh-mc-agent 的运行时经验，补了四条独立实现：
+
+- 反射事件不再只进 `world_event`，`Show.reactToIncident` 会按事件类型生成短台词，
+  带 30 秒同类冷却和每小时配额，不授予技能、不创建承诺；
+- 评论空窗 45 秒后 `Show.downtimeBeat` 生成环境节拍，目标模式开启时让位给
+  `GoalRuntime` 的已验证任务解说；
+- `skillOutcomeSchema` 增加 `progress`、`remaining`、`resumable`、`nextHint`，
+  失败时把剩余工作和下一步提示写进目标运行时的恢复记录；
+- 记忆增加成功/失败次数、失败条件和适用版本，召回时按置信度与成功率排序；
+  同时给反射事件、世界快照和记忆内容加了提示词侧长度上限。
+
 ## 许可与边界
 
-按仓库当前公开说明，MaiBot 使用 GPL-3.0，MaiCraftMod 使用 GPL-3.0-only，Amaidesu 使用 MIT。这里只记录功能和架构方向，不复制代码；若未来考虑采用代码、依赖或协议实现，需单独审查对应版本的许可证、NOTICE 和兼容性。CraftMate 当前采用 MIT OR Apache-2.0，相关既有约束见[决策记录](../decisions/adr.md)。
+按仓库当前公开说明，MaiBot 使用 GPL-3.0，MaiCraftMod 使用 GPL-3.0-only，Amaidesu 使用 MIT，dsh-mc-agent 使用 MIT。这里只记录功能和架构方向，不复制代码；若未来考虑采用代码、依赖或协议实现，需单独审查对应版本的许可证、NOTICE 和兼容性。CraftMate 当前采用 MIT OR Apache-2.0，相关既有约束见[决策记录](../decisions/adr.md)。

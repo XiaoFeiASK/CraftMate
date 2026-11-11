@@ -9,6 +9,11 @@ final class ToolSelection {
 	private ToolSelection() {
 	}
 
+	/** Stone and ores require a pickaxe; dirt, wood and leaves do not. */
+	static boolean canHarvest(boolean requiresCorrectTool, boolean hasCorrectTool) {
+		return !requiresCorrectTool || hasCorrectTool;
+	}
+
 	/**
 	 * Returns the best usable hotbar slot, or -1 when the requested block
 	 * needs a correct tool and the hotbar has none.

@@ -124,6 +124,15 @@ export interface GoalSettlement {
   readonly at: number;
   /** Body-confirmed effects. A bare `completed` is not proof by itself. */
   readonly changes?: readonly GoalChange[];
+  /** Partial progress and the body's suggested continuation, when it gave one. */
+  readonly progress?: {
+    readonly done: number;
+    readonly total?: number | undefined;
+    readonly unit?: string | undefined;
+  };
+  readonly remaining?: string;
+  readonly resumable?: boolean;
+  readonly nextHint?: string;
 }
 
 export interface GoalChange {
@@ -723,7 +732,7 @@ export class GoalRuntime {
     this.recordFailure(
       current.taskId,
       current.strategyKey,
-      outcome.detail ?? outcome.errorCode ?? statusText(outcome.status),
+      failureDetail(outcome),
       outcome.status,
       outcome.at,
       current.decision.text,
@@ -1315,4 +1324,28 @@ function statusText(status: GoalSettlement["status"]): string {
     default:
       return "任务失败";
   }
+}
+
+/**
+ * A partial result is more useful to the next plan than a bare timeout label.
+ * Keep the body's remaining work and next hint in the durable failure detail
+ * so recovery can continue instead of re-issuing the same whole task.
+ */
+function failureDetail(outcome: GoalSettlement): string {
+  const parts = [
+    outcome.detail ?? outcome.errorCode ?? statusText(outcome.status),
+    outcome.progress === undefined ? "" : progressText(outcome.progress),
+    outcome.remaining === undefined ? "" : `还差：${outcome.remaining}`,
+    outcome.resumable === true ? "可续跑" : "",
+    outcome.nextHint === undefined ? "" : `下一步：${outcome.nextHint}`,
+  ].filter((part) => part.length > 0);
+  return parts.join("；");
+}
+
+function progressText(progress: NonNullable<GoalSettlement["progress"]>): string {
+  const amount =
+    progress.total === undefined
+      ? `${progress.done}`
+      : `${progress.done}/${progress.total}`;
+  return `进度：${amount}${progress.unit === undefined ? "" : ` ${progress.unit}`}`;
 }

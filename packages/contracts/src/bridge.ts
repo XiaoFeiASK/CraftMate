@@ -160,6 +160,13 @@ export const worldSnapshotSchema = z.object({
     y: z.number().finite(),
     z: z.number().finite(),
   }).optional(),
+  /** Last furnace this body placed, so a later smelt can walk back to it. */
+  furnace: z.object({
+    x: z.number().finite(),
+    y: z.number().finite(),
+    z: z.number().finite(),
+  }).optional(),
+  furnacePlaced: z.boolean().optional(),
   /** Last crafting table this body placed, so a later craft can walk back. */
   craftingTable: z.object({
     x: z.number().finite(),

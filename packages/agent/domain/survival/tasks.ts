@@ -11,16 +11,19 @@ import {
 } from "../knowledge/src/index.ts";
 import {
   countAny,
-  hasAny,
+  depthBelowSurface,
   hasCraftingTableProduct,
   hasItem,
+  hasUsablePickaxe,
   inventoryCount,
   isHungry,
   isNight,
+  isUnderground,
   nearbyHas,
   nearestEntity,
   nearestEntityWithinHeight,
   pickaxeTier,
+  pickaxeUses,
 } from "./facts.ts";
 import type {
   BlockedTask,
@@ -89,8 +92,14 @@ const VISIBLE_WOOD_APPROACH_DISTANCE = 40;
  * tunnel wall or on another layer; making a fresh one from carried planks is
  * both faster and more reliable than pathing back through a mineshaft.
  */
-const REPLACE_TABLE_DISTANCE = 8;
 const REPLACE_TABLE_VERTICAL = 4;
+/**
+ * A remembered table on the same floor is a real station even when it is
+ * outside interaction range. Walking back a short tunnel is cheaper and far
+ * more reliable than exploring 48 blocks for wood to build a replacement --
+ * especially underground, where no tree exists at all.
+ */
+const WALK_BACK_TABLE_DISTANCE = 64;
 
 /**
  * Builds the single next executable task for a stage. When no task is ready,
@@ -117,6 +126,8 @@ export function nextTaskForStage(context: TaskContext): Task | BlockedTask | nul
   if (campBed !== null) return campBed;
   const storage = homeStorageTask(stage, facts, newId);
   if (storage !== null) return storage;
+  const miningReturn = miningReturnTask(stage, facts, newId);
+  if (miningReturn !== null) return miningReturn;
   let task: Task | BlockedTask | null;
   switch (stage) {
     case "wood-and-table":
@@ -206,6 +217,10 @@ function nightMobility(
       | { readonly x: number; readonly y: number; readonly z: number }
       | undefined;
     const position = facts.position;
+    // A station return is not a local resource sweep. The table can sit
+    // directly above the mine, so measuring only x/z would misclassify a
+    // 30-block vertical climb as "nearby" and cancel it every night window.
+    if (task.skill.args["acceptPartial"] === false) return task;
     // A hunt or a shelter search already travels a wide ring; keep it.
     // A targeted goto (no candidate list) is an approach to a specific
     // entity or station; replacing it with a random sweep loses the sheep
@@ -214,7 +229,11 @@ function nightMobility(
       target != null &&
       position != null &&
       (task.skill.args["candidates"] === undefined ||
-        Math.hypot(target.x - position.x, target.z - position.z) >= 20)
+        Math.hypot(
+          target.x - position.x,
+          target.y - (position.y ?? target.y),
+          target.z - position.z,
+        ) >= 20)
     ) {
       return task;
     }
@@ -688,44 +707,33 @@ function woodAndTable(facts: WorldFacts, newId: () => string): Task | BlockedTas
   }
   // The wood-and-table stage owns the table, not an arbitrary plank quota.
   // Once the table exists, surplus planks belong to the next stage.
-  if (planks < 4 && !tableInInventory) {
-    if (log === undefined) {
-      const nearbyLog = nearbyHas(facts, WOOD_ITEMS);
-      if (nearbyLog !== null) {
-        return woodGatherTask(facts, "wood-and-table", "砍树并获得原木", newId);
-      }
-      return explore(
-        facts,
-        "wood-and-table",
-        "寻找原木",
-        "原木",
-        1,
-        newId,
-        32,
-        48,
-        true,
-      );
-    }
-    const recipe = planksRecipeFor(facts);
-    if (recipe === null) return blocked("wood-and-table", "craft", "制作木板");
-    return craftTask(recipe, "wood-and-table", facts, newId, Math.max(1, Math.ceil((4 - planks) / recipe.output.count)));
-  }
   return null;
 }
 
 function stoneTools(facts: WorldFacts, newId: () => string): Task | BlockedTask | null {
-  // A crafted table in the backpack must be placed before a 3x3 recipe can
-  // consume materials. Otherwise the planner might ask for sticks first and
-  // discover only afterwards that the table is still not in reach.
-  const table = ensureTable(facts, "stone-tools", newId);
-  if (table !== null) {
-    return placeOrBuildTable(table, facts, newId);
-  }
   // Never ask for a tier the body has already surpassed. The previous
   // `hasItem(wooden_pickaxe)` check stranded a body carrying only a stone or
   // iron pickaxe: it demanded a wooden downgrade, needed logs for it, and
   // then failed every replan because no log was nearby.
   if (pickaxeTier(facts) < 1) {
+    const table = ensureTable(facts, "stone-tools", newId);
+    if (table !== null) return placeOrBuildTable(table, facts, newId);
+    // A broken wooden pickaxe is not a reason to re-enter the wood stage.
+    // With three cobblestone, two sticks and a table this session placed,
+    // the stone pickaxe is already craftable; demanding a wooden detour
+    // sent the body into an underground wood hunt it could never finish.
+    const stonePickaxe = queryRecipe("minecraft:stone_pickaxe");
+    if (
+      stonePickaxe !== null &&
+      inventoryCount(facts, "minecraft:cobblestone") >= 3 &&
+      (hasStation(facts, "crafting_table") ||
+        facts.craftingTableNearby === true ||
+        placedTableWithinWalk(facts) ||
+        (facts.craftingTablePlaced === true && facts.canSeeSky === false)) &&
+      missingForRecipe(stonePickaxe, facts).length === 0
+    ) {
+      return craftTask(stonePickaxe, "stone-tools", facts, newId);
+    }
     const pickaxe = queryRecipe("minecraft:wooden_pickaxe");
     if (pickaxe === null) return blocked("stone-tools", "craft", "制作木镐");
     const missing = missingForRecipe(pickaxe, facts);
@@ -765,6 +773,8 @@ function stoneTools(facts: WorldFacts, newId: () => string): Task | BlockedTask 
     };
   }
   if (pickaxeTier(facts) < 2) {
+    const table = ensureTable(facts, "stone-tools", newId);
+    if (table !== null) return placeOrBuildTable(table, facts, newId);
     const pickaxe = queryRecipe("minecraft:stone_pickaxe");
     if (pickaxe === null) return blocked("stone-tools", "craft", "制作石镐");
     const missing = missingForRecipe(pickaxe, facts);
@@ -859,11 +869,48 @@ function foodTask(facts: WorldFacts, newId: () => string): Task | BlockedTask | 
     return null;
   }
   const position = facts.position;
+  /**
+   * A starving body in a sealed cave can be one craft away from escape. When
+   * the remembered table is close and the backpack already has a pickaxe's
+   * ingredients, climbing toward the surface with bare hands is the worse
+   * move: the stone roof stops the pillar and every retry burns time. Restore
+   * the tool first; the pickaxe then unlocks stone collection, pillar recovery
+   * and the surface food hunt.
+   */
+  const table = facts.craftingTable;
+  const tableDistance =
+    position !== undefined &&
+    position !== null &&
+    table !== undefined &&
+    table !== null
+      ? Math.hypot(table.x - position.x, table.y - position.y, table.z - position.z)
+      : Number.POSITIVE_INFINITY;
+  const woodenPickaxe = queryRecipe("minecraft:wooden_pickaxe");
+  const canRestorePickaxe =
+    pickaxeTier(facts) < 1 &&
+    facts.craftingTablePlaced === true &&
+    tableDistance <= 20 &&
+    woodenPickaxe !== null &&
+    missingForRecipe(woodenPickaxe, facts).length === 0;
+  if (
+    canRestorePickaxe &&
+    woodenPickaxe !== null &&
+    isHungry(facts) &&
+    facts.canSeeSky === false
+  ) {
+    return craftTask(
+      woodenPickaxe,
+      "stone-tools",
+      facts,
+      newId,
+    );
+  }
   if (
     position !== undefined &&
     position !== null &&
     isHungry(facts) &&
     facts.canSeeSky === false &&
+    !canRestorePickaxe &&
     (facts.health ?? 20) >= 12
   ) {
     // Cave animals are rare, but zombies are common and drop emergency
@@ -1096,11 +1143,20 @@ function foodTask(facts: WorldFacts, newId: () => string): Task | BlockedTask | 
 
 function shelter(facts: WorldFacts, newId: () => string): Task | BlockedTask | null {
   if (facts.sleeping === true) return null;
+  // A camp is a surface home. Building it in a mineshaft is how the body
+  // ended up sleeping and storing loot underground, then treating the hole
+  // as "home" on every later trip.
+  if (deepUnderground(facts)) {
+    return returnToSurfaceTask("shelter", facts, newId) ??
+      blocked("shelter", "navigate", "返回地表建立营地");
+  }
 
   const bedNearby = nearbyHas(facts, BED_ITEMS);
   const bedItem = facts.inventory.find((slot) => BED_ITEMS.test(slot.item));
+  const bedPlaced =
+    facts.bedPlaced === true && !anchorIsUnderground(facts, facts.bed ?? null);
   const hasBed =
-    facts.bedPlaced === true ||
+    bedPlaced ||
     bedNearby !== null ||
     bedItem !== undefined;
   let bedRecipe: CraftingRecipe | null = null;
@@ -1141,20 +1197,17 @@ function shelter(facts: WorldFacts, newId: () => string): Task | BlockedTask | n
     }
   }
 
-  // The placed crafting table is the camp anchor. If the remembered table is
-  // far away or unreachable, ensureTable builds a fresh one here, so every
-  // camp task works from a real, current workstation instead of a stale
-  // coordinate from an earlier cave trip.
-  const table = ensureTable(facts, "shelter", newId);
-  if (table !== null) return placeOrBuildTable(table, facts, newId, "shelter");
-
   const chestNearby = nearbyHas(facts, /(^|:)chest$/u);
   const chestItem = facts.inventory.find((slot) => /(^|:)chest$/u.test(slot.item));
+  const chestPlaced =
+    facts.chestPlaced === true && !anchorIsUnderground(facts, facts.chest ?? null);
   const hasChest =
-    facts.chestPlaced === true ||
+    chestPlaced ||
     chestNearby !== null ||
     chestItem !== undefined;
   if (!hasChest) {
+    const table = ensureTable(facts, "shelter", newId);
+    if (table !== null) return placeOrBuildTable(table, facts, newId, "shelter");
     const recipe = queryRecipe("minecraft:chest");
     if (recipe === null) return blocked("shelter", "craft", "制作箱子");
     const missing = missingForRecipe(recipe, facts);
@@ -1181,6 +1234,8 @@ function shelter(facts: WorldFacts, newId: () => string): Task | BlockedTask | n
   }
 
   if (!hasBed) {
+    const table = ensureTable(facts, "shelter", newId);
+    if (table !== null) return placeOrBuildTable(table, facts, newId, "shelter");
     if (bedRecipe === null) return blocked("shelter", "craft", "制作床");
     return bedMissing.length === 0
       ? craftTask(bedRecipe, "shelter", facts, newId)
@@ -1202,7 +1257,40 @@ function shelter(facts: WorldFacts, newId: () => string): Task | BlockedTask | n
 function homeAnchor(
   facts: WorldFacts,
 ): { readonly x: number; readonly y: number; readonly z: number } | null {
-  return facts.chest ?? facts.bed ?? facts.craftingTable ?? null;
+  const anchor = facts.chest ?? facts.bed ?? facts.craftingTable ?? null;
+  if (anchor === null) return null;
+  // A chest or bed placed while mining is an outpost, not a home. Treating
+  // it as the camp is what made the body build beds and chests underground
+  // and then "go home" into a hole.
+  if (anchorIsUnderground(facts, anchor)) return null;
+  return anchor;
+}
+
+function anchorIsUnderground(
+  facts: WorldFacts,
+  anchor: { readonly x: number; readonly y: number; readonly z: number } | null,
+): boolean {
+  if (anchor === null) return false;
+  // A surface reading is only trustworthy for the current column. When the
+  // body is deep under a mountain, comparing a valley camp to that column's
+  // surface height would misclassify the camp as underground.
+  const surface = facts.surfaceY;
+  if (facts.canSeeSky === true && surface !== undefined && surface !== null) {
+    return anchor.y < surface - 4;
+  }
+  // Sea level is 63; a remembered chest or bed this low is almost certainly
+  // an outpost, not the surface camp.
+  return anchor.y < 40;
+}
+
+/**
+ * A station at a shallow mine entrance is an outpost; a station forty blocks
+ * down is a second home. The body must climb out before placing camp
+ * infrastructure, even when it is currently carrying the item.
+ */
+function deepUnderground(facts: WorldFacts): boolean {
+  if (facts.dimension !== undefined && facts.dimension !== "overworld") return false;
+  return (depthBelowSurface(facts) ?? 0) > 8;
 }
 
 function distanceTo(
@@ -1251,12 +1339,186 @@ function gotoHomeTask(
   };
 }
 
+/**
+ * Returning from a mine is not the same as walking to a remembered table.
+ * A deep staircase can leave the body below its own camp, so plan an explicit
+ * climb back to the surface before hunger, a broken pickaxe or a full
+ * backpack turns a productive trip into a death.
+ */
+function returnToSurfaceTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  if (!isUnderground(facts)) return null;
+  if (facts.dimension !== undefined && facts.dimension !== "overworld") return null;
+  const position = facts.position;
+  const surface = facts.surfaceY;
+  if (position === undefined || position === null || surface === undefined || surface === null) {
+    return null;
+  }
+  const home = homeAnchor(facts);
+  const target = { x: Math.round(position.x), y: Math.round(surface) + 1, z: Math.round(position.z) };
+  const candidates = [
+    ...(home === null ? [] : [{ x: home.x + 1, y: home.y + 1, z: home.z }]),
+    target,
+  ];
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "navigate",
+    title: "返回地表，先离开矿洞",
+    skill: skill("goto", {
+      target: candidates[0],
+      candidates,
+      acceptPartial: false,
+    }, newId),
+    preconditions: [
+      "the body is underground",
+      "the local surface height is observed",
+      "a walkable staircase back exists",
+    ],
+    expectedEvidence: ["the body returns to the surface", "canSeeSky becomes true"],
+    verify: (next) =>
+      next.canSeeSky === true ||
+      (next.position?.y ?? Number.NEGATIVE_INFINITY) >=
+        (next.surfaceY ?? Number.POSITIVE_INFINITY) - 2,
+  };
+}
+
+/**
+ * Mining trips are long. Leave before the pickaxe, food or backpack runs out;
+ * a body that reaches the ore layer with two durability left cannot climb
+ * back out and the next plan only repeats the same failure.
+ */
+function miningReturnTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  // Food and tool recovery own their own surface/table trips. Returning here
+  // would pre-empt the craft that makes the climb possible in the first place.
+  if (stage === "food") return null;
+  if (!isUnderground(facts)) return null;
+  // A broken pickaxe is the strongest reason to leave, not a reason to stay.
+  // The return route is the staircase already dug on the way down; it must
+  // not depend on having a tool left to dig new blocks.
+  if (!hasUsablePickaxe(facts)) {
+    // Unless the body is standing next to its own table with the material
+    // for a replacement, in which case repairing the tool in place is the
+    // human move. A thirty-block climb to a surface table is not "nearby".
+    if (canRepairPickaxeAtTable(facts)) return null;
+    return returnToSurfaceTask(stage, facts, newId);
+  }
+  const depth = depthBelowSurface(facts) ?? 0;
+  if (depth < 12) return null;
+  const uses = pickaxeUses(facts, Math.max(1, pickaxeTier(facts)));
+  const inventoryFull = usedInventorySlots(facts) >= 28;
+  const lowFood = (facts.food ?? 20) < 10;
+  const lowHealth = (facts.health ?? 20) < 12;
+  // Walking back up the staircase does not consume the pickaxe. Reserve only
+  // enough uses to finish the current cut and handle one blocked step.
+  const exhausted = uses !== null && uses < 16;
+  if (!inventoryFull && !lowFood && !lowHealth && !exhausted) {
+    return null;
+  }
+  return returnToSurfaceTask(stage, facts, newId);
+}
+
+function canRepairPickaxeAtTable(facts: WorldFacts): boolean {
+  if (
+    inventoryCount(facts, "minecraft:cobblestone") < 3 ||
+    inventoryCount(facts, "minecraft:stick") < 2
+  ) {
+    return false;
+  }
+  if (hasStation(facts, "crafting_table") || facts.craftingTableNearby === true) {
+    return true;
+  }
+  const table = facts.craftingTable;
+  const position = facts.position;
+  return (
+    table !== undefined &&
+    table !== null &&
+    position !== undefined &&
+    position !== null &&
+    distanceTo(position, table) <= 16
+  );
+}
+
+/**
+ * A furnace is a camp station. If one was already placed, walk back to it
+ * instead of crafting and placing another wherever the body happens to be.
+ */
+function gotoFurnaceTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  const furnaceInReach =
+    (facts.stations ?? []).includes("furnace") ||
+    (facts.nearbyBlocks ?? []).some((block) =>
+      /(^|:)furnace$|(^|:)blast_furnace$/u.test(block.id),
+    );
+  if (furnaceInReach) return null;
+  const furnace = facts.furnace;
+  if (furnace === undefined || furnace === null) {
+    return facts.furnacePlaced === true ? gotoHomeTask(stage, facts, newId) : null;
+  }
+  // Euclidean distance is not reachability. A furnace five blocks away
+  // behind a wall is still a station to walk to; only the observed
+  // `furnaceInReach` check above may claim it is usable right now.
+  const y = furnace.y + 1;
+  const candidates = [
+    { x: furnace.x + 1, y, z: furnace.z },
+    { x: furnace.x - 1, y, z: furnace.z },
+    { x: furnace.x, y, z: furnace.z + 1 },
+    { x: furnace.x, y, z: furnace.z - 1 },
+  ];
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "navigate",
+    title: "走回熔炉",
+    skill: skill("goto", {
+      target: candidates[0],
+      candidates,
+      acceptPartial: false,
+    }, newId),
+    preconditions: ["a placed furnace is remembered", "a route to the station exists"],
+    expectedEvidence: ["the furnace enters interaction range"],
+    verify: () => true,
+  };
+}
+
+/**
+ * Stations belong at the camp. When a table, furnace, chest or bed is carried
+ * while the body is away, walk home before placing it instead of scattering a
+ * second workstation across the map.
+ */
+function gotoCampBeforePlacement(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  const home = homeAnchor(facts);
+  const position = facts.position;
+  if (home === null || position === undefined || position === null) return null;
+  return distanceTo(position, home) > 6 ? gotoHomeTask(stage, facts, newId) : null;
+}
+
 function placeChestTask(
   stage: GoalId,
   facts: WorldFacts,
   item: string,
   newId: () => string,
-): Task {
+): Task | BlockedTask {
+  if (deepUnderground(facts)) {
+    return returnToSurfaceTask(stage, facts, newId) ??
+      blocked(stage, "navigate", "返回地表再放置箱子");
+  }
+  const camp = gotoCampBeforePlacement(stage, facts, newId);
+  if (camp !== null) return camp;
   return {
     id: `task:${newId()}`,
     stage,
@@ -1274,7 +1536,13 @@ function placeBedTask(
   facts: WorldFacts,
   item: string,
   newId: () => string,
-): Task {
+): Task | BlockedTask {
+  if (deepUnderground(facts)) {
+    return returnToSurfaceTask(stage, facts, newId) ??
+      blocked(stage, "navigate", "返回地表再放置床");
+  }
+  const camp = gotoCampBeforePlacement(stage, facts, newId);
+  if (camp !== null) return camp;
   return {
     id: `task:${newId()}`,
     stage,
@@ -1308,7 +1576,7 @@ function nightHomeTask(
   stage: GoalId,
   facts: WorldFacts,
   newId: () => string,
-): Task | null {
+): Task | BlockedTask | null {
   if (isNight(facts) !== true || facts.sleeping === true) return null;
   const bedNearby = nearbyHas(facts, BED_ITEMS);
   if (bedNearby !== null) return sleepTask(stage, facts, newId);
@@ -1372,7 +1640,10 @@ function homeStorageTask(
 ): Task | null {
   if (usedInventorySlots(facts) < 28) return null;
   const chestNearby = nearbyHas(facts, /(^|:)chest$/u);
-  const container = facts.chest ?? nearbyPoint(chestNearby);
+  const rememberedChest = anchorIsUnderground(facts, facts.chest ?? null)
+    ? undefined
+    : facts.chest;
+  const container = rememberedChest ?? nearbyPoint(chestNearby);
   // A remembered chest may be one floor above the body. Euclidean distance
   // does not prove that it is reachable or that the body is standing at the
   // container, so travel home first when the chest is not on this level.
@@ -1456,9 +1727,12 @@ function campChestTask(
   facts: WorldFacts,
   newId: () => string,
 ): Task | BlockedTask | null {
+  if (isUnderground(facts)) return null;
   const chestNearby = nearbyHas(facts, /(^|:)chest$/u);
   const chestItem = facts.inventory.find((slot) => /(^|:)chest$/u.test(slot.item));
-  if (facts.chestPlaced === true || chestNearby !== null) return null;
+  const chestPlaced =
+    facts.chestPlaced === true && !anchorIsUnderground(facts, facts.chest ?? null);
+  if (chestPlaced || chestNearby !== null) return null;
   if (chestItem !== undefined) {
     const home = homeAnchor(facts);
     if (
@@ -1494,7 +1768,10 @@ function campBedTask(
   facts: WorldFacts,
   newId: () => string,
 ): Task | BlockedTask | null {
-  if (facts.bedPlaced === true || nearbyHas(facts, BED_ITEMS) !== null) return null;
+  if (isUnderground(facts)) return null;
+  const bedPlaced =
+    facts.bedPlaced === true && !anchorIsUnderground(facts, facts.bed ?? null);
+  if (bedPlaced || nearbyHas(facts, BED_ITEMS) !== null) return null;
   const bedItem = facts.inventory.find((slot) => BED_ITEMS.test(slot.item));
   if (bedItem !== undefined) {
     const home = homeAnchor(facts);
@@ -1523,10 +1800,18 @@ function campBedTask(
 }
 
 function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null {
-  const table = ensureTable(facts, "iron", newId);
-  if (table !== null) return table;
   if (!hasStation(facts, "furnace")) {
+    // Reuse the furnace this run already placed before spending eight more
+    // cobblestone on another one. Walking away from a station is not the
+    // same as losing it, and the bridge remembers its coordinates.
+    const rememberedFurnace = gotoFurnaceTask("iron", facts, newId);
+    if (rememberedFurnace !== null) return rememberedFurnace;
     if (hasItem(facts, "minecraft:furnace")) {
+      if (deepUnderground(facts)) {
+        return returnToSurfaceTask("iron", facts, newId) ?? blocked("iron", "navigate", "返回地表");
+      }
+      const camp = gotoCampBeforePlacement("iron", facts, newId);
+      if (camp !== null) return camp;
       return {
         id: `task:${newId()}`,
         stage: "iron",
@@ -1538,6 +1823,8 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
         verify: (next) => nearbyHas(next, /furnace$/u) !== null,
       };
     }
+    const table = ensureTable(facts, "iron", newId);
+    if (table !== null) return table;
     const recipe = queryRecipe("minecraft:furnace");
     if (recipe === null) return blocked("iron", "craft", "制作熔炉");
     const missing = missingForRecipe(recipe, facts);
@@ -1560,6 +1847,29 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
         0,
       );
     if (cobblestoneMissing > 0) {
+      // Eight furnace cobblestone are not a reason to dig a staircase. On
+      // the surface, the nearby stone face is the human source; only go
+      // underground when no stone is exposed around the body.
+      const nearbyStone = nearbyHas(facts, /^minecraft:(stone|cobblestone)$/u);
+      const nearSurface =
+        (facts.position?.y ?? -Infinity) >= (facts.surfaceY ?? Infinity) - 4;
+      if (nearbyStone !== null && blockHasLocation(nearbyStone) && nearSurface) {
+        return {
+          id: `task:${newId()}`,
+          stage: "iron",
+          kind: "mine",
+          title: `在地表挖 ${cobblestoneMissing} 块圆石`,
+          skill: skill("mine_block", {
+            block: nearbyStone.id,
+            count: cobblestoneMissing,
+          }, newId),
+          preconditions: ["stone pickaxe or better", "surface stone nearby"],
+          expectedEvidence: [`cobblestone count reaches ${cobblestoneMissing}`],
+          verify: (next) =>
+            inventoryCount(next, "minecraft:cobblestone") >=
+              inventoryCount(facts, "minecraft:cobblestone") + cobblestoneMissing,
+        };
+      }
       // A furnace needs eight cobblestone. Surface exploration cannot create
       // stone, and the body already carries a pickaxe by this stage, so go
       // down and mine it. The staircase also exposes coal and iron for the
@@ -1568,9 +1878,9 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
         "iron",
         facts,
         newId,
-        16,
+        shallowMiningTarget(facts),
         8,
-        `下矿采集 ${cobblestoneMissing} 块圆石并寻找煤铁`,
+        `就近下矿采集 ${cobblestoneMissing} 块圆石`,
       );
     }
     return missing.some((entry) => entry.kind === "station")
@@ -1607,6 +1917,8 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
     const log = facts.inventory.find((slot) => WOOD_ITEMS.test(slot.item));
     const fuel = fuelChoice(facts, log?.item, 1);
     if (log !== undefined && fuel !== null && hasStation(facts, "furnace")) {
+      const furnaceTrip = gotoFurnaceTask("iron", facts, newId);
+      if (furnaceTrip !== null) return furnaceTrip;
       return smeltTask(
         "iron",
         log.item,
@@ -1621,12 +1933,12 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
       "iron",
       facts,
       newId,
-        16,
-      12,
-      "开挖矿道寻找煤炭",
+      shallowMiningTarget(facts),
+      8,
+      "就近开挖矿道寻找煤炭",
     );
   }
-  const pickaxeMissing = !hasItem(facts, "minecraft:iron_pickaxe");
+  const pickaxeMissing = !hasUsablePickaxe(facts, 3);
   const swordMissing = !hasItem(facts, "minecraft:iron_sword");
   const ingots = inventoryCount(facts, "minecraft:iron_ingot");
   const rawIron = inventoryCount(facts, "minecraft:raw_iron");
@@ -1670,6 +1982,8 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
       if (fuel === null) {
         return explore(facts, "iron", "寻找熔炉燃料", "燃料", 1, newId);
       }
+      const furnaceTrip = gotoFurnaceTask("iron", facts, newId);
+      if (furnaceTrip !== null) return furnaceTrip;
       return smeltTask(
         "iron",
         "minecraft:raw_iron",
@@ -1685,6 +1999,8 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
   if (pickaxeMissing) {
     const preparation = toolPlan(3);
     if (preparation !== null) return preparation;
+    const table = ensureTable(facts, "iron", newId);
+    if (table !== null) return table;
     const recipe = queryRecipe("minecraft:iron_pickaxe");
     if (recipe === null) return blocked("iron", "craft", "制作铁镐");
     const missing = missingForRecipe(recipe, facts);
@@ -1695,6 +2011,8 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
   if (swordMissing) {
     const preparation = toolPlan(2);
     if (preparation !== null) return preparation;
+    const table = ensureTable(facts, "iron", newId);
+    if (table !== null) return table;
     const recipe = queryRecipe("minecraft:iron_sword");
     if (recipe === null) return blocked("iron", "craft", "制作铁剑");
     const missing = missingForRecipe(recipe, facts);
@@ -1766,6 +2084,13 @@ function fuelChoice(
  * has a pickaxe, the reliable move is a safe staircase to the right layer and
  * a short branch tunnel there; the next snapshot then sees the fresh faces.
  */
+function shallowMiningTarget(facts: WorldFacts): number {
+  const current = facts.position?.y ?? 64;
+  const surface = facts.surfaceY ?? current;
+  if (current < surface - 12) return Math.max(0, Math.round(current) - 8);
+  return Math.max(32, Math.round(surface) - 16);
+}
+
 function miningLayerTask(
   stage: GoalId,
   facts: WorldFacts,
@@ -1773,7 +2098,66 @@ function miningLayerTask(
   targetY: number,
   branchLength: number,
   title: string,
-): Task {
+): Task | BlockedTask {
+  const surface = facts.surfaceY ?? facts.position?.y ?? targetY;
+  const depth = Math.max(0, surface - targetY);
+  const tier = pickaxeTier(facts);
+  if (!hasUsablePickaxe(facts)) {
+    return blockedWith(stage, "mine", title, [
+      { kind: "tool", item: "minecraft:stone_pickaxe", detail: "没有可用镐子，不能下矿" },
+    ]);
+  }
+  // A wooden pickaxe cannot survive a real staircase and cannot mine iron;
+  // sending it down was the "one wooden pickaxe and a dream" failure.
+  if (depth > 8 && tier < 2) {
+    return blockedWith(stage, "mine", title, [
+      { kind: "tool", item: "minecraft:stone_pickaxe", detail: `下潜 ${Math.round(depth)} 格需要石镐或更好` },
+    ]);
+  }
+  // Diamond ore needs an iron pickaxe in 1.20.1. A stone pickaxe can reach
+  // the deepslate layer but cannot harvest what it went there for.
+  if (targetY < 0 && tier < 3) {
+    return blockedWith(stage, "mine", title, [
+      { kind: "tool", item: "minecraft:iron_pickaxe", detail: "钻石层需要铁镐才能获得掉落" },
+    ]);
+  }
+  const uses = pickaxeUses(facts, Math.max(1, tier));
+  // The staircase is the return route; only the descent and branch cut
+  // consume durability. Reserving a second full descent stranded perfectly
+  // usable stone pickaxes at the surface.
+  // One stair step consumes at least one block that is not already open, and
+  // each branch cell consumes up to two. Count only the layers still below
+  // the body, not the whole depth from the surface, or a body already at y=20
+  // is asked for a full trip's worth of durability to dig four more blocks.
+  // The return leg is a walk back up the same staircase, so the reserve does
+  // not need to pay for a second descent.
+  const currentY = facts.position?.y ?? surface;
+  const remainingDepth = Math.max(0, Math.round(currentY - targetY));
+  const neededUses = Math.max(12, remainingDepth + branchLength * 2 + 8);
+  if (uses !== null && uses < neededUses) {
+    return blockedWith(stage, "mine", title, [
+      {
+        kind: "tool",
+        item: "minecraft:stone_pickaxe",
+        detail: `预计需要 ${neededUses} 次挖掘，当前镐子只剩 ${uses} 次`,
+      },
+    ]);
+  }
+  if (depth > 24 && inventoryCount(facts, "minecraft:torch") < 4) {
+    return blockedWith(stage, "mine", title, [
+      { kind: "material", item: "minecraft:torch", count: 4, detail: "深层矿道至少需要 4 支火把" },
+    ]);
+  }
+  if ((facts.food ?? 20) < 10) {
+    return blockedWith(stage, "mine", title, [
+      { kind: "safety", detail: "饥饿值过低，先补充食物再下矿" },
+    ]);
+  }
+  if (usedInventorySlots(facts) >= 30) {
+    return blockedWith(stage, "mine", title, [
+      { kind: "safety", detail: "背包已满，先回营地存放再下矿" },
+    ]);
+  }
   const y = facts.position?.y;
   const descending = y === undefined || y === null || y > targetY + 1;
   return {
@@ -1795,16 +2179,18 @@ function miningLayerTask(
       "fresh branch blocks are broken",
       "ore or stone drops enter the inventory",
     ],
+    // Breaking one block and picking up its drop is not reaching the mining
+    // layer. Only the body's height proves the descent; the branch work is
+    // reported by the descend task's own evidence.
     verify: (next) =>
-      (next.position?.y ?? Number.POSITIVE_INFINITY) <= targetY ||
-      next.inventory.length !== facts.inventory.length,
+      (next.position?.y ?? Number.POSITIVE_INFINITY) <= targetY,
   };
 }
 
 function nether(facts: WorldFacts, newId: () => string): Task | BlockedTask | null {
-  const table = ensureTable(facts, "nether", newId);
-  if (table !== null) return table;
-  if (!hasAny(facts, ["minecraft:diamond_pickaxe", "minecraft:netherite_pickaxe"])) {
+  if (!hasUsablePickaxe(facts, 4)) {
+    const table = ensureTable(facts, "nether", newId);
+    if (table !== null) return table;
     const recipe = queryRecipe("minecraft:diamond_pickaxe");
     if (recipe === null) return blocked("nether", "craft", "制作钻石镐");
     const missing = missingForRecipe(recipe, facts);
@@ -2133,6 +2519,10 @@ function hasStation(
   station: "crafting_table" | "furnace" | "blast_furnace" | "bed" | "portal",
 ): boolean {
   if ((facts.stations ?? []).includes(station)) return true;
+  // A remembered furnace is *not* in reach. `gotoFurnaceTask` owns walking
+  // back to it; reporting it here made the planner skip that trip and then
+  // insist it could smelt from eighty blocks away, which usually ended in a
+  // pointless torch or second-furnace detour.
   // Direct domain fixtures may not run the snapshot projection; the observed
   // nearby blocks are authoritative on their own.
   return (facts.nearbyBlocks ?? []).some((block) => {
@@ -2146,9 +2536,10 @@ function hasStation(
 }
 
 /**
- * 3x3 recipes need a reachable table. A table in the inventory is not enough:
- * re-planning from the world must produce a place task rather than hand the
- * body a craft it cannot complete.
+ * A station is infrastructure, not a disposable item. Prefer walking back to
+ * the table this run already placed; only rebuild when it is genuinely out of
+ * range, and never build a new one deep underground where it anchors the
+ * body's "home" in a hole.
  */
 function ensureTable(
   facts: WorldFacts,
@@ -2161,84 +2552,73 @@ function ensureTable(
     table === undefined || table === null || position === undefined || position === null
       ? null
       : Math.hypot(table.x - position.x, table.y - position.y, table.z - position.z);
-  const layerChanged =
-    table !== undefined &&
-    table !== null &&
-    position !== undefined &&
-    position !== null &&
-    Math.abs(table.y - position.y) > REPLACE_TABLE_VERTICAL;
-  /**
-   * A table on a tree platform or across a ravine can be visible in the
-   * snapshot while having no legal route. Walking at it forever is the
-   * failure mode the operator sees as a frozen body. When the body carries
-   * the wood for a replacement, make a fresh table here instead.
-   */
-  if (
-    !hasItem(facts, "minecraft:crafting_table") &&
-    facts.craftingTablePlaced === true &&
-    distance !== null &&
-    (facts.craftingTableReachable === false ||
-      facts.craftingTableNearby !== true ||
-      distance > REPLACE_TABLE_DISTANCE ||
-      layerChanged)
-  ) {
-    const recipe = queryRecipe("minecraft:crafting_table");
-    if (recipe !== null) {
-      const replacement = craftWithPrerequisite(
-        recipe,
-        stage,
-        facts,
-        newId,
-        "制作备用工作台",
-      );
-      if ("skill" in replacement) return replacement;
-    }
-  }
-  if (hasStation(facts, "crafting_table")) return null;
-  // A table the body already placed is a known station. Do not demand a
-  // second table simply because the agent walked away. If its exact position
-  // is known, walk back first so the 3x3 craft has a real station in reach.
-  // The body's craft skill will walk to its remembered table itself; a
-  // separate goto would only arrive at the block's own cell and leave the
-  // menu out of reach.
-  if (!hasItem(facts, "minecraft:crafting_table")) {
-    if (facts.craftingTablePlaced === true) {
-      if (facts.craftingTableReachable === false) {
-        const tableRecipe = queryRecipe("minecraft:crafting_table");
-        if (tableRecipe !== null) {
-          const replacement = craftWithPrerequisite(
-            tableRecipe,
-            stage,
-            facts,
-            newId,
-            "重建可达的工作台",
-          );
-          if ("skill" in replacement) return replacement;
-        }
+  const tableInReach =
+    hasStation(facts, "crafting_table") || facts.craftingTableNearby === true;
+  const carried = hasItem(facts, "minecraft:crafting_table");
+  const overworldUnderground = deepUnderground(facts);
+  const tableAbove =
+    table !== undefined && table !== null && position !== undefined && position !== null
+      ? table.y - position.y
+      : 0;
+
+  if (tableInReach) return null;
+
+  if (facts.craftingTablePlaced === true && table !== undefined && table !== null) {
+    // The body's craft skill walks to the remembered table itself. Crafting
+    // a replacement whenever the body wandered away is what left workbenches
+    // across the map: the old table still existed, it was simply out of the
+    // observation radius. The only honest reason to build another is that
+    // the bridge observed the remembered block is gone.
+    // A table inside the bounded walk is left to the craft skill, which
+    // approaches it itself. Only a genuinely distant station needs an
+    // explicit navigation leg; either way, never craft a second table.
+    if (distance === null || distance <= WALK_BACK_TABLE_DISTANCE) {
+      // The craft skill only walks. A surface table more than eight blocks
+      // above a mine needs the navigation skill's staircase escape first.
+      if (overworldUnderground && tableAbove > 8) {
+        return returnToSurfaceTask(stage, facts, newId) ?? blocked(stage, "navigate", "返回地表");
       }
-      // The table exists in the world and the body remembers where it is.
-      // There is nothing for the planner to build; the craft skill owns the
-      // walk back to the station.
       return null;
     }
-    // A 3x3 product proves a table existed before a reconnect, but not that
-    // one is reachable now: the session coordinate is gone. Rebuild it from
-    // carried wood instead of blocking every later 3x3 recipe.
-    const tableRecipe = queryRecipe("minecraft:crafting_table");
-    if (tableRecipe !== null) {
-      const replacement = craftWithPrerequisite(
-        tableRecipe,
-        stage,
-        facts,
-        newId,
-        "重新制作工作台",
-      );
-      if ("skill" in replacement) return replacement;
+    if (overworldUnderground) {
+      return returnToSurfaceTask(stage, facts, newId) ?? blocked(stage, "navigate", "返回地表");
     }
-    if (hasCraftingTableProduct(facts)) return null;
-    return blockedWith(stage, "craft", "制作工作台", [
-      { kind: "station", item: "minecraft:crafting_table", detail: "3×3 配方需要工作台" },
-    ]);
+    return gotoCraftingTableTask(stage, facts, newId) ??
+      blocked(stage, "navigate", "走回工作台");
+  }
+
+  if (carried) {
+    if (overworldUnderground) {
+      return returnToSurfaceTask(stage, facts, newId) ?? blocked(stage, "navigate", "返回地表");
+    }
+    const camp = gotoCampBeforePlacement(stage, facts, newId);
+    if (camp !== null) return camp;
+    return placeTableTask(stage, facts, newId);
+  }
+
+  if (overworldUnderground) {
+    return returnToSurfaceTask(stage, facts, newId) ?? blocked(stage, "navigate", "返回地表");
+  }
+
+  const recipe = queryRecipe("minecraft:crafting_table");
+  if (recipe !== null) {
+    const replacement = craftWithPrerequisite(recipe, stage, facts, newId, "制作工作台");
+    if ("skill" in replacement) return replacement;
+  }
+  if (hasCraftingTableProduct(facts)) return null;
+  return blockedWith(stage, "craft", "制作工作台", [
+    { kind: "station", item: "minecraft:crafting_table", detail: "3×3 配方需要工作台" },
+  ]);
+}
+
+function placeTableTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | BlockedTask {
+  if (deepUnderground(facts)) {
+    return returnToSurfaceTask(stage, facts, newId) ??
+      blocked(stage, "navigate", "返回地表再放置工作台");
   }
   return {
     id: `task:${newId()}`,
@@ -2250,6 +2630,62 @@ function ensureTable(
     expectedEvidence: ["nearbyBlocks contains crafting_table"],
     verify: (next) => nearbyHas(next, /crafting_table$/u) !== null,
   };
+}
+
+function gotoCraftingTableTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  const table = facts.craftingTable;
+  if (table === undefined || table === null) return null;
+  const candidates = [
+    { x: table.x + 1, y: table.y, z: table.z },
+    { x: table.x - 1, y: table.y, z: table.z },
+    { x: table.x, y: table.y, z: table.z + 1 },
+    { x: table.x, y: table.y, z: table.z - 1 },
+  ];
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "navigate",
+    title: "走回工作台",
+    skill: skill("goto", {
+      target: candidates[0],
+      candidates,
+      acceptPartial: false,
+    }, newId),
+    preconditions: ["a placed crafting table is remembered", "a route to the station exist"],
+    expectedEvidence: ["the crafting table enters interaction range"],
+    verify: () => true,
+  };
+}
+
+/**
+ * A same-level placed table within a bounded walk is a usable station even
+ * while it is outside interaction range. The body's `reachable` flag only
+ * describes the current crosshair, not whether a path exists.
+ */
+function placedTableWithinWalk(facts: WorldFacts): boolean {
+  const table = facts.craftingTable;
+  const position = facts.position;
+  if (
+    facts.craftingTablePlaced !== true ||
+    table === undefined ||
+    table === null ||
+    position === undefined ||
+    position === null
+  ) {
+    return false;
+  }
+  if (Math.abs(table.y - position.y) > REPLACE_TABLE_VERTICAL) return false;
+  return (
+    Math.hypot(
+      table.x - position.x,
+      table.y - position.y,
+      table.z - position.z,
+    ) <= WALK_BACK_TABLE_DISTANCE
+  );
 }
 
 function dimension(facts: WorldFacts): string {
@@ -2264,7 +2700,7 @@ export function toolProblem(block: string, facts: WorldFacts): Missing | null {
   const requirement = requiredTool(block);
   const tools = facts.inventory.filter((slot) => /_pickaxe$|_axe$|_shovel$|_hoe$|shears$/u.test(slot.item));
   for (const tool of tools) {
-    if (canMine(tool.item, block)) return null;
+    if (tool.durability !== 0 && canMine(tool.item, block)) return null;
   }
   return {
     kind: "tool",

@@ -134,6 +134,17 @@ score = intentConfidence * personaWeight + salience - fatiguePenalty
 
 六种仲裁输出是 `ignore`、`observe`、`reply`、`queue`、`execute`、`reject`。
 
+### 反射反应与空场节拍
+
+反射事件先由身体上报 `reflex`，Orchestrator 写入 `world_event` 后交给
+`Show.reactToIncident`。反应只生成短台词，不授予技能、不创建承诺；同类型事件有
+30 秒冷却，全类型每小时有配额。危险仍在身体侧即时处理，反应节拍只负责让直播看见
+“刚才发生了什么”，不改变安全判据。
+
+评论空窗超过 45 秒时，`Show.downtimeBeat` 生成一条环境节拍；目标模式开启时让位给
+`GoalRuntime` 的已验证任务解说。环境节拍同样不授予技能，身体侧的空闲游走继续负责
+移动。两者都走 `recordSystemDecision` 写入 `decision_log`，不会计入观众统计。
+
 ### 技能结果
 
 “已下发”不等于“已做到”。技能终态由身体回报，并回填到同一条决策上：
@@ -154,6 +165,10 @@ decision.skill
 | `unconfirmed` | 已提交但无法证明生效的操作；重试可能重复副作用 |
 | `attempts` | 失败过的策略，避免下一轮重复 |
 | `problem` | 未达成目标的原因 |
+| `progress` | 分段任务的已完成量、总量与单位 |
+| `remaining` | 本轮没做完的部分，交给下一轮继续 |
+| `resumable` | 同一命令能否在不重复副作用的前提下续跑 |
+| `nextHint` | 身体建议的下一步，进入目标运行时恢复记录 |
 
 字段缺失表示“未知”，不表示“成功”。控制台在收到终态前不显示结果行。
 身体是外部输入，Orchestrator 写入前用 `skillOutcomeSchema` 重新校验。
@@ -250,6 +265,8 @@ Source（不可变证据，可过期原文）
 - Stage C 只召回 `active` 且已批准的记忆。
 - 召回预算约 1200 token，超限按分区裁剪。
 - 观众证据按哈希引用，避免原文进入提示；不自动把对话写入长期记忆。
+- 记忆带成功/失败次数、失败条件和适用版本；召回按置信度与成功率排序，失败条件
+  表示“在什么情况下不适用”，不是永久拉黑。
 
 ### 承诺
 

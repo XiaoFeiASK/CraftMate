@@ -198,6 +198,18 @@ bridge = createBridgeUpgrade({
           ...(detail === undefined ? {} : { detail }),
           at: outcome.at,
           ...(changes === undefined ? {} : { changes }),
+          ...(parsedOutcome?.success && parsedOutcome.data.progress !== undefined
+            ? { progress: parsedOutcome.data.progress }
+            : {}),
+          ...(parsedOutcome?.success && parsedOutcome.data.remaining !== undefined
+            ? { remaining: parsedOutcome.data.remaining }
+            : {}),
+          ...(parsedOutcome?.success && parsedOutcome.data.resumable !== undefined
+            ? { resumable: parsedOutcome.data.resumable }
+            : {}),
+          ...(parsedOutcome?.success && parsedOutcome.data.nextHint !== undefined
+            ? { nextHint: parsedOutcome.data.nextHint }
+            : {}),
         })
       ) {
         publishGoalSnapshot();
@@ -268,6 +280,20 @@ bridge = createBridgeUpgrade({
       detail: data.detail,
       at: Date.now(),
     });
+    const reaction = persistent.show.reactToIncident({
+      kind: data.kind,
+      detail: data.detail,
+      at: Date.now(),
+    });
+    if (reaction !== null) {
+      server.publishDecision(reaction);
+      voiceLink?.speak({
+        text: reaction.speech,
+        priority: "safety",
+        decisionId: reaction.id,
+        commitmentId: null,
+      });
+    }
     server.publishBridgeHealth(bridge.health());
   },
   onProgress: (progress) => {
@@ -692,9 +718,44 @@ const goalLoop = setInterval(() => {
   void dispatchGoalStep();
 }, 250);
 
+// Empty rooms used to mean silence. This ambient loop keeps the character
+// present between comments; goal mode already narrates verified transitions.
+const downtimeLoop = setInterval(() => {
+  // Opt-in: a completely empty room can start the same kind of standing goal
+  // dsh-mc-agent uses. Off by default because goal mode changes comment
+  // handling from direct execution to the proposal inbox.
+  if (
+    process.env.CRAFTMATE_IDLE_GOAL === "1" &&
+    !persistent.goals.isEnabled &&
+    persistent.goals.currentGoal === null &&
+    persistent.show.quietForMs() >= 90_000 &&
+    bridge.health().connected &&
+    bridge.health().world?.inWorld === true
+  ) {
+    const current = persistent.show.currentSettings();
+    persistent.saveSettings({
+      ...current,
+      goalMode: true,
+      goal: "空场自由生存",
+      goalDescription: "没有观众指令时按生存阶段自己发展；观众评论仍然优先。",
+    });
+    publishGoalSnapshot();
+  }
+  const beat = persistent.show.downtimeBeat();
+  if (beat === null) return;
+  server.publishDecision(beat);
+  voiceLink?.speak({
+    text: beat.speech,
+    priority: "ambient",
+    decisionId: beat.id,
+    commitmentId: null,
+  });
+}, 5_000);
+
 const shutdown = async (): Promise<void> => {
   clearInterval(bridgePoll);
   clearInterval(goalLoop);
+  clearInterval(downtimeLoop);
   retention.stop();
   voiceLink?.close();
   await ingressSupervisor.close();

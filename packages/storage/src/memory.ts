@@ -33,6 +33,10 @@ interface MemoryRow {
   state: MemoryState;
   revision: number;
   created_at_ms: number;
+  success_count: number;
+  failure_count: number;
+  conditions: string | null;
+  applicable_version: string | null;
 }
 
 /**
@@ -57,10 +61,14 @@ export class MemoryStore implements MemoryPort {
     const rows = this.db
       .prepare(
         `SELECT id, lineage_id, session_id, subject_ref, family, content, disclosure,
-                confidence, state, revision, created_at_ms
+                confidence, state, revision, created_at_ms, success_count, failure_count,
+                conditions, applicable_version
          FROM memory_active
          WHERE subject_ref = ?
-         ORDER BY revision DESC, created_at_ms DESC`,
+         ORDER BY confidence DESC,
+                  (CAST(success_count AS REAL) + 1.0) /
+                    (success_count + failure_count + 2.0) DESC,
+                  revision DESC, created_at_ms DESC`,
       )
       .all(options.subjectRef) as unknown as MemoryRow[];
 
@@ -119,8 +127,9 @@ export class MemoryStore implements MemoryPort {
         .prepare(
           `INSERT INTO memory
              (id, lineage_id, session_id, persona_version_id, subject_ref, family, content,
-              disclosure, confidence, state, revision, created_at_ms)
-           VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, 'active', 1, ?)`,
+              disclosure, confidence, state, revision, created_at_ms,
+              success_count, failure_count, conditions, applicable_version)
+           VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, 'active', 1, ?, ?, ?, ?, ?)`,
         )
         .run(
           memoryId,
@@ -132,6 +141,10 @@ export class MemoryStore implements MemoryPort {
           payload.disclosure,
           payload.confidence,
           now,
+          payload.successCount ?? 0,
+          payload.failureCount ?? 0,
+          payload.conditions ?? null,
+          payload.applicableVersion ?? null,
         );
       const link = this.db.prepare(
         `INSERT INTO memory_evidence (memory_id, source_id) VALUES (?, ?)
@@ -174,20 +187,80 @@ export class MemoryStore implements MemoryPort {
       .run(row.revision + 1, memoryId, row.revision);
   }
 
+  /**
+   * Accumulates the real outcome of using this memory. A failure must carry
+   * the conditions under which it failed; otherwise the next plan would read
+   * "this never works" instead of "this does not work while the backpack is full".
+   */
+  recordOutcome(
+    memoryId: string,
+    input: {
+      readonly ok: boolean;
+      readonly condition?: string | null;
+      readonly version?: string | null;
+    },
+  ): Memory | null {
+    const row = this.db
+      .prepare(
+        `SELECT success_count, failure_count, conditions, applicable_version
+         FROM memory WHERE id = ?`,
+      )
+      .get(memoryId) as
+      | {
+          success_count: number;
+          failure_count: number;
+          conditions: string | null;
+          applicable_version: string | null;
+        }
+      | undefined;
+    if (!row) return null;
+    const conditions = input.ok
+      ? row.conditions
+      : appendCondition(row.conditions, input.condition);
+    this.db
+      .prepare(
+        `UPDATE memory
+         SET success_count = ?, failure_count = ?, conditions = ?, applicable_version = ?
+         WHERE id = ?`,
+      )
+      .run(
+        row.success_count + (input.ok ? 1 : 0),
+        row.failure_count + (input.ok ? 0 : 1),
+        conditions,
+        input.version ?? row.applicable_version,
+        memoryId,
+      );
+    return this.get(memoryId);
+  }
+
+  get(memoryId: string): Memory | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, lineage_id, session_id, subject_ref, family, content, disclosure,
+                confidence, state, revision, created_at_ms, success_count, failure_count,
+                conditions, applicable_version
+         FROM memory WHERE id = ?`,
+      )
+      .get(memoryId) as MemoryRow | undefined;
+    return row === undefined ? null : toMemory(this.withEvidence(row));
+  }
+
   list(state?: MemoryState): readonly Memory[] {
     const rows = (
       state === undefined
         ? this.db
             .prepare(
               `SELECT id, lineage_id, session_id, subject_ref, family, content, disclosure,
-                      confidence, state, revision, created_at_ms
+                      confidence, state, revision, created_at_ms, success_count, failure_count,
+                      conditions, applicable_version
                FROM memory_current ORDER BY created_at_ms DESC`,
             )
             .all()
         : this.db
             .prepare(
               `SELECT id, lineage_id, session_id, subject_ref, family, content, disclosure,
-                      confidence, state, revision, created_at_ms
+                      confidence, state, revision, created_at_ms, success_count, failure_count,
+                      conditions, applicable_version
                FROM memory_current WHERE state = ? ORDER BY created_at_ms DESC`,
             )
             .all(state)
@@ -255,7 +328,20 @@ function toMemory(row: MemoryRow & { evidence: string[] }): Memory {
     revision: row.revision,
     evidenceSourceIds: row.evidence,
     createdAt: row.created_at_ms,
+    successCount: row.success_count,
+    failureCount: row.failure_count,
+    conditions: row.conditions,
+    applicableVersion: row.applicable_version,
   };
+}
+
+function appendCondition(current: string | null, next: string | null | undefined): string | null {
+  const text = String(next ?? "").trim();
+  if (text.length === 0) return current;
+  const existing = String(current ?? "").trim();
+  if (existing.length === 0) return text;
+  if (existing.includes(text)) return existing;
+  return `${existing}；${text}`.slice(0, 600);
 }
 
 /**

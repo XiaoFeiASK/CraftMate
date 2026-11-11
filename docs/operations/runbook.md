@@ -38,6 +38,14 @@ npm run dev:console
 npm run dev:desktop         # 只启动桌面宿主
 ```
 
+空场默认只生成环境台词，身体侧的空闲游走负责移动。设置
+`CRAFTMATE_IDLE_GOAL=1` 后，评论空窗 90 秒且身体在线时会自动建立一个
+「空场自由生存」目标，交给 `GoalRuntime` 推进；开启期间观众指令会进入
+「观众提议」收件箱，而不是直接执行。设回 `0` 或重启即可恢复默认。
+
+节拍间隔可用 `CRAFTMATE_IDLE_BEAT_MS`（默认 45000）和
+`CRAFTMATE_REACTION_COOLDOWN_MS`（默认 30000）调整；小于 1000 的值会被忽略。
+
 ### 2.1 Minecraft 1.20.1 身体
 
 当前开发环境使用单独启动的 1.20.1 服务端和 Fabric 客户端，不把游戏进程塞进

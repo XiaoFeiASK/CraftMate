@@ -20,6 +20,12 @@ export interface InventorySlot {
   readonly count: number;
   readonly section?: "hotbar" | "main" | "armor" | "offhand";
   readonly slot?: number;
+  /**
+   * Remaining uses for a damageable item. Absent means an older body did not
+   * report durability; it must not be read as "broken".
+   */
+  readonly durability?: number;
+  readonly maxDurability?: number;
 }
 
 export interface NearbyBlock {
@@ -84,6 +90,10 @@ export interface WorldFacts {
   readonly chest?: { readonly x: number; readonly y: number; readonly z: number } | null;
   /** Camp bed position, when the body still remembers it. */
   readonly bed?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  /** Last furnace this body placed, so a later smelt can walk back to it. */
+  readonly furnace?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  /** True once this body session placed a furnace in the world. */
+  readonly furnacePlaced?: boolean | null;
   /** True while a crafting table is within the body's observation radius. */
   readonly craftingTableNearby?: boolean | null;
   /** True only when the body can actually open the nearby table. */

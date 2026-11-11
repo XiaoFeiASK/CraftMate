@@ -28,39 +28,23 @@ interface DecisionStreamProps {
 export function DecisionStream({ decisions }: DecisionStreamProps): React.JSX.Element {
   return (
     <aside className="stream" aria-label="决策流">
-      <header className="stream__head">
-        <h2>决策流</h2>
-        <span>{decisions.length}</span>
-      </header>
-
       {decisions.length === 0 ? (
-        <div className="stream__empty">
-          <p>还没有评论进来。</p>
-          <small>接入抖音评论后，真实数据会显示在这里。</small>
-        </div>
+        <p className="stream__empty">还没有评论进来。</p>
       ) : (
         <ol className="stream__list">
           {decisions.map((decision) => (
             <li key={decision.id} className="decided" data-kind={decision.decision}>
               <div className="decided__top">
-                <span className="decided__badge">{LABELS[decision.decision]}</span>
-                <span className="decided__nickname">观众 {audienceRef(decision.audienceRef)}</span>
+                <strong className="decided__status">{LABELS[decision.decision]}</strong>
+                <span className="decided__nickname">{audienceRef(decision.audienceRef)}</span>
                 <time className="decided__time">{clock(decision.at)}</time>
               </div>
               <div className="decided__meta">
                 <span>意图 {decision.intent}</span>
                 <span data-priority={decision.priority}>{PRIORITY_LABELS[decision.priority]}</span>
-                <span className="decided__score">分 {decision.score.toFixed(2)}</span>
-                {decision.stage === "planned" ? <span>Stage C</span> : null}
                 {decision.skill ? <span>{decision.skill.name}</span> : null}
               </div>
               <Outcome outcome={decision.outcome} />
-              {decision.trace ? (
-                <p className="decided__trace">
-                  {decision.trace.provider} / {decision.trace.model} · {decision.trace.latencyMs}ms
-                  {decision.trace.degraded ? " · 模板降级" : ""}
-                </p>
-              ) : null}
             </li>
           ))}
         </ol>

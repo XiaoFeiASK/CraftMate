@@ -81,8 +81,15 @@ final class Reflexes {
 	 * advance a skill's state machine in that case: a walk that keeps pressing
 	 * forward while standing in lava is worse than a cancelled task.
 	 */
-	boolean tick(Minecraft client) {
+	boolean tick(Minecraft client, boolean agentControlled) {
 		ticks++;
+		if (!agentControlled) {
+			// Reflex movement shares the same key mappings as the operator.
+			// A nearby mob or a campfire must never steer a human player's
+			// camera or release a key they are holding.
+			retreated = false;
+			return false;
+		}
 		LocalPlayer player = client.player;
 		if (player == null || client.level == null || !player.isAlive()) {
 			retreated = false;

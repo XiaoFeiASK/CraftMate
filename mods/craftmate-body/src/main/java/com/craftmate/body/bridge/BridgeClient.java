@@ -244,7 +244,9 @@ public final class BridgeClient {
 		executor.submit(() -> {
 			if (source != socket || closing) return false;
 			control.applyServerOwner(owner);
-			if (!control.agentControlled()) GameActions.stopLocally(Minecraft.getInstance());
+			if (!control.agentControlled()) {
+				GameActions.stopLocally(Minecraft.getInstance(), true);
+			}
 			if (status != null) GameActions.showStatus(Minecraft.getInstance(), status);
 			return true;
 		});
@@ -384,6 +386,7 @@ public final class BridgeClient {
 		public void onClose(int code, String reason, boolean remote) {
 			CraftMateBodyClient.LOGGER.info("bridge disconnected ({}): {}", code, reason);
 			if (this != socket) return;
+			boolean humanOwned = !control.agentControlled();
 			socket = null;
 			nextReconnectAt = System.currentTimeMillis() + 2_000L;
 			control.applyServerOwner("none");
@@ -392,7 +395,7 @@ public final class BridgeClient {
 				// A later connection may already have replaced this socket.
 				// Its input must not be stopped by an old close callback.
 				if (generation != connectionGeneration || socket != null) return false;
-				GameActions.stopLocally(Minecraft.getInstance());
+				GameActions.stopLocally(Minecraft.getInstance(), humanOwned);
 				GameActions.showStatus(Minecraft.getInstance(), "桥接已断开 · 等待重连");
 				return true;
 			});

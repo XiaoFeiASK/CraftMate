@@ -3,7 +3,7 @@
 > 本文区分自动化验证、本机真实验收和未验收项。计划与任务跟踪在
 > [Issue #32](https://github.com/XiaoFeiASK/CraftMate/issues/32)。
 
-最后核对：2026-11-06，`main` 工作区，Minecraft Java 1.20.1。
+最后核对：2026-11-11，Minecraft Java 1.20.1；实机覆盖基础控制链路、空场节拍与坠落反射。
 
 ## 1. 自动化基线
 
@@ -20,10 +20,10 @@ cd mods/craftmate-body
 ./gradlew test build
 ```
 
-2026-11-06 当前工作区结果：
+2026-11-11 当前工作区自动化结果：
 
 - `npm run typecheck`：通过；
-- `npm test`：375 个测试、63 个 suite 全部通过；
+- `npm test`：460 个测试、66 个 suite 全部通过；
 - `npm run build`：Admin Console 生产构建通过；
 - `npm run db:check`：32 个对象、29 个索引，约束/视图/FTS 通过；
 - `npm run db:check:file`：真实 WAL 文件库通过；
@@ -31,7 +31,7 @@ cd mods/craftmate-body
 - `git diff --check`：通过。
 
 构建产物 `mods/craftmate-body/build/libs/craftmate-body-0.1.0.jar` 的 SHA-256：
-`689939222622012d1c9d4587cec2d0c4b040bb5f8bfae1643d30b59ff511e4c2`。
+`d22fb085ca1e9fe15202691e4165dd0ef5ddaeef608f654f3f6141ed18dc83c8`。
 CI 不包含真实直播间、真实模型计费、真实音频硬件、Minecraft 图形进程或桌面安装包。
 
 真实身体通道检查（需要 Minecraft 客户端已连接）：
@@ -54,6 +54,24 @@ CRAFTMATE_CHECK_COUNT=3 npm run check:control
 
 该脚本通过 `/control` 注入“只砍 1 根木头”，要求规划器选择 `chop_tree`，再从
 SQLite `action_attempt` 校验真实 Mod 完成的原木方块 ID 与坐标。
+
+更完整的“观察 → 规划 → 动作 → 世界证据”矩阵见[场景回归](scenarios.md)。
+
+### 2026-11-11 实机证据
+
+专用 1.20.1 存档、Fabric Loader 0.20.1，真实客户端连接到本机 Orchestrator：
+
+- `check:control` 注入“只砍 1 根木头”通过，世界证据为
+  `minecraft:oak_log at 4,73,196`，`action_attempt` 终态为 `completed`；
+- 空场节拍在 20:21:05 和 20:22:05 生成 `idle:*` 的 `ACK_ONLY / ambient` 决策，
+  台词进入语音与字幕；
+- 坠落反射在 20:22:33 写入 `world_event`，并生成
+  `system:reflex:falling:*` 的 `ACK_ONLY / safety` 决策，未授予技能；
+- 目标模式的只读提议复测通过：模型首次仍误带技能，纠正重试后最终
+  `skill=null`、`degraded=false`，模型状态回到 `ready`。
+
+同一轮还记录了两个待观察边界：挖草方块时方块已破坏但掉落未确认入包，任务按
+`E_PRECONDITION` 失败；`chop_tree` 4 根在树冠挡住目标射线时于 180 秒后超时。
 
 ## 2. 状态定义
 

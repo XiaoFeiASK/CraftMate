@@ -27,4 +27,14 @@ final class StairEscape {
 	static boolean obstructionNeedsWork(boolean air) {
 		return !air;
 	}
+
+	/**
+	 * A jump can miss a one-block lip and fall back below the step's level.
+	 * That is a bad jump choice, not a dead end: clear the stale step and let
+	 * the next tick pick from the landed feet cell. Bound the retries so a
+	 * genuinely blocked staircase still fails instead of orbiting forever.
+	 */
+	static boolean canRetryAfterFall(int feetY, int startY, int retries) {
+		return feetY < startY && retries < 4;
+	}
 }

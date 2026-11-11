@@ -39,29 +39,29 @@ export function OperatorBar({
     <footer className="bar">
       {whisperOpen ? (
         <form className="bar__whisper" onSubmit={submitWhisper}>
-          <label htmlFor="whisper">只对 {personaName} 说，不进直播间</label>
           <input
             id="whisper"
             value={whisper}
             onChange={(event) => setWhisper(event.target.value)}
-            placeholder="先别真跳，吓唬一下"
+            aria-label={`只对 ${personaName} 耳语`}
+            placeholder={`只对 ${personaName} 说…`}
             disabled={disabled}
             autoComplete="off"
             autoFocus
           />
           <button type="submit" className="bar__submit" disabled={disabled || whisper.trim().length === 0}>
-            耳语
+            发送
           </button>
         </form>
       ) : null}
 
       <form className="bar__input" onSubmit={submit}>
-        <label htmlFor="say">以观众身份发一条</label>
         <input
           id="say"
           value={text}
           onChange={(event) => setText(event.target.value)}
-          placeholder="去挖点铁矿"
+          aria-label="以观众身份发送评论"
+          placeholder="以观众身份说点什么…"
           disabled={disabled}
           autoComplete="off"
         />

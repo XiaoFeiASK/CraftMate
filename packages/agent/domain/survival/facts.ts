@@ -23,6 +23,8 @@ export interface SnapshotView {
   readonly bedPlaced?: boolean | null;
   readonly chest?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly bed?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  readonly furnace?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  readonly furnacePlaced?: boolean | null;
   readonly craftingTableNearby?: boolean | null;
   readonly craftingTableReachable?: boolean | null;
   readonly craftingTable?: { readonly x: number; readonly y: number; readonly z: number } | null;
@@ -122,6 +124,8 @@ export function worldFactsFromSnapshot(snapshot: SnapshotView | null): WorldFact
     bedPlaced: snapshot.bedPlaced,
     chest: snapshot.chest,
     bed: snapshot.bed,
+    furnace: snapshot.furnace,
+    furnacePlaced: snapshot.furnacePlaced,
     craftingTableNearby: snapshot.craftingTableNearby,
     craftingTableReachable: snapshot.craftingTableReachable,
     craftingTable: snapshot.craftingTable,
@@ -192,7 +196,8 @@ export function hasCraftingTableProduct(facts: WorldFacts): boolean {
  */
 export function hasStoneCapablePickaxe(facts: WorldFacts): boolean {
   return facts.inventory.some((slot) =>
-    /(^|:)(wooden|stone|iron|golden|diamond|netherite)_pickaxe$/u.test(slot.item),
+    /(^|:)(wooden|stone|iron|golden|diamond|netherite)_pickaxe$/u.test(slot.item) &&
+    slot.durability !== 0,
   );
 }
 
@@ -208,11 +213,83 @@ export function pickaxeTier(facts: WorldFacts): number {
   };
   let best = 0;
   for (const slot of facts.inventory) {
+    if (slot.durability === 0) continue;
     const match = /^minecraft:([a-z]+)_pickaxe$/u.exec(slot.item);
     if (match === null) continue;
     best = Math.max(best, ranks[match[1] ?? ""] ?? 0);
   }
   return best;
+}
+
+/**
+ * Remaining pickaxe uses reported by the body, or null when the body does not
+ * report durability. Treating "unknown" as zero would strand older bodies.
+ */
+export function pickaxeUses(
+  facts: WorldFacts,
+  minimumTier = 1,
+): number | null {
+  const ranks: Record<string, number> = {
+    wooden: 1,
+    golden: 1,
+    stone: 2,
+    iron: 3,
+    diamond: 4,
+    netherite: 5,
+  };
+  const pickaxes = facts.inventory.filter((slot) => {
+    const match = /^minecraft:([a-z]+)_pickaxe$/u.exec(slot.item);
+    return match !== null && (ranks[match[1] ?? ""] ?? 0) >= minimumTier;
+  });
+  if (!pickaxes.some((slot) => slot.durability !== undefined)) return null;
+  return pickaxes.reduce(
+    (total, slot) => total + Math.max(0, slot.durability ?? 0),
+    0,
+  );
+}
+
+/** A pickaxe with enough remaining uses to start a real mining action. */
+export function hasUsablePickaxe(
+  facts: WorldFacts,
+  minimumTier = 1,
+  minimumUses = 1,
+): boolean {
+  const ranks: Record<string, number> = {
+    wooden: 1,
+    golden: 1,
+    stone: 2,
+    iron: 3,
+    diamond: 4,
+    netherite: 5,
+  };
+  return facts.inventory.some((slot) => {
+    if (slot.durability !== undefined && slot.durability < minimumUses) return false;
+    const match = /^minecraft:([a-z]+)_pickaxe$/u.exec(slot.item);
+    return match === null ? false : (ranks[match[1] ?? ""] ?? 0) >= minimumTier;
+  });
+}
+
+/**
+ * "Underground" is an observation, not a guess. `canSeeSky` is authoritative
+ * when reported; otherwise use the depth below the current column's surface.
+ */
+export function isUnderground(facts: WorldFacts): boolean {
+  if (facts.canSeeSky === true) return false;
+  if (facts.canSeeSky === false) return true;
+  const y = facts.position?.y;
+  const surface = facts.surfaceY;
+  return y !== undefined && y !== null && surface !== undefined && surface !== null
+    ? y < surface - 4
+    : false;
+}
+
+/** Blocks below the local surface, or null when height is not observed. */
+export function depthBelowSurface(facts: WorldFacts): number | null {
+  const y = facts.position?.y;
+  const surface = facts.surfaceY;
+  return y === undefined || y === null || surface === undefined || surface === null
+    ? null
+    : Math.max(0, surface - y);
 }
 
 export function countAny(facts: WorldFacts, items: readonly string[]): number {
@@ -328,6 +405,8 @@ function normalizeInventory(
               count: slot.count,
               section,
               ...(slot.slot === undefined ? {} : { slot: slot.slot }),
+              ...(slot.durability === undefined ? {} : { durability: slot.durability }),
+              ...(slot.maxDurability === undefined ? {} : { maxDurability: slot.maxDurability }),
             }
           : { ...existing, count: existing.count + slot.count },
       );
@@ -416,6 +495,8 @@ function withOptionals(
     readonly bedPlaced?: boolean | null | undefined;
     readonly chest?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
     readonly bed?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
+    readonly furnace?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
+    readonly furnacePlaced?: boolean | null | undefined;
     readonly craftingTableNearby?: boolean | null | undefined;
     readonly craftingTableReachable?: boolean | null | undefined;
     readonly craftingTable?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
@@ -449,6 +530,8 @@ function withOptionals(
     ...(optional.bedPlaced === undefined ? {} : { bedPlaced: optional.bedPlaced }),
     ...(optional.chest === undefined ? {} : { chest: optional.chest }),
     ...(optional.bed === undefined ? {} : { bed: optional.bed }),
+    ...(optional.furnace === undefined ? {} : { furnace: optional.furnace }),
+    ...(optional.furnacePlaced === undefined ? {} : { furnacePlaced: optional.furnacePlaced }),
     ...(optional.craftingTableNearby === undefined ? {} : { craftingTableNearby: optional.craftingTableNearby }),
     ...(optional.craftingTableReachable === undefined ? {} : { craftingTableReachable: optional.craftingTableReachable }),
     ...(optional.craftingTable === undefined ? {} : { craftingTable: optional.craftingTable }),

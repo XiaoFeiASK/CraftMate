@@ -45,6 +45,18 @@ export class SqliteRecorder implements ShowRecorder {
     this.decisions.append(this.context, sourceId, decision, decision.eventId);
   }
 
+  recordSystemDecision(decision: Decision): void {
+    const eventId = `system:${decision.eventId}`;
+    const source = this.sources.appendInternal(this.context.sessionId, {
+      id: eventId,
+      kind: "system",
+      actorRef: "craftmate-reflex",
+      text: decision.text,
+      at: decision.at,
+    });
+    this.decisions.append(this.context, source.id, decision, eventId);
+  }
+
   /**
    * Stage C rewrites the row it already created. Keeping the id stable means a
    * replay shows one decision, not a template followed by a correction.

@@ -1,9 +1,9 @@
 :root {
   /*
-   * Broadcast field log: grey-green paper, dark pine control surfaces and a
-   * single coral signal colour. Orange/blue stay semantic, never decorative.
+   * The workspace is a clean sheet. The sidebar and title bar keep the warmer
+   * field-log material, while the live conversation sits on pure white.
    */
-  --canvas: #e5e2da;
+  --canvas: #ffffff;
   --linen: #ece9e1;
   --linen-deep: #e3dfd6;
   --paper: #f8f7f2;

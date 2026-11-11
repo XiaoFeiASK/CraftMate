@@ -20,6 +20,7 @@ public final class CraftMateBodyClient implements ClientModInitializer {
 	private BridgeClient bridge;
 	private FrameServer frames;
 	private MinecraftServer keepInventoryServer;
+	private boolean agentOwnedLastTick;
 
 	@Override
 	public void onInitializeClient() {
@@ -39,13 +40,18 @@ public final class CraftMateBodyClient implements ClientModInitializer {
 			ensureKeepInventory(client);
 			bridge.tick(client);
 			CameraController.worldChanged(client);
-			if (!bridge.agentControlled()) {
+			boolean agentControlled = bridge.agentControlled();
+			if (agentOwnedLastTick && !agentControlled) {
 				// The body can outlive a dead orchestrator. Refuse to keep
 				// walking or mining after control is gone, even if the last
-				// task never received its terminal result.
+				// task never received its terminal result. Hand the keys back
+				// once, preserving anything the human is physically holding;
+				// releasing them every tick made WASD stutter until the key
+				// was pressed again.
 				CameraController.reset(client);
-				GameActions.releaseInputs(client);
+				GameActions.stopLocally(client, true);
 			}
+			agentOwnedLastTick = agentControlled;
 		});
 		ClientLifecycleEvents.CLIENT_STOPPING.register(client -> {
 			if (frames != null) frames.close();

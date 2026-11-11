@@ -31,17 +31,18 @@ export const STAGES: readonly Stage[] = [
       "已获得木头",
       "inventory contains wood products, or a reachable crafting table proves earlier wood work",
       (facts) => {
-        // An empty inventory is an observation ("nothing"), not a missing one.
-        if (facts.inventory.length === 0) return "incomplete";
         // A placed table physically proves logs were gathered. Leaving this
         // milestone incomplete while the table sat right next to the body made
         // the planner walk off looking for a log it had already spent.
         if (
+          facts.craftingTablePlaced === true ||
           facts.craftingTableNearby === true ||
           nearbyHas(facts, /crafting_table$/u) !== null
         ) {
           return "complete";
         }
+        // An empty inventory is an observation ("nothing"), not a missing one.
+        if (facts.inventory.length === 0) return "incomplete";
         return facts.inventory.some(
           (slot) =>
             WOOD_ITEMS.test(slot.item) ||
@@ -59,18 +60,25 @@ export const STAGES: readonly Stage[] = [
       "背包有 4 块木板",
       "inventory contains at least 4 planks",
       (facts) => {
-        // An empty inventory is an observation ("nothing"), not a missing one.
-        if (facts.inventory.length === 0) return "incomplete";
         const count = facts.inventory
           .filter((slot) => PLANKS_ITEMS.test(slot.item))
           .reduce((total, slot) => total + slot.count, 0);
-        return count >= 4 ||
+        // A durable workstation is stronger evidence than a perishable plank
+        // stack. This lets the stone-tools stage own the next pickaxe craft
+        // instead of sending the body back into the wood-opening loop.
+        if (
+          count >= 4 ||
+          facts.craftingTablePlaced === true ||
           hasItem(facts, "minecraft:crafting_table") ||
           nearbyHas(facts, /crafting_table$/u) !== null ||
           facts.inventory.some((slot) => /(^|:)wooden_[a-z_]+$/u.test(slot.item)) ||
           hasCraftingTableProduct(facts)
-          ? "complete"
-          : "incomplete";
+        ) {
+          return "complete";
+        }
+        // An empty inventory is an observation ("nothing"), not a missing one.
+        if (facts.inventory.length === 0) return "incomplete";
+        return "incomplete";
       },
     ),
     milestone(

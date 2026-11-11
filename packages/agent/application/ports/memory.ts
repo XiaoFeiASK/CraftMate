@@ -14,4 +14,13 @@ export interface MemoryPort {
   /** Create a pending candidate; it is not recallable until reviewed. */
   propose(draft: MemoryDraft, sessionId: string | null): string;
   list(state?: Memory["state"]): readonly Memory[];
+  /** Optional: durable stores can accumulate real success/failure evidence. */
+  recordOutcome?(
+    memoryId: string,
+    input: {
+      readonly ok: boolean;
+      readonly condition?: string | null;
+      readonly version?: string | null;
+    },
+  ): Memory | null;
 }

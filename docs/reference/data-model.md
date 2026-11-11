@@ -41,6 +41,7 @@
 | `0010_agent_event` | 管理端可观测事件投影 |
 | `0011_dashboard_activity` | 按场次记录工作台活动统计起点 |
 | `0012_model_usage` | 模型 token 用量，零价格调用也留证据 |
+| `0013_memory_outcomes` | 记忆的成功/失败次数、失败条件与适用版本 |
 
 当前校验器报告 32 个对象、29 个索引；新增迁移后以 `npm run db:check` 输出为准。
 
@@ -86,6 +87,8 @@ prompt_tokens, completion_tokens, occurred_at_ms
 - 承诺和动作终态必须有结束时间。
 - 承诺状态迁移和事件在同一事务。
 - 记忆只有从 `review_candidate` 批准后才写入可用记忆；FTS 命中必须连接当前有效记忆。
+- `success_count` / `failure_count` 只累加真实使用结果；`conditions` 记录失败发生
+  的具体条件，不把一条记忆永久标成不可用。召回按置信度与成功率排序。
 - 迁移目录只允许 SQL 迁移文件。
 
 ## 4. 保留策略

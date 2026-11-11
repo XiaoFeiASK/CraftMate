@@ -182,6 +182,10 @@ export function createPersistentShow(options: {
     );
   };
   const goalRecord = goalStore.load();
+  const envMs = (name: string, fallback: number): number => {
+    const value = Number(process.env[name]);
+    return Number.isFinite(value) && value >= 1_000 ? value : fallback;
+  };
 
   const show = new Show({
     persona,
@@ -196,6 +200,8 @@ export function createPersistentShow(options: {
     ...(options.availableSkills
       ? { availableSkills: options.availableSkills }
       : {}),
+    reactionCooldownMs: envMs("CRAFTMATE_REACTION_COOLDOWN_MS", 30_000),
+    downtimeCooldownMs: envMs("CRAFTMATE_IDLE_BEAT_MS", 45_000),
     planner: new Planner({
       provider,
       deadlineMs: runtime.model.timeoutMs,

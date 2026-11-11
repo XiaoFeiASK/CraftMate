@@ -25,6 +25,8 @@
   探索之间自主排序；一次只推进一个可验证任务，失败会退避、改道并重新观察。
 - **有性格的角色**：单一人格「大肥鱼」，权重会真正进入决策；版本可回滚。
 - **有节奏的直播**：会拒绝、会先回应再执行、会记得承诺，不是有求必应的工具。
+- **空场也不冷场**：评论空窗后角色自己起环境节拍；受伤、岩浆、苦力怕等反射事件会主动接一句，不等下一条评论。
+- **失败会记住条件**：长任务可带剩余进度和下一步提示续跑；记忆累计成功/失败次数，并记录“在什么条件下失败”。
 - **本机桌面控制台**：管理端是 Tauri 桌面程序，只做展示、配置和遥控。
 
 ## 运行形态
@@ -84,7 +86,7 @@
 
 ## 现在到哪了
 
-最后核对：2026-11-06。
+代码基线：2026-11-11；实机证据：2026-11-11（基础控制链路、空场节拍、坠落反射）。
 
 **已经落地**
 
@@ -93,6 +95,7 @@
 - SQLite 持久化、重启恢复、决策回放、保留清理、模型成本预算。
 - 目标模式 `GoalRuntime`：九个生存阶段、身体事实驱动的安全候选、受约束模型排序、
   幂等命令、终态证据校验、失败退避和改道重观察。
+- 反射事件主动反应、空场环境节拍、技能结果的分段进度/续跑提示，以及带失败条件的记忆计数。
 - dyhub 评论接入、归一化、去重、背压与健康上报。
 - 豆包 Seeduplex 实时语音、字幕、抢占和失败上报。
 - Bridge 协议、队列、幂等、控制权、看门狗，以及真实 Fabric 1.20.1 身体。
@@ -193,6 +196,7 @@ craftmate/
 | [外部集成](docs/guides/integrations.md) | 模型、语音、抖音评论和游戏身体怎么接 |
 | [Bridge 设计](docs/reference/bridge.md) | `/bridge` 协议、队列、控制权与真机约束 |
 | [自主生存闭环](docs/operations/autonomy.md) | 目标模式怎么持续决策、Agent 与 Mod 如何分工、为什么模型额度可能不变 |
+| [场景回归](docs/operations/scenarios.md) | 从空手开局到危险反射、空场节拍、分段续跑的真机场景与证据写法 |
 | [验证清单](docs/operations/verification.md) | 现在能跑什么、哪些是部分实现、还缺什么 |
 | [运行手册](docs/operations/runbook.md) | 怎么启动、怎么验证、常见问题 |
 | [决策记录](docs/decisions/adr.md) | 已拍板的技术决策、后果与重新评估条件 |
@@ -208,7 +212,7 @@ craftmate/
 
 ## 参考与许可
 
-记忆模型、注意力策略与流水线设计参考了以下开源项目，代码均为独立实现：
+记忆模型、注意力策略、流水线与自主循环设计参考了以下开源项目，代码均为独立实现：
 
 - [PowerContext](https://github.com/oceanbase/powercontext)（Apache-2.0）：证据与记忆分离、版本化、待审队列、召回预算。
 - [SeekMemory](https://github.com/NeverENG/SeekMemory)（MIT / Apache-2.0）：注意力闸门、后续回复窗口、取消语义、人格版本链。
@@ -217,6 +221,7 @@ craftmate/
 - [MaiBot](https://github.com/Mai-with-u/MaiBot)（GPL-3.0）：关注自然对话节奏、观众关系与长期记忆、插件生态。
 - [MaiCraftMod](https://github.com/Mai-with-u/MaiCraftMod)（GPL-3.0-only）：关注 MCP 游戏能力目录、目标生命周期、可中断长任务和带证据的执行结果。
 - [Amaidesu](https://github.com/Mai-with-u/Amaidesu)（MIT）：关注主动节目编排、Planner/Replyer 分工、场次回顾，以及虚拟形象和演播设备协同。
+- [dsh-mc-agent](https://github.com/blueziii/dsh-mc-agent)（MIT）：关注事件叫醒、单动作闭环、分段预算、长期自主目标，以及带失败条件的执行记忆。
 
 以上项目用于技术方案和功能方向参考，不代表复制或引入其代码。对比结论与后续观察点见[相关项目调研](docs/research/related-projects.md)。
 

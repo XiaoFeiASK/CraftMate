@@ -1,0 +1,4 @@
+ALTER TABLE memory ADD COLUMN success_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE memory ADD COLUMN failure_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE memory ADD COLUMN conditions TEXT;
+ALTER TABLE memory ADD COLUMN applicable_version TEXT;

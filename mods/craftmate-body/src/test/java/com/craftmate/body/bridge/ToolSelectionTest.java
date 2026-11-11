@@ -1,10 +1,19 @@
 package com.craftmate.body.bridge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
 class ToolSelectionTest {
+	@Test
+	void aFistCannotHarvestBlocksThatRequireACorrectTool() {
+		assertFalse(ToolSelection.canHarvest(true, false));
+		assertTrue(ToolSelection.canHarvest(true, true));
+		assertTrue(ToolSelection.canHarvest(false, false));
+	}
+
 	@Test
 	void aCorrectToolInAnotherSlotIsSelected() {
 		assertEquals(

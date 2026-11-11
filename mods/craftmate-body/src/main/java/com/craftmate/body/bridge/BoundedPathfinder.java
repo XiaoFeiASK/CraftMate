@@ -24,7 +24,7 @@ public final class BoundedPathfinder {
 	 * the planner retried the same craft. Sixteen still bounds the search;
 	 * the node budget and radius remain the expensive guards.
 	 */
-	private static final int MAX_VERTICAL = 16;
+	static final int DEFAULT_MAX_VERTICAL = 16;
 	private static final int[][] HORIZONTAL = {
 		{ 1, 0 },
 		{ -1, 0 },
@@ -85,7 +85,16 @@ public final class BoundedPathfinder {
 		int maxNodes,
 		double maxRadius
 	) {
-		return find(start, goalCell, goal, grid, Traversal.ANY, maxNodes, maxRadius);
+		return find(
+			start,
+			goalCell,
+			goal,
+			grid,
+			Traversal.ANY,
+			maxNodes,
+			maxRadius,
+			DEFAULT_MAX_VERTICAL
+		);
 	}
 
 	/**
@@ -102,7 +111,37 @@ public final class BoundedPathfinder {
 		int maxNodes,
 		double maxRadius
 	) {
+		return find(
+			start,
+			goalCell,
+			goal,
+			grid,
+			traversal,
+			maxNodes,
+			maxRadius,
+			DEFAULT_MAX_VERTICAL
+		);
+	}
+
+	/**
+	 * A mine staircase can be dozens of blocks below the surface. The default
+	 * sixteen-block vertical window made every deep return look like a dead
+	 * end, so callers that know the requested height difference may widen the
+	 * search. The caller still supplies a hard node budget; this parameter
+	 * only prevents a legal staircase from being rejected by geometry.
+	 */
+	public static Result find(
+		Cell start,
+		Cell goalCell,
+		Goal goal,
+		Grid grid,
+		Traversal traversal,
+		int maxNodes,
+		double maxRadius,
+		int maxVertical
+	) {
 		if (maxNodes <= 0) return null;
+		int verticalWindow = Math.max(1, maxVertical);
 		// The start is where the body already stands, not a cell it plans to
 		// enter, so it is never rejected. Requiring it to be standable meant a
 		// body on a leaf canopy, a slab, or a ledge failed every search on its
@@ -155,7 +194,7 @@ public final class BoundedPathfinder {
 					if (closed.contains(next)) continue;
 					if (
 						Math.hypot(x - start.x, z - start.z) > maxRadius
-							|| Math.abs(y - start.y) > MAX_VERTICAL
+							|| Math.abs(y - start.y) > verticalWindow
 					) {
 						continue;
 					}

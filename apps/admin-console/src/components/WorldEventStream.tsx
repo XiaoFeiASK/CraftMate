@@ -29,17 +29,13 @@ export function WorldEventStream({ events }: WorldEventStreamProps): React.JSX.E
   if (events.length === 0) return null;
 
   return (
-    <section className="world-events" aria-labelledby="world-events-title">
-      <header className="world-events__head">
-        <h3 id="world-events-title">身体事件</h3>
-        <span>{events.length}</span>
-      </header>
+    <section className="world-events" aria-label="身体事件">
       <ol className="world-events__list">
         {events.slice(0, 6).map((event, index) => {
           const summary = describe(event);
           return (
             <li key={`${event.at}-${index}`} className="world-events__item" data-name={event.name}>
-              <span className="world-events__badge">{EVENT_LABELS[event.name] ?? event.name}</span>
+              <span className="world-events__name">{summary.label}</span>
               <p>{summary.detail}</p>
               {summary.health === undefined ? null : (
                 <small>生命 {summary.health.toFixed(1)}</small>
@@ -53,18 +49,23 @@ export function WorldEventStream({ events }: WorldEventStreamProps): React.JSX.E
   );
 }
 
-function describe(event: BodyEvent): { readonly detail: string; readonly health?: number } {
+function describe(event: BodyEvent): {
+  readonly label: string;
+  readonly detail: string;
+  readonly health?: number;
+} {
   if (event.name === "reflex" && isRecord(event.data)) {
     const kind = typeof event.data.kind === "string" ? event.data.kind : "unknown";
     const detail = typeof event.data.detail === "string" ? event.data.detail : kind;
     const health = typeof event.data.health === "number" ? event.data.health : undefined;
     const label = REFLEX_LABELS[kind] ?? kind;
     return {
-      detail: `${label} · ${detail}`,
+      label: `${EVENT_LABELS.reflex} · ${label}`,
+      detail,
       ...(health === undefined ? {} : { health }),
     };
   }
-  return { detail: compact(event.data) };
+  return { label: EVENT_LABELS[event.name] ?? event.name, detail: compact(event.data) };
 }
 
 function compact(data: unknown): string {
