@@ -7,7 +7,11 @@ import type {
   ShowSettings,
   SkillCall,
 } from "@craftmate/contracts";
-import { decisionOutcomeSchema, skillCallSchema } from "@craftmate/contracts";
+import {
+  decisionOutcomeSchema,
+  decisionPlaybookSchema,
+  skillCallSchema,
+} from "@craftmate/contracts";
 import type {
   Commitment,
   CommitmentJournal,
@@ -467,8 +471,8 @@ export class DecisionStore {
         `INSERT INTO decision_log
            (id, session_id, source_id, persona_version_id, trace_id, revision, stage,
             intent, decision, priority, score, reason, trace_json, speech_text, skill_json,
-            provider, model, latency_ms, created_at_ms)
-         VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            playbook_json, provider, model, latency_ms, created_at_ms)
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         decision.id,
@@ -489,6 +493,7 @@ export class DecisionStore {
         }),
         decision.speech,
         decision.skill === null ? null : JSON.stringify(decision.skill),
+        decision.playbook == null ? null : JSON.stringify(decision.playbook),
         trace?.provider ?? null,
         trace?.model ?? null,
         trace?.latencyMs ?? null,
@@ -507,7 +512,7 @@ export class DecisionStore {
       .prepare(
         `UPDATE decision_log
          SET stage = ?, priority = ?, reason = ?, speech_text = ?, skill_json = ?,
-             provider = ?, model = ?, latency_ms = ?, outcome_json = ?
+             playbook_json = ?, provider = ?, model = ?, latency_ms = ?, outcome_json = ?
          WHERE id = ?`,
       )
       .run(
@@ -516,6 +521,7 @@ export class DecisionStore {
         decision.reason,
         decision.speech,
         decision.skill === null ? null : JSON.stringify(decision.skill),
+        decision.playbook == null ? null : JSON.stringify(decision.playbook),
         trace?.provider ?? null,
         trace?.model ?? null,
         trace?.latencyMs ?? null,
@@ -542,7 +548,7 @@ export class DecisionStore {
       .prepare(
         `SELECT d.id, d.intent, d.decision, d.priority, d.score, d.reason, d.stage,
                 d.created_at_ms, d.trace_json, d.speech_text, d.skill_json, d.outcome_json,
-                d.provider, d.model, d.latency_ms, s.raw_text
+                d.playbook_json, d.provider, d.model, d.latency_ms, s.raw_text
          FROM decision_log d
          JOIN source s ON s.id = d.source_id
          WHERE d.session_id = ? ORDER BY d.created_at_ms DESC LIMIT ?`,
@@ -560,6 +566,7 @@ export class DecisionStore {
       speech_text: string;
       skill_json: string | null;
       outcome_json: string | null;
+      playbook_json: string | null;
       provider: string | null;
       model: string | null;
       latency_ms: number | null;
@@ -576,6 +583,9 @@ export class DecisionStore {
       const parsed = skill === null ? null : skillCallSchema.safeParse(skill);
       const outcome = row.outcome_json === null ? null : JSON.parse(row.outcome_json);
       const parsedOutcome = outcome === null ? null : decisionOutcomeSchema.safeParse(outcome);
+      const playbook = row.playbook_json === null ? null : JSON.parse(row.playbook_json);
+      const parsedPlaybook =
+        playbook === null ? null : decisionPlaybookSchema.safeParse(playbook);
       return {
         id: row.id,
         eventId: trace.eventId ?? "",
@@ -589,6 +599,7 @@ export class DecisionStore {
         stage: row.stage,
         skill: parsed?.success ? parsed.data : null,
         outcome: parsedOutcome?.success ? parsedOutcome.data : null,
+        ...(parsedPlaybook?.success ? { playbook: parsedPlaybook.data } : {}),
         speech: row.speech_text,
         audienceRef: trace.audienceRef ?? "",
         trace:

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type {
+  BodyEvent,
   Decision,
+  Proposal,
   ShowSnapshot,
   TelemetrySnapshot,
 } from "@craftmate/contracts";
@@ -11,7 +13,7 @@ const decision = (overrides: Partial<Decision> = {}): Decision => ({
   id: "decision-1",
   eventId: "comment-1",
   nickname: "观众甲",
-  text: "这是一段绝不能出现在聊天里的弹幕原文",
+  text: "帮我砍点木头",
   intent: "mine",
   decision: "EXECUTE",
   priority: "vote",
@@ -23,7 +25,7 @@ const decision = (overrides: Partial<Decision> = {}): Decision => ({
     args: { count: 1 },
     idempotencyKey: "key-1",
   },
-  speech: "这段语音原文也不能出现",
+  speech: "好，我去砍树。",
   audienceRef: "hashed",
   trace: null,
   outcome: null,
@@ -31,13 +33,16 @@ const decision = (overrides: Partial<Decision> = {}): Decision => ({
   ...overrides,
 });
 
-const snapshot = (decisions: readonly Decision[]): ShowSnapshot => ({
+const snapshot = (
+  decisions: readonly Decision[],
+  proposals: readonly Proposal[] = [],
+): ShowSnapshot => ({
   mode: "agent",
   stats: { received: 1, decided: 1, executed: 1, refused: 0, observed: 0, openCommitments: 0 },
   decisions,
   operatorNotice: null,
   goal: null,
-  proposals: [],
+  proposals,
   sourceHealth: null,
   voiceStatus: null,
   bridge: null,
@@ -68,15 +73,14 @@ const telemetry = (
 });
 
 describe("agent chat projection", () => {
-  test("raw audience text, reasons and speech stay out of the transcript", () => {
+  test("the conversation uses audience text and the agent's planned speech", () => {
     const turns = buildAgentChat(snapshot([decision()]), telemetry());
-    const rendered = JSON.stringify(turns);
 
-    assert.equal(rendered.includes("弹幕原文"), false);
-    assert.equal(rendered.includes("模型理由"), false);
-    assert.equal(rendered.includes("语音原文"), false);
     assert.equal(turns[0]?.kind, "audience");
+    assert.equal(turns[0]?.kind === "audience" ? turns[0].text : "", "帮我砍点木头");
     assert.equal(turns[1]?.kind, "agent");
+    assert.equal(turns[1]?.kind === "agent" ? turns[1].text : "", "好，我去砍树。");
+    assert.equal(JSON.stringify(turns).includes("模型理由"), false);
   });
 
   test("reflex decisions become a safety system line, not an audience bubble", () => {
@@ -120,9 +124,9 @@ describe("agent chat projection", () => {
     );
     const agent = turns.find((turn) => turn.kind === "agent");
 
-    assert.equal(agent?.text, "砍树完成，世界证据已经回传。");
+    assert.equal(agent?.text, "挖到了，材料已经收进背包。");
     assert.equal(
-      agent?.meta.some((item) => item.value.includes("minecraft:birch_log")),
+      agent?.meta.some((item) => item.label === "结果" && item.value.includes("1 处变化")),
       true,
     );
   });
@@ -152,6 +156,59 @@ describe("agent chat projection", () => {
     assert.equal(
       turns.some((turn) => turn.kind === "agent" && turn.text.includes("mine_block")),
       false,
+    );
+  });
+
+  test("audience proposals are part of the conversation and can be decided inline", () => {
+    const proposal: Proposal = {
+      id: "proposal-1",
+      sourceEventId: "comment-1",
+      audienceRef: "viewer:hashed",
+      text: "去挖点铁矿吧",
+      votes: 3,
+      intent: "mine",
+      status: "pending",
+      reason: "gate reason",
+      risk: "low",
+      goalAlignment: "aligned",
+      createdAt: 1_000,
+      decidedAt: null,
+    };
+    const turns = buildAgentChat(snapshot([decision()], [proposal]), telemetry());
+    const turn = turns.find((entry) => entry.kind === "proposal");
+
+    assert.equal(turn?.kind === "proposal" ? turn.text : "", "去挖点铁矿吧");
+    assert.equal(turn?.kind === "proposal" ? turn.status : "", "pending");
+    assert.equal(turns.filter((entry) => entry.kind === "proposal").length, 1);
+  });
+
+  test("body events replace the duplicate reflex origin line", () => {
+    const worldEvent: BodyEvent = {
+      name: "reflex",
+      data: { kind: "falling", detail: "正在从高处下落", health: 12.5 },
+      at: 1_000,
+    };
+    const turns = buildAgentChat(
+      snapshot([
+        decision({
+          eventId: "reflex:falling:1001",
+          nickname: "系统",
+          intent: "danger",
+          decision: "ACK_ONLY",
+          skill: null,
+        }),
+      ]),
+      telemetry(),
+      [worldEvent],
+    );
+
+    assert.equal(
+      turns.filter((turn) => turn.kind === "system" && turn.text.includes("坠落")).length,
+      1,
+    );
+    assert.equal(
+      turns.find((turn) => turn.kind === "system")?.text,
+      "身体避险 · 坠落 · 正在从高处下落 · 生命 12.5",
     );
   });
 

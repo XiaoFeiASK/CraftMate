@@ -1,9 +1,9 @@
 package com.craftmate.body.bridge;
 
 /**
- * Pure ordering for placement candidates. The client can only see a fixed
- * crosshair ray, so a placement skill must turn toward a nearby face instead
- * of failing merely because the player happened to look at their feet.
+ * Pure ordering for placement candidates. A placement packet names a support
+ * block and face, so ranking only uses reach to that face, never the rendered
+ * crosshair direction.
  */
 final class PlacementTarget {
 	private static final double MAX_EYE_DISTANCE = 4.5;

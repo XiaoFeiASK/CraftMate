@@ -1,6 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
-  GoalProgress,
+  BodyEvent,
+  OperatorKind,
+  ProposalStatus,
   ShowSnapshot,
   TelemetrySnapshot,
 } from "@craftmate/contracts";
@@ -25,7 +27,16 @@ interface AgentWorkbenchProps {
   readonly state: WireState;
   readonly snapshot: ShowSnapshot;
   readonly telemetry: TelemetrySnapshot;
+  readonly worldEvents: readonly BodyEvent[];
   readonly personaName: string;
+  readonly disabled: boolean;
+  readonly onComment: (nickname: string, text: string) => void;
+  readonly onOperator: (kind: OperatorKind, text?: string) => void;
+  readonly onDecideProposal: (
+    proposalId: string,
+    status: Exclude<ProposalStatus, "pending">,
+    reason: string,
+  ) => void;
   readonly onLookupTrace: (traceId: string) => void;
 }
 
@@ -37,17 +48,22 @@ interface WorkPresentation {
 
 /**
  * The default stage is a conversation, not a dashboard. Live ingress and the
- * current physical task stay visible as two compact facts; everything else is
- * folded into a chronological, read-only transcript.
+ * current physical task stay visible as two compact facts; decisions, body
+ * events and audience proposals share the same chronological transcript.
  */
 export function AgentWorkbench({
   state,
   snapshot,
   telemetry,
+  worldEvents,
   personaName,
+  disabled,
+  onComment,
+  onOperator,
+  onDecideProposal,
   onLookupTrace,
 }: AgentWorkbenchProps): React.JSX.Element {
-  const conversation = buildAgentChat(snapshot, telemetry);
+  const conversation = buildAgentChat(snapshot, telemetry, worldEvents);
   const work = workPresentation(snapshot, currentWork(snapshot, telemetry.judgement));
   const presence = agentPresence(state, snapshot);
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -99,12 +115,21 @@ export function AgentWorkbench({
                 key={entry.id}
                 entry={entry}
                 personaName={personaName || "大肥鱼"}
+                disabled={disabled}
+                onDecideProposal={onDecideProposal}
                 onLookupTrace={onLookupTrace}
               />
             ))
           )}
         </div>
       </div>
+
+      <AgentComposer
+        personaName={personaName || "大肥鱼"}
+        disabled={disabled}
+        onComment={onComment}
+        onOperator={onOperator}
+      />
     </main>
   );
 }
@@ -119,10 +144,9 @@ function LiveConnectionCard({
   const ingress = telemetry.ingress;
   const known = ingressIsKnown(ingress);
   const counts = [
-    ["收到", known && ingress.received !== null ? String(ingress.received) : "—"],
+    ["评论", known && ingress.received !== null ? String(ingress.received) : "—"],
     ["执行", String(snapshot.stats.executed)],
-    ["待办", String(queueCount(snapshot.proposals))],
-    ["丢弃", known && ingress.dropped !== null ? String(ingress.dropped) : "—"],
+    ["待处理", String(queueCount(snapshot.proposals))],
   ] as const;
   return (
     <article className="agent-chat__dock-card agent-chat__dock-card--live">
@@ -168,6 +192,41 @@ function CurrentWorkCard({
         </span>
         {goal?.nextTask ? <span>下一步 {goal.nextTask}</span> : null}
       </div>
+      {goal?.playbook ? (
+        <div className="agent-chat__work-meta" data-playbook="true">
+          <span>
+            玩法卡 {goal.playbook.cardTitle} ·{" "}
+            {goal.playbook.modelChoice === true ? "模型选择" : "确定性回退"} ·{" "}
+            已执行 {Math.floor(goal.playbook.activeForMs / 1000)}s ·{" "}
+            {goal.playbook.minDwellRemainingMs > 0
+              ? `驻留剩余 ${Math.ceil(goal.playbook.minDwellRemainingMs / 1000)}s`
+              : "可换卡"}
+          </span>
+          {goal.playbook.cardReason ? (
+            <span>{humanizeRuntimeText(goal.playbook.cardReason)}</span>
+          ) : null}
+          {goal.playbook.failureCode ? (
+            <span>
+              最近失败 {goal.playbook.failureCode}
+              {goal.playbook.recoveryId
+                ? ` · 恢复卡 ${goal.playbook.recoveryId}`
+                : ""}
+            </span>
+          ) : null}
+          {goal.playbook.fallbackReason ? (
+            <span>回退原因 {humanizeRuntimeText(goal.playbook.fallbackReason)}</span>
+          ) : null}
+          {goal.playbook.alternatives
+            .filter((item) => item.status === "blocked")
+            .slice(0, 3)
+            .map((item) => (
+              <span key={item.id}>
+                受阻 · {item.title}
+                {item.blockedReason ? `：${humanizeRuntimeText(item.blockedReason)}` : ""}
+              </span>
+            ))}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -175,10 +234,18 @@ function CurrentWorkCard({
 function ChatTurn({
   entry,
   personaName,
+  disabled,
+  onDecideProposal,
   onLookupTrace,
 }: {
   readonly entry: AgentChatEntry;
   readonly personaName: string;
+  readonly disabled: boolean;
+  readonly onDecideProposal: (
+    proposalId: string,
+    status: Exclude<ProposalStatus, "pending">,
+    reason: string,
+  ) => void;
   readonly onLookupTrace: (traceId: string) => void;
 }): React.JSX.Element {
   if (entry.kind === "system") {
@@ -187,6 +254,68 @@ function ChatTurn({
         <p>{entry.text}</p>
         <time>{clock(entry.at)}</time>
       </div>
+    );
+  }
+  if (entry.kind === "proposal") {
+    return (
+      <article className="agent-chat__turn agent-chat__turn--audience agent-chat__turn--proposal">
+        <div className="agent-chat__message">
+          <header>
+            <strong>{entry.speaker}</strong>
+            <time>{clock(entry.at)}</time>
+            {entry.traceId !== null ? (
+              <TraceButton traceId={entry.traceId} onLookupTrace={onLookupTrace} />
+            ) : null}
+          </header>
+          <div className="agent-chat__bubble agent-chat__bubble--audience agent-chat__bubble--proposal">
+            <p>{entry.text}</p>
+            <MetaRows meta={entry.meta} />
+            {entry.status === "pending" ? (
+              <div className="agent-chat__proposal-actions">
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() =>
+                    onDecideProposal(
+                      entry.proposalId,
+                      "accepted",
+                      "操作员在对话中采纳了这条观众提议。",
+                    )
+                  }
+                >
+                  采纳
+                </button>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() =>
+                    onDecideProposal(
+                      entry.proposalId,
+                      "deferred",
+                      "操作员选择稍后处理这条观众提议。",
+                    )
+                  }
+                >
+                  稍后
+                </button>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() =>
+                    onDecideProposal(
+                      entry.proposalId,
+                      "rejected",
+                      "操作员暂不采纳这条观众提议。",
+                    )
+                  }
+                >
+                  拒绝
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </article>
     );
   }
   if (entry.kind === "audience") {
@@ -259,6 +388,74 @@ function TraceButton({
     >
       回放
     </button>
+  );
+}
+
+function AgentComposer({
+  personaName,
+  disabled,
+  onComment,
+  onOperator,
+}: {
+  readonly personaName: string;
+  readonly disabled: boolean;
+  readonly onComment: (nickname: string, text: string) => void;
+  readonly onOperator: (kind: OperatorKind, text?: string) => void;
+}): React.JSX.Element {
+  const [text, setText] = useState("");
+
+  const submit = (event: FormEvent): void => {
+    event.preventDefault();
+    const value = text.trim();
+    if (value.length === 0) return;
+    onComment("你", value);
+    setText("");
+  };
+
+  return (
+    <footer className="agent-chat__composer">
+      <form className="agent-chat__composer-form" onSubmit={submit}>
+        <input
+          id="agent-message"
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          aria-label={`和 ${personaName} 说点什么`}
+          placeholder={`和 ${personaName} 说点什么…`}
+          disabled={disabled}
+          autoComplete="off"
+          maxLength={500}
+        />
+        <button type="submit" disabled={disabled || text.trim().length === 0}>
+          发送
+        </button>
+      </form>
+      <div className="agent-chat__composer-tools">
+        <div>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onOperator("takeover", "操作员接管")}
+          >
+            接管
+          </button>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onOperator("release", "操作员释放")}
+          >
+            交还
+          </button>
+          <button
+            type="button"
+            data-danger="true"
+            disabled={disabled}
+            onClick={() => onOperator("stop", "急停")}
+          >
+            急停
+          </button>
+        </div>
+      </div>
+    </footer>
   );
 }
 

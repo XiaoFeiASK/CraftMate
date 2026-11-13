@@ -1,6 +1,14 @@
 import type { OpsRequest, OpsSnapshot } from "@craftmate/contracts";
 import type { Show } from "@craftmate/agent/application";
-import type { CostStore, MemoryStore, PersonaVersionStore, ReplayStore } from "@craftmate/storage";
+import type {
+  CostStore,
+  MemoryStore,
+  PersonaVersionStore,
+  ReplayStore,
+  StrategyMemoryStore,
+  WorldMemoryStore,
+  RouteBlacklistStore,
+} from "@craftmate/storage";
 import type { OpsHooks } from "./transport/control-server.ts";
 
 export interface OpsOptions {
@@ -9,6 +17,9 @@ export interface OpsOptions {
   readonly personas: PersonaVersionStore;
   readonly replay: ReplayStore;
   readonly costs: CostStore;
+  readonly worldMemory: WorldMemoryStore;
+  readonly strategyMemory: StrategyMemoryStore;
+  readonly routeBlacklist: RouteBlacklistStore;
   readonly personaKey: string;
   readonly onSettings: (next: unknown) => unknown | null;
   readonly hourlyLimit?: number;
@@ -39,6 +50,9 @@ export function createOps(options: OpsOptions): OpsHooks {
         keyLimit: 0,
         provider: settings.persona.voice.provider,
       }),
+      worldMemories: [...options.worldMemory.list()],
+      strategyMemories: [...options.strategyMemory.list()],
+      routeBlacklists: [...options.routeBlacklist.list(false, 128)],
     };
   };
 
@@ -79,6 +93,20 @@ export function createOps(options: OpsOptions): OpsHooks {
           if (applied === null) throw new Error("人格版本内容不合法，未生效");
           return;
         }
+        case "updateWorldMemory":
+          if (options.worldMemory.update(request.memory) === null) {
+            throw new Error(`世界记忆 ${request.memory.id} 不存在`);
+          }
+          return;
+        case "forgetWorldMemory":
+          options.worldMemory.forget(request.memoryId);
+          return;
+        case "forgetStrategyMemory":
+          options.strategyMemory.forget(request.memoryId);
+          return;
+        case "forgetRouteBlacklist":
+          options.routeBlacklist.forget(request.blacklistId);
+          return;
         default:
           return;
       }

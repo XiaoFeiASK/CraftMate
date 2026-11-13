@@ -10,6 +10,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.EnderMan;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
@@ -38,6 +39,13 @@ final class IdleWander {
 	private static final double MIN_LEG = 5.0;
 	private static final double MAX_LEG = 13.0;
 	private static final double FETCH_RADIUS = 10.0;
+	private static final double PACKED_FETCH_RADIUS = 4.0;
+	/**
+	 * A nearly full backpack turns a random stroll into visible pacing: the
+	 * body cannot pick up most loot and keeps drifting around the same camp
+	 * while the goal runtime backs off. Stand and look instead.
+	 */
+	private static final int PACKED_SLOTS = 28;
 	/**
 	 * Looking at an enderman's face is an attack, not sightseeing. Idle time
 	 * has no reason to take that risk: suppress random panning near one and
@@ -145,8 +153,21 @@ final class IdleWander {
 	private static void choose(Minecraft client, LocalPlayer player) {
 		// A completed look_at task deliberately retains its observation pose,
 		// which used to make every idle LOOK end on its first tick. Idle time
-		// is a new intent, so it owns the camera again.
-		if (CameraController.retained()) CameraController.reset(client);
+		// is a new intent, so it owns the camera again. Release rather than
+		// reset: a reset snaps the audience camera from the retained pose back
+		// to the body's instantly-aimed rotation.
+		if (CameraController.retained()) CameraController.release();
+		long dayTime = client.level.getDayTime() % 24_000L;
+		if (dayTime >= 13_000L && dayTime <= 23_000L) {
+			/*
+			 * Night idle time is not sightseeing. A respawned body strolled
+			 * into a zombie and a skeleton's line while the goal runtime was
+			 * backing off, then died before the next safety task. Stand still
+			 * and let the safety card or the reflex own the next move.
+			 */
+			deferTicks = 20;
+			return;
+		}
 		if (GameActions.onCanopy(client)) {
 			action = Action.DESCEND;
 			actionTicks = MAX_WALK_TICKS;
@@ -154,7 +175,12 @@ final class IdleWander {
 			return;
 		}
 		List<EnderMan> endermen = nearbyEndermen(client, player);
-		ItemEntity drop = nearestDrop(client, player);
+		boolean packed = usedStorageSlots(player) >= PACKED_SLOTS;
+		ItemEntity drop = nearestDrop(
+			client,
+			player,
+			packed ? PACKED_FETCH_RADIUS : FETCH_RADIUS
+		);
 		if (
 			drop != null
 				&& endermen.isEmpty()
@@ -168,6 +194,7 @@ final class IdleWander {
 			return;
 		}
 		if (
+			!packed &&
 			player.onGround()
 				&& RANDOM.nextFloat() < 0.65f
 				&& chooseWalkGoal(client, player, endermen)
@@ -473,10 +500,23 @@ final class IdleWander {
 		return true;
 	}
 
-	private static ItemEntity nearestDrop(Minecraft client, LocalPlayer player) {
+	private static int usedStorageSlots(LocalPlayer player) {
+		Inventory inventory = player.getInventory();
+		int used = 0;
+		for (int slot = 0; slot < Inventory.INVENTORY_SIZE; slot++) {
+			if (!inventory.getItem(slot).isEmpty()) used++;
+		}
+		return used;
+	}
+
+	private static ItemEntity nearestDrop(
+		Minecraft client,
+		LocalPlayer player,
+		double radius
+	) {
 		List<ItemEntity> drops = client.level.getEntitiesOfClass(
 			ItemEntity.class,
-			player.getBoundingBox().inflate(FETCH_RADIUS),
+			player.getBoundingBox().inflate(radius),
 			entity -> entity.isAlive() && !entity.isRemoved()
 		);
 		return drops

@@ -542,7 +542,14 @@ export class BodySession {
         continue;
       }
       const reachedBody = record.status === "running" || this.sentCommands.has(record.command.id);
-      this.settle(record, "failed", "E_PRECONDITION", `safety: ${detail}`, true);
+      /*
+       * A reflex is the body taking the wheel, not a failed strategy. The
+       * planner still needs the incident to choose a retreat/eat/combat card,
+       * but this task must not increment consecutive failures or trip the
+       * same-strategy circuit. Under a zombie at night the old `failed`
+       * settlement made every safety handoff look like a broken recovery.
+       */
+      this.settle(record, "preempted", "E_CANCELLED", `safety: ${detail}`, true);
       if (reachedBody) {
         this.transport.send({
           v: 1,

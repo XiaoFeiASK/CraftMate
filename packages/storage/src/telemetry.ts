@@ -18,6 +18,17 @@ interface AgentEventRow {
   readonly duration_ms: number | null;
   readonly summary: string;
   readonly error_code: string | null;
+  readonly playbook_id: string | null;
+  readonly card_status: AgentEvent["cardStatus"] | null;
+  readonly switch_reason: string | null;
+  readonly failure_code: string | null;
+  readonly recovery_id: string | null;
+  readonly model_choice: number | null;
+  readonly fallback_reason: string | null;
+  readonly route_mode: AgentEvent["routeMode"] | null;
+  readonly blocked_reason: string | null;
+  readonly blacklist_id: string | null;
+  readonly target_lock_json: string | null;
   readonly source: AgentEvent["source"];
   readonly created_at_ms: number;
 }
@@ -44,8 +55,11 @@ export class AgentEventStore {
       .prepare(
         `INSERT INTO agent_event
            (id, session_id, stage, status, trace_id, task_id, decision_id, goal_id,
-            duration_ms, summary, error_code, source, created_at_ms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            duration_ms, summary, error_code, playbook_id, card_status,
+            switch_reason, failure_code, recovery_id, model_choice,
+            fallback_reason, route_mode, blocked_reason, blacklist_id,
+            target_lock_json, source, created_at_ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (id) DO NOTHING`,
       )
       .run(
@@ -60,6 +74,23 @@ export class AgentEventStore {
         parsed.durationMs,
         parsed.summary,
         parsed.errorCode,
+        parsed.playbookId ?? null,
+        parsed.cardStatus ?? null,
+        parsed.switchReason ?? null,
+        parsed.failureCode ?? null,
+        parsed.recoveryId ?? null,
+        parsed.modelChoice === null || parsed.modelChoice === undefined
+          ? null
+          : parsed.modelChoice
+            ? 1
+            : 0,
+        parsed.fallbackReason ?? null,
+        parsed.routeMode ?? null,
+        parsed.blockedReason ?? null,
+        parsed.blacklistId ?? null,
+        parsed.targetLock === null || parsed.targetLock === undefined
+          ? null
+          : JSON.stringify(parsed.targetLock),
         parsed.source,
         parsed.at,
       );
@@ -69,7 +100,10 @@ export class AgentEventStore {
     const rows = this.db
       .prepare(
         `SELECT id, stage, status, trace_id, task_id, decision_id, goal_id,
-                duration_ms, summary, error_code, source, created_at_ms
+                duration_ms, summary, error_code, playbook_id, card_status,
+                switch_reason, failure_code, recovery_id, model_choice,
+                fallback_reason, route_mode, blocked_reason, blacklist_id,
+                target_lock_json, source, created_at_ms
          FROM agent_event WHERE session_id = ?
          ORDER BY created_at_ms DESC, rowid DESC LIMIT ?`,
       )
@@ -87,6 +121,18 @@ export class AgentEventStore {
         durationMs: row.duration_ms,
         summary: row.summary,
         errorCode: row.error_code,
+        playbookId: row.playbook_id,
+        cardStatus: row.card_status,
+        switchReason: row.switch_reason,
+        failureCode: row.failure_code,
+        recoveryId: row.recovery_id,
+        modelChoice: row.model_choice === null ? null : row.model_choice === 1,
+        fallbackReason: row.fallback_reason,
+        routeMode: row.route_mode,
+        blockedReason: row.blocked_reason,
+        blacklistId: row.blacklist_id,
+        targetLock:
+          row.target_lock_json === null ? null : JSON.parse(row.target_lock_json),
         source: row.source,
       }),
     );
@@ -96,7 +142,10 @@ export class AgentEventStore {
     const rows = this.db
       .prepare(
         `SELECT id, stage, status, trace_id, task_id, decision_id, goal_id,
-                duration_ms, summary, error_code, source, created_at_ms
+                duration_ms, summary, error_code, playbook_id, card_status,
+                switch_reason, failure_code, recovery_id, model_choice,
+                fallback_reason, route_mode, blocked_reason, blacklist_id,
+                target_lock_json, source, created_at_ms
          FROM agent_event WHERE session_id = ? AND trace_id = ?
          ORDER BY created_at_ms ASC LIMIT ?`,
       )
@@ -114,6 +163,18 @@ export class AgentEventStore {
         durationMs: row.duration_ms,
         summary: row.summary,
         errorCode: row.error_code,
+        playbookId: row.playbook_id,
+        cardStatus: row.card_status,
+        switchReason: row.switch_reason,
+        failureCode: row.failure_code,
+        recoveryId: row.recovery_id,
+        modelChoice: row.model_choice === null ? null : row.model_choice === 1,
+        fallbackReason: row.fallback_reason,
+        routeMode: row.route_mode,
+        blockedReason: row.blocked_reason,
+        blacklistId: row.blacklist_id,
+        targetLock:
+          row.target_lock_json === null ? null : JSON.parse(row.target_lock_json),
         source: row.source,
       }),
     );

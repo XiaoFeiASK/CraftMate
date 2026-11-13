@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { navigationModeSchema, targetLockSchema } from "./navigation.ts";
 
 /**
  * Operator-facing event contract.
@@ -65,6 +66,18 @@ export const agentEventSchema = z.object({
   summary: z.string().trim().max(600).default(""),
   /** Machine-readable failure such as E_BODY_MISSING. */
   errorCode: z.string().trim().max(64).nullable().default(null),
+  /** Playbook provenance. Null on audience, ingress and voice events. */
+  playbookId: z.string().trim().max(80).nullable().optional(),
+  cardStatus: z.enum(["available", "blocked", "done"]).nullable().optional(),
+  switchReason: z.string().trim().max(300).nullable().optional(),
+  failureCode: z.string().trim().max(64).nullable().optional(),
+  recoveryId: z.string().trim().max(80).nullable().optional(),
+  modelChoice: z.boolean().nullable().optional(),
+  fallbackReason: z.string().trim().max(300).nullable().optional(),
+  routeMode: navigationModeSchema.nullable().optional(),
+  blockedReason: z.string().trim().max(300).nullable().optional(),
+  blacklistId: z.string().trim().max(80).nullable().optional(),
+  targetLock: targetLockSchema.nullable().optional(),
   source: z.enum(["ingress", "agent", "goal", "voice", "bridge", "control"]),
 });
 export type AgentEvent = z.infer<typeof agentEventSchema>;

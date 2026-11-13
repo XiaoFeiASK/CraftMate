@@ -5,6 +5,7 @@ import {
   type IntegrationSettingsUpdate,
   type IntegrationSettingsView,
   type GoalProgress,
+  type GoalStrategy,
   type ModelCatalog,
   type ShowSnapshot,
   type PersonaProfile,
@@ -42,6 +43,27 @@ interface SettingsViewProps {
 
 const VALUE_LABEL = "每行一条，最多 8 条";
 const CUSTOM_PROVIDER = "__custom__";
+
+const STRATEGY_FIELDS: readonly {
+  readonly key: keyof GoalStrategy;
+  readonly label: string;
+  readonly hint: string;
+  readonly min: number;
+  readonly max: number;
+  readonly step: number;
+}[] = [
+  { key: "eatBelow", label: "进食阈值", hint: "饥饿值 ≤ 该值时进食", min: 1, max: 20, step: 1 },
+  { key: "foodReserve", label: "食物储备", hint: "长期运行希望保留的食物数量", min: 0, max: 16, step: 1 },
+  { key: "retreatHealth", label: "撤退血量", hint: "生命值 ≤ 该值立即撤退", min: 1, max: 20, step: 1 },
+  { key: "engageHealth", label: "主动交战血量", hint: "低于该值不主动交战", min: 1, max: 20, step: 1 },
+  { key: "miningFood", label: "下矿食物", hint: "下矿前至少携带的份数", min: 0, max: 16, step: 1 },
+  { key: "miningEmptySlots", label: "下矿空格", hint: "背包至少保留的空格数", min: 0, max: 36, step: 1 },
+  { key: "miningBlocks", label: "下矿方块", hint: "下矿前准备的垫脚/封路方块", min: 0, max: 128, step: 1 },
+  { key: "nightReturnAt", label: "回家时间", hint: "游戏 tick；11000 后开始回营地", min: 0, max: 23999, step: 500 },
+  { key: "sleepAt", label: "睡觉时间", hint: "游戏 tick；12000 后优先睡觉", min: 0, max: 23999, step: 500 },
+  { key: "exploreRadius", label: "探索半径", hint: "格；主动探索的最大距离", min: 16, max: 512, step: 16 },
+  { key: "cardMinDwellMs", label: "卡片最短驻留", hint: "毫秒；换卡的最短间隔", min: 0, max: 600000, step: 5000 },
+];
 
 export function SettingsView({
   settings,
@@ -260,6 +282,16 @@ export function SettingsView({
     setSaved(null);
   };
 
+  const patchStrategy = (key: keyof GoalStrategy, value: number): void => {
+    if (!Number.isFinite(value)) return;
+    patch({
+      goalStrategy: {
+        ...draft.goalStrategy,
+        [key]: Math.round(value),
+      },
+    });
+  };
+
   const patchList = (field: "values" | "boundaries", text: string): void => {
     setListDrafts({ ...listText, [field]: text });
     patchPersona({ [field]: lines(text) });
@@ -376,6 +408,20 @@ export function SettingsView({
             </button>
           </div>
         </Field>
+        <div className="settings-subhead">策略阈值</div>
+        {STRATEGY_FIELDS.map((field) => (
+          <Field key={field.key} label={field.label} hint={field.hint}>
+            <input
+              className="input input--short"
+              type="number"
+              min={field.min}
+              max={field.max}
+              step={field.step}
+              value={draft.goalStrategy[field.key]}
+              onChange={(event) => patchStrategy(field.key, Number(event.target.value))}
+            />
+          </Field>
+        ))}
       </Section>
 
       <Section activeTab={tab} title="角色与人格">

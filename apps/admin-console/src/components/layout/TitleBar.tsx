@@ -16,11 +16,9 @@ interface TitleBarProps {
 
 /** The sidebar is the only navigation; the title bar names where you are and how the show is running. */
 const VIEW_LABELS: Record<WorkspaceView, string> = {
-  decisions: "评论与决策",
   persona: "角色与人格",
   connections: "接入与语音",
   settings: "设置",
-  proposals: "观众提议",
   memory: "记忆与版本",
   replay: "回放",
 };
@@ -59,7 +57,7 @@ export function TitleBar({
       </div>
 
       <span className="titlebar__crumb" {...dragRegion}>
-        {view ? VIEW_LABELS[view] : "直播总览"}
+        {view ? VIEW_LABELS[view] : "直播对话"}
       </span>
 
       <div className="titlebar__drag" {...dragRegion} />

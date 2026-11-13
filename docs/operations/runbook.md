@@ -63,7 +63,7 @@ npm run dev:desktop         # 只启动桌面宿主
 cd mods/craftmate-body
 ./gradlew build
 cp build/libs/craftmate-body-0.1.0.jar \
-  "$HOME/MC/craftmate-1.20.1/mods/craftmate-body-0.1.0.jar"
+  "$HOME/MC/.minecraft/mods/craftmate-body-0.1.0.jar"
 ```
 
 客户端需要 Minecraft 1.20.1、Fabric Loader `>=0.15.11`（当前验证实例为 0.20.1）、

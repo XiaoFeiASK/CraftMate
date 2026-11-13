@@ -29,6 +29,17 @@ export interface AgentEventInput {
   readonly durationMs?: number | null;
   readonly summary?: string;
   readonly errorCode?: string | null;
+  readonly playbookId?: string | null;
+  readonly cardStatus?: AgentEvent["cardStatus"];
+  readonly switchReason?: string | null;
+  readonly failureCode?: string | null;
+  readonly recoveryId?: string | null;
+  readonly modelChoice?: boolean | null;
+  readonly fallbackReason?: string | null;
+  readonly routeMode?: AgentEvent["routeMode"];
+  readonly blockedReason?: string | null;
+  readonly blacklistId?: string | null;
+  readonly targetLock?: AgentEvent["targetLock"];
   readonly source?: AgentEvent["source"];
 }
 
@@ -145,6 +156,17 @@ export class AgentTelemetry {
       durationMs: input.durationMs ?? null,
       summary: cleanSummary(input.summary ?? ""),
       errorCode: input.errorCode ?? null,
+      ...(input.playbookId === undefined ? {} : { playbookId: input.playbookId }),
+      ...(input.cardStatus === undefined ? {} : { cardStatus: input.cardStatus }),
+      ...(input.switchReason === undefined ? {} : { switchReason: input.switchReason }),
+      ...(input.failureCode === undefined ? {} : { failureCode: input.failureCode }),
+      ...(input.recoveryId === undefined ? {} : { recoveryId: input.recoveryId }),
+      ...(input.modelChoice === undefined ? {} : { modelChoice: input.modelChoice }),
+      ...(input.fallbackReason === undefined ? {} : { fallbackReason: input.fallbackReason }),
+      ...(input.routeMode === undefined ? {} : { routeMode: input.routeMode }),
+      ...(input.blockedReason === undefined ? {} : { blockedReason: input.blockedReason }),
+      ...(input.blacklistId === undefined ? {} : { blacklistId: input.blacklistId }),
+      ...(input.targetLock === undefined ? {} : { targetLock: input.targetLock }),
       source: input.source ?? "agent",
     });
     this.store?.append(event);
@@ -303,6 +325,19 @@ export class TaskTelemetry {
     readonly summary: string;
     readonly source: AgentEvent["source"];
     readonly goalId?: string | null;
+    readonly playbook?: {
+      readonly playbookId?: string | null;
+      readonly cardStatus?: AgentEvent["cardStatus"];
+      readonly switchReason?: string | null;
+      readonly failureCode?: string | null;
+      readonly recoveryId?: string | null;
+      readonly modelChoice?: boolean | null;
+      readonly fallbackReason?: string | null;
+      readonly routeMode?: AgentEvent["routeMode"];
+      readonly blockedReason?: string | null;
+      readonly blacklistId?: string | null;
+      readonly targetLock?: AgentEvent["targetLock"];
+    };
   }): void {
     this.taskIds.set(input.decisionId, input.taskId);
     this.publish({
@@ -312,6 +347,7 @@ export class TaskTelemetry {
       decisionId: input.decisionId,
       goalId: input.goalId ?? null,
       summary: input.summary,
+      ...(input.playbook ?? {}),
       source: input.source,
     });
   }
@@ -323,6 +359,19 @@ export class TaskTelemetry {
     readonly summary: string;
     readonly source: AgentEvent["source"];
     readonly goalId?: string | null;
+    readonly playbook?: {
+      readonly playbookId?: string | null;
+      readonly cardStatus?: AgentEvent["cardStatus"];
+      readonly switchReason?: string | null;
+      readonly failureCode?: string | null;
+      readonly recoveryId?: string | null;
+      readonly modelChoice?: boolean | null;
+      readonly fallbackReason?: string | null;
+      readonly routeMode?: AgentEvent["routeMode"];
+      readonly blockedReason?: string | null;
+      readonly blacklistId?: string | null;
+      readonly targetLock?: AgentEvent["targetLock"];
+    };
   }): void {
     this.taskIds.set(input.decisionId, input.taskId);
     this.publish({
@@ -332,6 +381,7 @@ export class TaskTelemetry {
       decisionId: input.decisionId,
       goalId: input.goalId ?? null,
       summary: input.summary,
+      ...(input.playbook ?? {}),
       source: input.source,
     });
   }
@@ -354,6 +404,19 @@ export class TaskTelemetry {
     readonly errorCode?: string | null;
     readonly durationMs?: number | null;
     readonly source: AgentEvent["source"];
+    readonly playbook?: {
+      readonly playbookId?: string | null;
+      readonly cardStatus?: AgentEvent["cardStatus"];
+      readonly switchReason?: string | null;
+      readonly failureCode?: string | null;
+      readonly recoveryId?: string | null;
+      readonly modelChoice?: boolean | null;
+      readonly fallbackReason?: string | null;
+      readonly routeMode?: AgentEvent["routeMode"];
+      readonly blockedReason?: string | null;
+      readonly blacklistId?: string | null;
+      readonly targetLock?: AgentEvent["targetLock"];
+    };
   }): string | null {
     const joined =
       input.decisionId === null ? null : this.taskId(input.decisionId);
@@ -368,6 +431,7 @@ export class TaskTelemetry {
       durationMs: input.durationMs ?? null,
       summary: input.summary,
       errorCode: input.errorCode ?? null,
+      ...(input.playbook ?? {}),
       source: input.source,
     });
     return taskId;

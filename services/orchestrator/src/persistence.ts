@@ -1,16 +1,25 @@
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { CommitmentLedger, Show, dafeiyu, type Persona } from "@craftmate/agent";
 import {
-  AutonomousGoalPlanner,
+  CommitmentLedger,
+  Show,
+  dafeiyu,
+  type Persona,
+} from "@craftmate/agent";
+import {
   GoalRuntime,
   OpenAICompatibleProvider,
+  PlaybookGoalPlanner,
   Planner,
   SurvivalProposalEvaluator,
   type GoalPlanner,
 } from "@craftmate/agent/application";
-import { showSettingsSchema } from "@craftmate/contracts";
+import {
+  showSettingsSchema,
+  type Decision,
+  type WorldMemoryKind,
+} from "@craftmate/contracts";
 import {
   createRuntimeConfigStore,
   publicRuntimeConfig,
@@ -26,7 +35,11 @@ import {
   SettingsStore,
   SessionStore,
   SourceStore,
+  RouteBlacklistStore,
+  StrategyMemoryStore,
   WorldEventStore,
+  WorldMemoryStore,
+  canonicalDimension,
   AgentEventStore,
   GoalRuntimeSqliteStore,
   SqliteProposalRepository,
@@ -47,6 +60,9 @@ export interface PersistentShow {
   readonly costs: CostStore;
   readonly worldEvents: WorldEventStore;
   readonly agentEvents: AgentEventStore;
+  readonly worldMemory: WorldMemoryStore;
+  readonly strategyMemory: StrategyMemoryStore;
+  readonly routeBlacklist: RouteBlacklistStore;
   readonly runtimeConfig: RuntimeConfigStore;
   readonly goals: GoalRuntime;
   /** Persists a settings edit, then applies it to the running show. */
@@ -103,6 +119,9 @@ export function createPersistentShow(options: {
   const costs = new CostStore(db);
   const worldEvents = new WorldEventStore(db);
   const agentEvents = new AgentEventStore(db, context);
+  const worldMemory = new WorldMemoryStore(db, context);
+  const strategyMemory = new StrategyMemoryStore(db, context);
+  const routeBlacklist = new RouteBlacklistStore(db, context);
   const proposalRepository = new SqliteProposalRepository(db, context);
   const goalStore = new GoalRuntimeSqliteStore(db, context);
   const runtimeConfig = options.env?.CRAFTMATE_INTEGRATIONS_FILE
@@ -234,12 +253,36 @@ export function createPersistentShow(options: {
   reconcileCommitments();
   const goals = new GoalRuntime({
     store: goalStore,
-    planner: options.goalPlanner ?? new AutonomousGoalPlanner({
+    planner: options.goalPlanner ?? new PlaybookGoalPlanner({
       provider,
       deadlineMs: runtime.model.timeoutMs,
       overBudget: overModelBudget,
       onUsage: recordModelUsage,
       onIncident: recordModelIncident,
+      readStrategy: () => show.currentSettings().goalStrategy,
+      readMemory: (facts) => {
+        worldMemory.observeFacts(facts);
+        const dimension = facts.dimension;
+        const position = facts.position;
+        return worldMemory.recall({
+          ...(dimension === null || dimension === undefined ? {} : { dimension }),
+          ...(position === null || position === undefined ? {} : { position }),
+          limit: 8,
+        });
+      },
+      readRouteBlacklist: (facts) =>
+        routeBlacklist.active(
+          {
+            ...(facts.dimension === null || facts.dimension === undefined
+              ? {}
+              : { dimension: canonicalDimension(facts.dimension) }),
+            ...(facts.position === null || facts.position === undefined
+              ? {}
+              : { position: facts.position }),
+            limit: 32,
+          },
+          Date.now(),
+        ),
       onDegraded: (detail) => {
         console.warn(`orchestrator: goal planner degraded — ${detail}`);
       },
@@ -247,6 +290,105 @@ export function createPersistentShow(options: {
     proposals: () => show.proposals(null, 20),
     recordDecision: (decision) => recordGoalDecision(decision),
     onUpdate: (progress) => show.setGoalProgress(progress),
+    onIncident: recordModelIncident,
+    onSettlement: (event) => {
+      try {
+        const stage = show.currentGoal()?.stage.id ?? "unknown";
+        const snapshot = options.world?.() as
+          | { readonly world?: string | null | undefined }
+          | null
+          | undefined;
+        const dimension = canonicalDimension(snapshot?.world);
+        /*
+         * Death and safety handoffs end the skill without judging the
+         * strategy. Recording them as failures would teach the strategy
+         * memory that mining at night or walking into a zombie is a bad
+         * plan, even though the body correctly interrupted it.
+         */
+        if (event.status !== "preempted" && event.status !== "cancelled") {
+          strategyMemory.record({
+            strategyKey: event.strategyKey,
+            stage,
+            cardId: event.decision.playbook?.id ?? null,
+            ok: event.status === "completed",
+            failureCode:
+              event.status === "completed"
+                ? null
+                : event.errorCode ?? event.status,
+            failureDetail: event.status === "completed" ? null : event.detail,
+            at: event.at,
+          });
+        }
+        for (const change of event.changes) {
+          if (change.kind !== "block_placed" || change.position === undefined) continue;
+          const landmark = landmarkForBlock(change.detail);
+          if (landmark === null) continue;
+          worldMemory.observe({
+            kind: landmark.kind,
+            label: landmark.label,
+            dimension,
+            x: change.position.x,
+            y: change.position.y,
+            z: change.position.z,
+            payload: { block: change.detail },
+            confidence: 1,
+            source: "body",
+            observedAt: event.at,
+            expiresAt: null,
+          });
+        }
+        const target = routeTarget(event.decision);
+        if (
+          target !== null &&
+          event.decision.skill?.name === "goto" &&
+          (event.errorCode === "E_UNREACHABLE" ||
+            event.errorCode === "E_ENCLOSED" ||
+            event.errorCode === "E_STUCK")
+        ) {
+          const cardId = event.decision.playbook?.id ?? "";
+          const entity =
+            cardId === "food.hunt" || cardId === "combat.engage";
+          const region =
+            cardId === "explore.surface" ||
+            cardId === "recovery.reobserve";
+          const kind = entity ? "entity" : region ? "region" : "point";
+          const ttl = entity || region ? 5 * 60_000 : 10 * 60_000;
+          routeBlacklist.record(
+            {
+              dimension,
+              kind,
+              x: target.x,
+              y: target.y,
+              z: target.z,
+              radius: entity ? 2.5 : region ? 12 : 1.5,
+              targetRef: event.decision.playbook?.id ?? null,
+              reasonCode: event.errorCode,
+              reasonDetail: event.detail,
+              source: "agent",
+              expiresAt: event.at + ttl,
+            },
+            event.at,
+          );
+        }
+        if (
+          target !== null &&
+          event.status === "completed" &&
+          event.decision.skill?.name === "goto"
+        ) {
+          routeBlacklist.clearCovering(dimension, target, event.at);
+        }
+      } catch (error) {
+        // Memory is an optimization. A storage error must never prevent the
+        // body from settling a task or planning the next safe action.
+        recordModelIncident({
+          code: "GOAL_MEMORY_WRITE_FAILED",
+          severity: "warn",
+          detail: {
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
+      }
+    },
   });
   goals.restore();
   show.setSeasonGoal(goals.currentGoal);
@@ -290,6 +432,9 @@ export function createPersistentShow(options: {
     costs,
     worldEvents,
     agentEvents,
+    worldMemory,
+    strategyMemory,
+    routeBlacklist,
     runtimeConfig,
     goals,
     saveSettings: (next) => {
@@ -366,6 +511,44 @@ function positiveInteger(value: string | undefined, fallback: number): number {
 
 function normalizeUrl(value: string): string {
   return value.trim().replace(/\/+$/u, "");
+}
+
+function routeTarget(
+  decision: Decision,
+): { readonly x: number; readonly y: number; readonly z: number } | null {
+  const skill = decision.skill;
+  if (skill === null || skill.name !== "goto") return null;
+  const target = skill.args.target;
+  if (
+    target === null ||
+    typeof target !== "object" ||
+    !("x" in target) ||
+    !("y" in target) ||
+    !("z" in target) ||
+    typeof target.x !== "number" ||
+    typeof target.y !== "number" ||
+    typeof target.z !== "number" ||
+    !Number.isFinite(target.x) ||
+    !Number.isFinite(target.y) ||
+    !Number.isFinite(target.z)
+  ) {
+    return null;
+  }
+  return { x: target.x, y: target.y, z: target.z };
+}
+
+function landmarkForBlock(
+  detail: string,
+): { readonly kind: WorldMemoryKind; readonly label: string } | null {
+  const id = detail.toLowerCase();
+  if (/_bed$/u.test(id)) return { kind: "bed", label: "床" };
+  if (id.includes("chest")) return { kind: "container", label: "箱子" };
+  if (id.includes("furnace")) return { kind: "furnace", label: "熔炉" };
+  if (id.includes("crafting_table")) {
+    return { kind: "crafting_table", label: "工作台" };
+  }
+  if (id.includes("nether_portal")) return { kind: "portal", label: "下界传送门" };
+  return null;
 }
 
 /**

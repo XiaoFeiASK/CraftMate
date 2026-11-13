@@ -15,4 +15,18 @@ final class StationMemory {
 	static boolean shouldForget(boolean chunkLoaded, boolean blockPresent) {
 		return chunkLoaded && !blockPresent;
 	}
+
+	/**
+	 * A distant chunk can be present in the client while its sections are
+	 * still arriving. At world join that race returned void air for the camp
+	 * chest and replaced the remembered home with a nearby outpost. Only
+	 * trust a missing block after walking up to it.
+	 */
+	static boolean shouldForgetNearby(
+		double distanceSq,
+		boolean chunkLoaded,
+		boolean blockPresent
+	) {
+		return distanceSq <= 8.0 * 8.0 && shouldForget(chunkLoaded, blockPresent);
+	}
 }

@@ -29,42 +29,19 @@ interface SidebarProps {
 interface NavigationItem {
   readonly label: string;
   readonly detail: string;
-  readonly view: WorkspaceView;
+  readonly view: WorkspaceView | null;
   readonly icon: React.JSX.Element;
 }
 
 const LIVE_ITEMS: readonly NavigationItem[] = [
   {
-    label: "直播总览",
-    detail: "场景与主线",
-    view: "decisions",
-    icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M4.5 6.5h15v10h-15zM9 20h6M12 16.5V20" />
-        <path d="m10 9.5 5 2-5 2z" />
-      </svg>
-    ),
-  },
-  {
-    label: "评论与决策",
-    detail: "仲裁记录",
-    view: "decisions",
+    label: "直播对话",
+    detail: "实时对话与执行",
+    view: null,
     icon: (
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M5 5.5h14v10H9l-4 3z" />
         <path d="M8.5 9h7M8.5 12h4" />
-      </svg>
-    ),
-  },
-  {
-    label: "观众提议",
-    detail: "收件箱 / 闸门",
-    view: "proposals",
-    icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M4.5 6.5h15v11h-15z" />
-        <path d="M4.5 8.5 12 13l7.5-4.5" />
-        <path d="M8 5.5h8" />
       </svg>
     ),
   },
@@ -179,22 +156,12 @@ export function Sidebar({
             selected={view === null}
             onClick={() => onSelect(null)}
           />
-          <NavigationButton
-            item={LIVE_ITEMS[1]!}
-            selected={view === "decisions"}
-            onClick={() => onSelect("decisions")}
-          />
-          <NavigationButton
-            item={LIVE_ITEMS[2]!}
-            selected={view === "proposals"}
-            onClick={() => onSelect("proposals")}
-          />
         </section>
 
         <section className="sidebar__group">
           <h2 className="sidebar__section-title">角色</h2>
           <NavigationButton
-            item={LIVE_ITEMS[3]!}
+            item={LIVE_ITEMS[1]!}
             selected={view === "persona"}
             onClick={() => onSelect("persona")}
           />
@@ -226,7 +193,7 @@ export function Sidebar({
         stats={stats}
         goal={goal}
         online={state === "open"}
-        onOpenConsole={() => onSelect("decisions")}
+        onOpenConsole={() => onSelect(null)}
         onResetActivity={onResetActivity}
       />
 

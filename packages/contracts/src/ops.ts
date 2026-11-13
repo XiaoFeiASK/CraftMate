@@ -3,6 +3,12 @@ import { ownershipSchema, worldSnapshotSchema } from "./bridge.ts";
 import { budgetSchema, memorySchema, reviewCandidateSchema, personaVersionSchema } from "./memory.ts";
 import { personaProfileSchema } from "./settings.ts";
 import { timelineEntrySchema } from "./replay.ts";
+import {
+  strategyMemorySchema,
+  worldMemorySchema,
+  worldMemoryUpdateSchema,
+} from "./world-memory.ts";
+import { routeBlacklistSchema } from "./navigation.ts";
 
 export const bridgeHealthSchema = z.object({
   connected: z.boolean(),
@@ -54,6 +60,9 @@ export const opsSnapshotSchema = z.object({
     personaVersionSchema.extend({ content: z.record(z.unknown()) }),
   ),
   budget: budgetSchema,
+  worldMemories: z.array(worldMemorySchema).optional(),
+  strategyMemories: z.array(strategyMemorySchema).optional(),
+  routeBlacklists: z.array(routeBlacklistSchema).optional(),
 });
 export type OpsSnapshot = z.infer<typeof opsSnapshotSchema>;
 
@@ -64,6 +73,10 @@ export const opsRequestSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("forgetMemory"), memoryId: z.string().min(1) }),
   z.object({ kind: z.literal("draftPersona"), persona: personaProfileSchema }),
   z.object({ kind: z.literal("activatePersona"), versionId: z.string().min(1) }),
+  z.object({ kind: z.literal("updateWorldMemory"), memory: worldMemoryUpdateSchema }),
+  z.object({ kind: z.literal("forgetWorldMemory"), memoryId: z.string().min(1) }),
+  z.object({ kind: z.literal("forgetStrategyMemory"), memoryId: z.string().min(1) }),
+  z.object({ kind: z.literal("forgetRouteBlacklist"), blacklistId: z.string().min(1) }),
 ]);
 export type OpsRequest = z.infer<typeof opsRequestSchema>;
 

@@ -114,6 +114,7 @@ describe("bridge wire protocol", () => {
       sleeping: false,
       foodAcquired: true,
       foodConsumed: true,
+      dragonDefeated: true,
       nearbyBlocks: [{ id: "minecraft:stone", count: 12 }],
       reachableBlock: { id: "minecraft:stone", x: 11, y: 63, z: -9 },
     });
@@ -128,6 +129,7 @@ describe("bridge wire protocol", () => {
     assert.equal(snapshot.sleeping, false);
     assert.equal(snapshot.foodAcquired, true);
     assert.equal(snapshot.foodConsumed, true);
+    assert.equal(snapshot.dragonDefeated, true);
     assert.equal(snapshot.nearbyBlocks?.[0]?.count, 12);
     assert.equal(snapshot.reachableBlock?.id, "minecraft:stone");
     assert.equal(worldSnapshotSchema.parse({ inWorld: true, reachableBlock: null }).reachableBlock, null);

@@ -56,7 +56,7 @@ const next = recover({ plan, facts, failure });
 
 只复制身体实际上报的字段。背包、时间、饥饿、睡眠、工作台和实体坐标都可用；
 缺失值保持缺失，不能用默认值制造 `complete`。本体会话还会上报
-`foodAcquired` / `foodConsumed` / `craftingTableCrafted` / `craftingTablePlaced`
+`foodAcquired` / `foodConsumed` / `dragonDefeated` / `craftingTableCrafted` / `craftingTablePlaced`
 等事实，避免吃光食物或走出工作台观察范围后里程碑回退。
 
 ## 阶段
@@ -66,7 +66,7 @@ const next = recover({ plan, facts, failure });
 | P0 木头与工作台 | 有木头、4 块木板、工作台 |
 | P1 木镐/石镐 | 木镐、3 块圆石、石镐 |
 | P2 食物 | 有食物、饥饿值恢复 |
-| P3 庇护所/床 | 有床、完成睡眠 |
+| P3 营地/床 | 有箱子、床，完成睡眠（不建临时小屋） |
 | P4 铁器/熔炉 | 熔炉、粗铁、铁锭、铁镐 |
 | P5 下界/烈焰棒 | 黑曜石、烈焰棒 |
 | P6 末影珍珠/之眼 | 末影珍珠、12 个末影之眼 |

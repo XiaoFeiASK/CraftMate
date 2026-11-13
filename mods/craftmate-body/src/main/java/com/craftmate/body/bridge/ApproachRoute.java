@@ -200,12 +200,7 @@ final class ApproachRoute {
 				BlockState feet = client.level.getBlockState(spot);
 				if (!feet.getFluidState().isEmpty()) continue;
 				if (!client.level.getBlockState(spot.above()).getFluidState().isEmpty()) continue;
-				double interactionDistance = Math.sqrt(
-					Math.pow(spot.getX() + 0.5 - (target.getX() + 0.5), 2)
-						+ Math.pow(spot.getY() + 0.5 - (target.getY() + 0.5), 2)
-						+ Math.pow(spot.getZ() + 0.5 - (target.getZ() + 0.5), 2)
-				);
-				if (interactionDistance > 4.5 + 0.5) continue;
+				if (!canTargetFrom(client, spot, target)) continue;
 				cells.add(new BoundedPathfinder.Cell(spot.getX(), spot.getY(), spot.getZ()));
 			}
 		}
@@ -249,19 +244,11 @@ final class ApproachRoute {
 			spot.getY() + client.player.getEyeHeight(),
 			spot.getZ() + 0.5
 		);
-		// A block is hittable on any visible face, not only through its
-		// centre. A tall trunk's centre can be outside reach while its lower
-		// face is a normal ground-level hit; probing the centre made every
-		// tall tree look unreachable even from its base.
-		for (double y : new double[] { 0.2, 0.5, 0.8 }) {
-			if (InteractionReach.withinReach(
-				eye.x, spot.getY(), eye.z, client.player.getEyeHeight(),
-				target.getX() + 0.5, target.getY() + y, target.getZ() + 0.5, 4.5
-			)) {
-				return true;
-			}
-		}
-		return false;
+		Direction face = BlockInteraction.nearestExposedFace(client.level, eye, target);
+		if (face == null) return false;
+		return PlacementTarget.withinReach(
+			eye.distanceToSqr(BlockInteraction.facePoint(target, face))
+		);
 	}
 
 }

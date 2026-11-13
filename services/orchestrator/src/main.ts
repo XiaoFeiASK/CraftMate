@@ -5,6 +5,7 @@ import { loadOrCreateToken } from "@craftmate/local-auth";
 import { connectVoice } from "./transport/voice-link.ts";
 import { GoalSpeechGate } from "./transport/goal-speech.ts";
 import { createOps } from "./ops.ts";
+import { detectStateOpportunity } from "./state-monitor.ts";
 import { createBridgeUpgrade, SqliteActionPort } from "@craftmate/bridge";
 import { loadOrCreateBridgeToken } from "@craftmate/bridge";
 import { createIngressSupervisor } from "./ingress-supervisor.ts";
@@ -28,7 +29,11 @@ import {
 import { readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { skillOutcomeSchema } from "@craftmate/contracts";
+import {
+  skillOutcomeSchema,
+  type Decision,
+  type NavigationMode,
+} from "@craftmate/contracts";
 
 const port = Number(process.env.CRAFTMATE_PORT ?? 4321);
 // Loopback by default. Set CRAFTMATE_HOST=0.0.0.0 only when another device
@@ -174,10 +179,12 @@ bridge = createBridgeUpgrade({
         : null;
     const status = missingEvidence === null ? outcome.status : "failed";
     const detail = missingEvidence ?? outcome.detail;
+    const errorCode =
+      missingEvidence === null ? outcome.errorCode : "E_NO_PROGRESS";
     const settled = decision
       ? persistent.show.settleDecision(decision.id, {
           status,
-          ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
+          ...(errorCode === undefined ? {} : { errorCode }),
           ...(detail === undefined ? {} : { detail }),
           outcome: parsedOutcome?.success ? parsedOutcome.data : null,
           at: outcome.at,
@@ -194,7 +201,7 @@ bridge = createBridgeUpgrade({
       if (
         persistent.goals.settle(outcome.decisionId, {
           status,
-          ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
+          ...(errorCode === undefined ? {} : { errorCode }),
           ...(detail === undefined ? {} : { detail }),
           at: outcome.at,
           ...(changes === undefined ? {} : { changes }),
@@ -232,6 +239,10 @@ bridge = createBridgeUpgrade({
         }
       }
     }
+    const settledPlaybook = playbookTelemetry(
+      decision,
+      errorCode ?? null,
+    );
     taskTelemetry.settled({
       decisionId: outcome.decisionId ?? null,
       traceId: settled?.eventId ?? decision?.eventId ?? null,
@@ -244,7 +255,8 @@ bridge = createBridgeUpgrade({
       // Body detail stays in the durable decision evidence. The operator feed
       // gets only a fixed status label plus the closed error-code enum.
       summary: taskSettledSummary(status),
-      errorCode: outcome.errorCode ?? null,
+      errorCode: errorCode ?? null,
+      ...(settledPlaybook === undefined ? {} : { playbook: settledPlaybook }),
       source: "bridge",
     });
     // A body-originated failure is the only place some reasons survive. Give
@@ -297,7 +309,11 @@ bridge = createBridgeUpgrade({
     server.publishBridgeHealth(bridge.health());
   },
   onProgress: (progress) => {
-    persistent.goals.noteProgress(progress.commandId);
+    persistent.goals.noteProgress(progress.commandId, Date.now(), {
+      phase: progress.phase,
+      done: progress.done,
+      total: progress.total,
+    });
     const decision = progress.decisionId === undefined
       ? null
       : persistent.show.recent().find((entry) => entry.id === progress.decisionId) ?? null;
@@ -323,6 +339,9 @@ const ops = createOps({
   personas: persistent.personas,
   replay: persistent.replay,
   costs: persistent.costs,
+  worldMemory: persistent.worldMemory,
+  strategyMemory: persistent.strategyMemory,
+  routeBlacklist: persistent.routeBlacklist,
   personaKey: "dafeiyu",
   onSettings: (next) => persistent.saveSettings(next),
   hourlyLimit: Number(process.env.CRAFTMATE_MODEL_HOURLY_LIMIT ?? 0),
@@ -352,6 +371,41 @@ function confirmedChanges(
   const parsed = skillOutcomeSchema.safeParse(value);
   if (!parsed.success) return undefined;
   return parsed.data.changes;
+}
+
+function playbookTelemetry(
+  decision: Decision | null | undefined,
+  failureCode: string | null = null,
+):
+  | {
+      readonly playbookId: string;
+      readonly cardStatus: "available" | "blocked" | "done";
+      readonly switchReason: string | null;
+      readonly failureCode: string | null;
+      readonly recoveryId: string | null;
+      readonly modelChoice: boolean | null;
+      readonly fallbackReason: string | null;
+      readonly routeMode: NavigationMode | null;
+      readonly blockedReason: string | null;
+      readonly blacklistId: string | null;
+      readonly targetLock: NonNullable<Decision["playbook"]>["targetLock"];
+    }
+  | undefined {
+  const playbook = decision?.playbook;
+  if (playbook === null || playbook === undefined) return undefined;
+  return {
+    playbookId: playbook.id,
+    cardStatus: playbook.status,
+    switchReason: playbook.switchReason,
+    failureCode: playbook.failureCode ?? failureCode,
+    recoveryId: playbook.recoveryId,
+    modelChoice: playbook.modelChoice,
+    fallbackReason: playbook.fallbackReason,
+    routeMode: playbook.routeMode ?? null,
+    blockedReason: playbook.blockedReason ?? null,
+    blacklistId: playbook.blacklistId ?? null,
+    targetLock: playbook.targetLock ?? null,
+  };
 }
 
 function interruptGoal(
@@ -395,6 +449,42 @@ function goalContext() {
   };
 }
 
+const OPPORTUNITY_PREEMPT_COOLDOWN_MS = 8_000;
+let lastOpportunityPreemptAt = 0;
+
+/**
+ * A long skill is a plan, not a commitment. The state monitor only interrupts
+ * travel/mining when a higher-value fact appears: a lost tool, a visible ore,
+ * or low health with a hostile nearby. Crafting, smelting and combat are not
+ * preempted by the opportunity rules.
+ */
+function preemptForStateOpportunity(now = Date.now()): boolean {
+  if (now - lastOpportunityPreemptAt < OPPORTUNITY_PREEMPT_COOLDOWN_MS) {
+    return false;
+  }
+  const stage = persistent.goals.currentProgress?.stage.id;
+  if (stage === undefined) return false;
+  const decisionId = persistent.goals.snapshot().currentDecisionId;
+  if (decisionId === null) return false;
+  const decision = persistent.show.recent().find((entry) => entry.id === decisionId);
+  if (decision === undefined) return false;
+  const opportunity = detectStateOpportunity({
+    stage,
+    decision,
+    world: bridge.health().world,
+    now,
+    lastPreemptAt: lastOpportunityPreemptAt,
+    cooldownMs: OPPORTUNITY_PREEMPT_COOLDOWN_MS,
+  });
+  if (opportunity === null) return false;
+  const interruption = persistent.goals.interrupt(opportunity.reason);
+  if (interruption === null) return false;
+  lastOpportunityPreemptAt = now;
+  interruptGoal(interruption, opportunity.detail);
+  publishGoalSnapshot();
+  return true;
+}
+
 /**
  * Issues one goal task. The command id comes from GoalRuntime so takeover can
  * cancel exactly the command it observed, not a later replacement.
@@ -411,12 +501,14 @@ async function dispatchGoalStep(): Promise<void> {
       return;
     }
     server.publishDecision(dispatch.decision);
+    const queuedPlaybook = playbookTelemetry(dispatch.decision);
     taskTelemetry.queued({
       decisionId: dispatch.decision.id,
       traceId: dispatch.decision.eventId,
       taskId: dispatch.taskId,
       goalId: persistent.goals.currentGoal?.id ?? null,
       summary: `目标任务已排队：${dispatch.decision.skill?.name ?? "未知动作"}`,
+      ...(queuedPlaybook === undefined ? {} : { playbook: queuedPlaybook }),
       source: "goal",
     });
     try {
@@ -439,6 +531,7 @@ async function dispatchGoalStep(): Promise<void> {
         taskId: dispatch.taskId,
         goalId: persistent.goals.currentGoal?.id ?? null,
         summary: `动作已下达：${dispatch.decision.skill!.name}`,
+        ...(queuedPlaybook === undefined ? {} : { playbook: queuedPlaybook }),
         source: "goal",
       });
       const speech = goalSpeechGate.take(dispatch.decision);
@@ -467,6 +560,7 @@ async function dispatchGoalStep(): Promise<void> {
         at: Date.now(),
       });
       if (failed) server.publishDecision(failed);
+      const failedPlaybook = playbookTelemetry(dispatch.decision, "E_DISPATCH");
       taskTelemetry.settled({
         decisionId: dispatch.decision.id,
         traceId: dispatch.decision.eventId,
@@ -476,6 +570,7 @@ async function dispatchGoalStep(): Promise<void> {
         // error code is an operator-safe fact here.
         summary: "动作未下达",
         errorCode: "E_DISPATCH",
+        ...(failedPlaybook === undefined ? {} : { playbook: failedPlaybook }),
         source: "goal",
       });
     }
@@ -715,6 +810,7 @@ const bridgePoll = setInterval(() => {
 // time; the runtime refuses while paused, busy, backing off, or unverified.
 const goalLoop = setInterval(() => {
   if (!persistent.goals.isEnabled) return;
+  if (preemptForStateOpportunity()) return;
   void dispatchGoalStep();
 }, 250);
 

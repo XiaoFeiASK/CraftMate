@@ -3,15 +3,16 @@ package com.craftmate.body.bridge;
 /**
  * Bounded rotation. A player never snaps from one heading to another in a
  * single tick, and the audience reads an instant snap as a machine. Every
- * walking loop turns through this helper, while interaction aim stays exact
- * because the crosshair has to be on the block this tick.
+ * walking loop turns through this helper. Mining still aims the body because
+ * vanilla recomputes the pick target from the player's own rotation every
+ * tick.
  */
 final class ViewSlew {
-	/** 240 degrees per second at 20 ticks per second. */
-	static final float WALK_TURN_PER_TICK = 12.0f;
+	/** 120 degrees per second at 20 ticks per second. */
+	static final float WALK_TURN_PER_TICK = 6.0f;
 	/** Slower than walking: a look-around should not whip the body. */
-	static final float LOOK_TURN_PER_TICK = 8.0f;
-	static final float PITCH_PER_TICK = 5.0f;
+	static final float LOOK_TURN_PER_TICK = 4.0f;
+	static final float PITCH_PER_TICK = 3.0f;
 	/** Walking while off-heading makes the body arc into walls. */
 	static final float WALK_ALIGNMENT = 25.0f;
 
@@ -35,6 +36,20 @@ final class ViewSlew {
 
 	static boolean aligned(float current, float target, float tolerance) {
 		return Math.abs(wrap(target - current)) <= tolerance;
+	}
+
+	/** Vanilla yaw for a direction, where 0 faces south (+Z). */
+	static float yawTo(double dx, double dz) {
+		return (float) Math.toDegrees(Math.atan2(-dx, dz));
+	}
+
+	/** Vanilla pitch for a direction: positive looks down. */
+	static float pitchTo(double dx, double dy, double dz) {
+		double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+		if (length < 1.0e-6) return 0.0f;
+		return (float) Math.toDegrees(
+			-Math.asin(Math.max(-1.0, Math.min(1.0, dy / length)))
+		);
 	}
 
 	/** Vanilla's shortest signed angle, implemented without a client class. */

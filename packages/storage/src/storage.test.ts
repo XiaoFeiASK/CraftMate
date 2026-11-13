@@ -118,6 +118,54 @@ describe("storage", () => {
     second.close();
   });
 
+  test("playbook provenance survives with the decision", () => {
+    const file = temporaryDatabase();
+    const first = openDatabase({ file });
+    const context = new SessionStore(first).bootstrap(dafeiyu, "盖房");
+    const audience = new Show({ persona: dafeiyu, recorder: new SqliteRecorder(first, context) })
+      .ingest(comment("viewer-playbook", "去挖铁"));
+    assert.ok(audience);
+    const source = new SourceStore(first).appendInternal(context.sessionId, {
+      id: "goal:playbook-1",
+      kind: "system",
+      actorRef: "craftmate-goal",
+      text: "挖铁矿",
+      at: 1_000,
+    });
+    new DecisionStore(first).append(
+      context,
+      source.id,
+      {
+        ...audience,
+        id: "goal-playbook-1",
+        eventId: "goal:playbook-1",
+        playbook: {
+          id: "mine.ore",
+          title: "眼前有铁矿就先挖",
+          status: "available",
+          reason: "铁矿就在脚边",
+          switchReason: "看到铁矿",
+          modelChoice: true,
+          fallbackReason: null,
+          failureCode: null,
+          recoveryId: "mine.surface",
+        },
+      },
+      "goal:playbook-1",
+    );
+    first.close();
+
+    const second = openDatabase({ file });
+    const restored = new DecisionStore(second)
+      .recent(context.sessionId, 10)
+      .find((entry) => entry.id === "goal-playbook-1");
+    assert.equal(restored?.playbook?.id, "mine.ore");
+    assert.equal(restored?.playbook?.switchReason, "看到铁矿");
+    assert.equal(restored?.playbook?.modelChoice, true);
+    assert.equal(restored?.playbook?.recoveryId, "mine.surface");
+    second.close();
+  });
+
   test("world events keep their order across a restart and sequence per session", () => {
     const file = temporaryDatabase();
     const first = openDatabase({ file });

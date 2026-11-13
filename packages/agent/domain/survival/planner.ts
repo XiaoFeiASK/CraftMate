@@ -42,6 +42,27 @@ export function planSurvival(
       break;
     }
   }
+  // Shelter is a home objective, not a prerequisite for mining. Once a later
+  // stage has real evidence (for example an iron sword), building a bed must
+  // remain an optional candidate instead of pulling the body home mid-trip.
+  const definition = active === null ? undefined : stageById(active.id);
+  if (definition?.deferrable === true) {
+    const laterEvidence = stages.some(
+      (stage) =>
+        stage.index > active!.index &&
+        stage.index <= targetIndex &&
+        stage.milestones.some((milestone) => milestone.status === "complete"),
+    );
+    if (laterEvidence) {
+      active =
+        stages.find(
+          (stage) =>
+            stage.index > active!.index &&
+            stage.index <= targetIndex &&
+            stage.status !== "complete",
+        ) ?? active;
+    }
+  }
   if (active === null) {
     active = stages.find((stage) => stage.index === targetIndex) ?? stages[0] ?? null;
   }

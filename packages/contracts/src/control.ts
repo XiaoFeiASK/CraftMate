@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { navigationModeSchema, targetLockSchema } from "./navigation.ts";
 import { audienceEventSchema, sourceHealthSchema } from "./audience.ts";
 import { decisionSchema, intentSchema } from "./decision.ts";
 import {
@@ -120,6 +121,39 @@ export const goalProgressSchema = z.object({
   completed: z.number().int().nonnegative().default(0),
   unverified: z.number().int().nonnegative().default(0),
   lastFailure: z.string().trim().max(600).nullable().default(null),
+  /**
+   * Operator-facing playbook state. Alternatives stay bounded so the wire
+   * never grows with the full catalog; blocked reasons explain the gate.
+   */
+  playbook: z
+    .object({
+      cardId: z.string().min(1).max(80),
+      cardTitle: z.string().trim().min(1).max(160),
+      cardReason: z.string().trim().max(500).default(""),
+      status: z.enum(["available", "blocked", "done"]),
+      activeForMs: z.number().int().nonnegative().default(0),
+      minDwellRemainingMs: z.number().int().nonnegative().default(0),
+      switchReason: z.string().trim().max(300).nullable().default(null),
+      modelChoice: z.boolean().nullable().default(null),
+      fallbackReason: z.string().trim().max(300).nullable().default(null),
+      failureCode: z.string().trim().max(64).nullable().default(null),
+      recoveryId: z.string().trim().max(80).nullable().default(null),
+      alternatives: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(80),
+            title: z.string().trim().min(1).max(160),
+            status: z.enum(["available", "blocked", "done"]),
+            blockedReason: z.string().trim().max(300).nullable().default(null),
+          }),
+        )
+        .max(8)
+        .default([]),
+    })
+    .nullable()
+    .optional(),
+  /** Short-lived entity/explore target selected by the planner. */
+  targetLock: targetLockSchema.nullable().optional(),
   /** Consecutive terminal failures; zero means the runtime is not backing off. */
   consecutiveFailures: z.number().int().nonnegative().default(0),
   /** Absolute epoch-ms time the next attempt is allowed, or null when none. */

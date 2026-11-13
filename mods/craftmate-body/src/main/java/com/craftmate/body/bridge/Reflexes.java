@@ -41,6 +41,15 @@ final class Reflexes {
 	private static final int THREAT_RESPONSE_TICKS = 20 * 2;
 	private static final int THREAT_RETRY_TICKS = 20 * 4;
 	private static final double THREAT_DISTANCE = 7.0;
+	/**
+	 * A creeper at nine blocks is not a fuse. The old through-wall range kept
+	 * the threat response pinned every tick, so every goto, swim and mine was
+	 * cancelled while the creeper stood on the far bank. Five blocks is close
+	 * enough that the next second matters; farther away the planner can move.
+	 */
+	private static final double CREEPER_DISTANCE = 5.0;
+	/** Only a genuinely adjacent mob keeps extending the reflex window. */
+	private static final double THREAT_PIN_DISTANCE = 4.0;
 	private static final double ARROW_DISTANCE = 10.0;
 	private static final double MELEE_DISTANCE = 3.25;
 	private static final float LOW_HEALTH = 6.0f;
@@ -81,7 +90,7 @@ final class Reflexes {
 	 * advance a skill's state machine in that case: a walk that keeps pressing
 	 * forward while standing in lava is worse than a cancelled task.
 	 */
-	boolean tick(Minecraft client, boolean agentControlled) {
+	boolean tick(Minecraft client, boolean agentControlled, boolean emergencyAction) {
 		ticks++;
 		if (!agentControlled) {
 			// Reflex movement shares the same key mappings as the operator.
@@ -132,15 +141,31 @@ final class Reflexes {
 		// bar reached two, so the body could never fix the starvation it was
 		// reporting. The survival planner owns this decision; only lava,
 		// falling, drowning, fire and mobs are immediate enough to preempt.
-		Entity threat = nearestThreat(client, player);
-		AbstractArrow arrow = incomingArrow(client, player);
+		/*
+		 * A task the planner chose as its danger response (attack, pillar,
+		 * emergency shaft or seal) must be allowed to finish. The reflex
+		 * still guards lava, falls, fire and drowning, but it must not cancel
+		 * the exact action that answers the mob. Without this the body
+		 * strafed beside a zombie while every dig and attack was cancelled,
+		 * and the live run lost nine tasks in a row before dying.
+		 */
+		if (emergencyAction) {
+			threatResponseUntil = 0;
+			nextThreatAt = 0;
+		}
+		Entity threat = emergencyAction ? null : nearestThreat(client, player);
+		AbstractArrow arrow = emergencyAction ? null : incomingArrow(client, player);
 		// A mob within seven blocks is not a two-second event. Extending the
 		// response window while the same threat survives keeps the body
 		// strafing, closing, or retreating every tick; the old fixed window
 		// left a two-second gap where the planner owned the body but the
 		// reflex immediately cancelled its first action. That gap read as
 		// "walk, stop, stare at the zombie, die".
-		if (threat != null && threat.distanceToSqr(player) <= THREAT_DISTANCE * THREAT_DISTANCE) {
+		if (
+			threat != null &&
+				threat.distanceToSqr(player) <=
+					THREAT_PIN_DISTANCE * THREAT_PIN_DISTANCE
+		) {
 			threatResponseUntil = Math.max(threatResponseUntil, ticks + 4);
 		}
 		if ((threat != null || arrow != null) && ticks >= nextThreatAt) {
@@ -226,8 +251,8 @@ final class Reflexes {
 	}
 
 	/**
-	 * Keep the crosshair on the attacker so a close mob can be punched while
-	 * the body strafes. A creeper and incoming arrow are never traded against:
+	 * Keep the camera on the attacker so a close mob can be punched while the
+	 * body strafes. A creeper and incoming arrow are never traded against:
 	 * those two signals always ask for lateral or backward movement.
 	 */
 	private void evade(
@@ -237,6 +262,8 @@ final class Reflexes {
 		AbstractArrow arrow
 	) {
 		int side = (ticks / 20) % 2 == 0 ? 1 : -1;
+		boolean swimming =
+			player.isInWater() || player.isEyeInFluid(FluidTags.WATER);
 		if (threat != null) {
 			int weapon = bestWeaponSlot(player);
 			boolean unarmed = weapon < 0;
@@ -262,6 +289,7 @@ final class Reflexes {
 					player.setXRot(0.0f);
 				}
 				GameActions.setCombatMove(client, side, false, true, true);
+				if (swimming) client.options.keyJump.setDown(true);
 				if (player.horizontalCollision && player.onGround()) {
 					player.jumpFromGround();
 				}
@@ -285,11 +313,13 @@ final class Reflexes {
 				distance > MELEE_DISTANCE * 0.85,
 				true
 			);
+			if (swimming) client.options.keyJump.setDown(true);
 			if (player.horizontalCollision && player.onGround()) player.jumpFromGround();
 			return;
 		}
 		// An arrow is dodged sideways, not by backing into its previous path.
 		GameActions.setCombatMove(client, side, false, false, true);
+		if (swimming) client.options.keyJump.setDown(true);
 		if (player.horizontalCollision && player.onGround()) player.jumpFromGround();
 	}
 
@@ -330,14 +360,19 @@ final class Reflexes {
 		return client.level
 			.getEntitiesOfClass(
 				Monster.class,
-				player.getBoundingBox().inflate(THREAT_DISTANCE)
+				player.getBoundingBox().inflate(9.0)
 			)
 			.stream()
-			.filter(entity ->
-				entity.isAlive()
-					&& entity.distanceToSqr(player) <= THREAT_DISTANCE * THREAT_DISTANCE
-					&& player.hasLineOfSight(entity)
-			)
+			.filter(entity -> {
+				if (!entity.isAlive()) return false;
+				// A creeper can walk up behind the body and detonate without
+				// ever entering the narrow forward view. Treat its proximity
+				// as the danger signal even through foliage or a wall; a
+				// false-positive sprint is cheaper than a lethal explosion.
+				double range = entity instanceof Creeper ? CREEPER_DISTANCE : THREAT_DISTANCE;
+				if (entity.distanceToSqr(player) > range * range) return false;
+				return entity instanceof Creeper || player.hasLineOfSight(entity);
+			})
 			.findFirst()
 			.orElse(null);
 	}

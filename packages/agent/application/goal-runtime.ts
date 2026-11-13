@@ -1,5 +1,6 @@
 import {
   goalProgressSchema,
+  navigationModeSchema,
   seasonGoalSchema,
   skillCallSchema,
   type Intent,
@@ -9,12 +10,15 @@ import {
   type GoalProgress,
   type GoalStatus,
   type Proposal,
+  type RouteBlacklist,
   type SeasonGoal,
   type ShowMode,
   type SkillCall,
+  type TargetLock,
   type WorldSnapshot,
 } from "@craftmate/contracts";
 import {
+  classifyFailure,
   explore,
   nextTaskForStage,
   normalizedTaskId,
@@ -35,9 +39,12 @@ export interface GoalTask {
   readonly intent: Decision["intent"];
   readonly text: string;
   readonly reason: string;
+  /** A mandatory state gate that optional model candidates cannot replace. */
+  readonly critical?: boolean;
   /** Optional model-authored line; the runtime supplies a plain fallback. */
   readonly speech?: string;
   readonly skill: SkillCall;
+  readonly targetLock?: TargetLock | null;
   /** Domain task identity; `strategyKey` may change independently. */
   readonly taskId?: string;
 }
@@ -53,6 +60,24 @@ export interface GoalPlan {
   readonly blockedReason?: string | null;
   /** Stable identity used to avoid retrying one failed strategy forever. */
   readonly strategyKey?: string;
+  readonly cardId?: string;
+  readonly cardTitle?: string;
+  readonly cardReason?: string;
+  readonly cardStatus?: "available" | "blocked" | "done";
+  readonly cardActiveForMs?: number;
+  readonly cardMinDwellRemainingMs?: number;
+  readonly cardRecoveryId?: string | null;
+  readonly cardAlternatives?: readonly {
+    readonly id: string;
+    readonly title: string;
+    readonly status: "available" | "blocked" | "done";
+    readonly blockedReason: string | null;
+  }[];
+  readonly playbookVersion?: string;
+  readonly cardSwitchReason?: string | null;
+  readonly cardModelChoice?: boolean | null;
+  readonly cardFallbackReason?: string | null;
+  readonly targetLock?: TargetLock | null;
 }
 
 export interface GoalPlanningInput {
@@ -64,6 +89,8 @@ export interface GoalPlanningInput {
   readonly proposals: readonly Proposal[];
   readonly lastFailure: string | null;
   readonly consecutiveFailures: number;
+  /** Current session's active route refusals. */
+  readonly routeBlacklist?: readonly RouteBlacklist[];
   /** Goal-engine failure history, newest last. */
   readonly failures?: readonly TaskFailure[];
   /** Strategy that just failed; recovery may not reissue it. */
@@ -162,9 +189,30 @@ interface GoalRuntimeOptions {
   readonly onUpdate?: (progress: GoalProgress | null) => void;
   /** A task that never settles is failed at this age. */
   readonly taskTimeoutMs?: number;
+  /** Absolute cap; body progress does not extend this deadline. */
+  readonly hardTaskTimeoutMs?: number;
   readonly failureBaseMs?: number;
   readonly failureMaxMs?: number;
   readonly maxConsecutiveFailures?: number;
+  /** Same `code + detail` repeated this many times opens a strategy circuit. */
+  readonly circuitFailureThreshold?: number;
+  readonly circuitWindowMs?: number;
+  readonly circuitCooldownMs?: number;
+  readonly onIncident?: (incident: {
+    readonly code: string;
+    readonly severity: "info" | "warn" | "error";
+    readonly detail: Record<string, unknown>;
+  }) => void;
+  /** Persistence hook for strategy/world memory; never changes dispatch. */
+  readonly onSettlement?: (event: {
+    readonly decision: Decision;
+    readonly strategyKey: string;
+    readonly status: GoalSettlement["status"];
+    readonly errorCode: string | null;
+    readonly detail: string | null;
+    readonly changes: readonly GoalChange[];
+    readonly at: number;
+  }) => void;
 }
 
 const DEFAULT_FAILURE_BASE_MS = 2_500;
@@ -179,7 +227,17 @@ const DEFAULT_FAILURE_BASE_MS = 2_500;
  */
 const DEFAULT_FAILURE_MAX_MS = 6_000;
 const DEFAULT_TASK_TIMEOUT_MS = 90_000;
+/**
+ * Progress keeps a long mining or travel command alive, but it must not make
+ * the runtime immortal. A body stuck in an escape branch can emit progress
+ * frames forever while the world does not change; this cap is the last line
+ * between that loop and a four-hour run with no decisions.
+ */
+const DEFAULT_HARD_TASK_TIMEOUT_MS = 110_000;
 const DEFAULT_MAX_FAILURES = 5;
+const DEFAULT_CIRCUIT_THRESHOLD = 3;
+const DEFAULT_CIRCUIT_WINDOW_MS = 60_000;
+const DEFAULT_CIRCUIT_COOLDOWN_MS = 60_000;
 /**
  * A reflex owns the body only long enough to take its hand off the mouse and
  * step away. Holding the planner for ten seconds after that was the freeze
@@ -202,9 +260,15 @@ export class GoalRuntime {
   private readonly recordDecision: ((decision: Decision) => void) | null;
   private readonly onUpdate: ((progress: GoalProgress | null) => void) | null;
   private readonly taskTimeoutMs: number;
+  private readonly hardTaskTimeoutMs: number;
   private readonly failureBaseMs: number;
   private readonly failureMaxMs: number;
   private readonly maxConsecutiveFailures: number;
+  private readonly circuitFailureThreshold: number;
+  private readonly circuitWindowMs: number;
+  private readonly circuitCooldownMs: number;
+  private readonly onIncident: GoalRuntimeOptions["onIncident"];
+  private readonly onSettlement: GoalRuntimeOptions["onSettlement"];
   private expiryHandler: ((interruption: GoalInterruption) => void) | null = null;
 
   private goal: SeasonGoal | null = null;
@@ -215,7 +279,12 @@ export class GoalRuntime {
     readonly commandId: string;
     readonly taskId: string;
     readonly strategyKey: string;
+    /** Extended by progress frames; detects silence. */
     startedAt: number;
+    /** Never extended; detects progress frames that change nothing. */
+    readonly dispatchedAt: number;
+    /** Last observed progress signature; identical frames do not revive it. */
+    lastProgress: string | null;
   } | null = null;
   private lastFailure: string | null = null;
   private lastFailureStrategy: string | null = null;
@@ -223,6 +292,13 @@ export class GoalRuntime {
   private retryAt = 0;
   private restoredInFlight: string | null = null;
   private failures: TaskFailure[] = [];
+  private failureWindow: { readonly fingerprint: string; readonly at: number }[] = [];
+  private circuit: {
+    readonly strategyKey: string;
+    readonly fingerprint: string;
+    readonly detail: string;
+    readonly until: number;
+  } | null = null;
 
   constructor(options: GoalRuntimeOptions) {
     this.store = options.store;
@@ -232,9 +308,17 @@ export class GoalRuntime {
     this.recordDecision = options.recordDecision ?? null;
     this.onUpdate = options.onUpdate ?? null;
     this.taskTimeoutMs = options.taskTimeoutMs ?? DEFAULT_TASK_TIMEOUT_MS;
+    this.hardTaskTimeoutMs =
+      options.hardTaskTimeoutMs ?? DEFAULT_HARD_TASK_TIMEOUT_MS;
     this.failureBaseMs = options.failureBaseMs ?? DEFAULT_FAILURE_BASE_MS;
     this.failureMaxMs = options.failureMaxMs ?? DEFAULT_FAILURE_MAX_MS;
     this.maxConsecutiveFailures = options.maxConsecutiveFailures ?? DEFAULT_MAX_FAILURES;
+    this.circuitFailureThreshold =
+      options.circuitFailureThreshold ?? DEFAULT_CIRCUIT_THRESHOLD;
+    this.circuitWindowMs = options.circuitWindowMs ?? DEFAULT_CIRCUIT_WINDOW_MS;
+    this.circuitCooldownMs = options.circuitCooldownMs ?? DEFAULT_CIRCUIT_COOLDOWN_MS;
+    this.onIncident = options.onIncident;
+    this.onSettlement = options.onSettlement;
   }
 
   /** Restores the durable goal and stage. An old in-flight task is not replayed. */
@@ -419,9 +503,30 @@ export class GoalRuntime {
     this.expiryHandler = handler;
   }
 
-  /** A body progress frame proves a long skill is alive, not stuck. */
-  noteProgress(commandId: string, at = this.clock.now()): boolean {
+  /**
+   * A body progress frame proves a long skill is alive only when the counter
+   * actually moves. Some skills emit the same "breaking 0/100" frame every
+   * tick while stuck behind terrain; treating that as progress made the task
+   * immortal until the hard cap. Keep the silence clock running for repeats.
+   */
+  noteProgress(
+    commandId: string,
+    at = this.clock.now(),
+    progress?: {
+      readonly phase?: string | null | undefined;
+      readonly done?: number | null | undefined;
+      readonly total?: number | null | undefined;
+    },
+  ): boolean {
     if (this.inFlight === null || this.inFlight.commandId !== commandId) return false;
+    const signature =
+      progress === undefined
+        ? null
+        : `${progress.phase ?? ""}:${progress.done ?? ""}/${progress.total ?? ""}`;
+    if (signature !== null && signature === this.inFlight.lastProgress) {
+      return true;
+    }
+    this.inFlight.lastProgress = signature;
     this.inFlight.startedAt = at;
     return true;
   }
@@ -476,7 +581,13 @@ export class GoalRuntime {
     if (!this.enabled || this.goal === null || this.progress === null) return null;
     if (this.goal.status === "paused" || this.goal.status === "completed") return null;
     if (this.inFlight !== null) {
-      if (this.clock.now() - this.inFlight.startedAt > this.taskTimeoutMs) {
+      const now = this.clock.now();
+      const silentFor = now - this.inFlight.startedAt;
+      const runningFor = now - this.inFlight.dispatchedAt;
+      if (
+        silentFor > this.taskTimeoutMs ||
+        runningFor > this.hardTaskTimeoutMs
+      ) {
         const stale = this.inFlight;
         this.inFlight = null;
         const interruption: GoalInterruption = {
@@ -487,11 +598,14 @@ export class GoalRuntime {
         this.recordFailure(
           stale.taskId,
           stale.strategyKey,
-          `任务超过 ${Math.round(this.taskTimeoutMs / 1000)} 秒没有终态`,
+          runningFor > this.hardTaskTimeoutMs
+            ? `任务超过 ${Math.round(this.hardTaskTimeoutMs / 1000)} 秒仍未完成，已硬熔断`
+            : `任务超过 ${Math.round(this.taskTimeoutMs / 1000)} 秒没有终态`,
           "timeout",
-          this.clock.now(),
+          now,
           stale.decision.text,
           stale.decision.intent,
+          "E_TIMEOUT",
         );
         this.expiryHandler?.(interruption);
         return null;
@@ -594,6 +708,30 @@ export class GoalRuntime {
 
     const strategyKey = plan.strategyKey ?? `${plan.stage.id}:${stableSkillKey(plan.nextTask.skill)}`;
     const taskId = plan.nextTask.taskId ?? `task:${strategyKey}`;
+    const now = this.clock.now();
+    if (this.circuit !== null) {
+      if (now >= this.circuit.until) {
+        this.circuit = null;
+      } else if (
+        normalizedStrategy(this.circuit.strategyKey) === normalizedStrategy(strategyKey)
+      ) {
+        const detail = `策略熔断中（同一失败 60 秒内重复）：${this.circuit.detail}`;
+        this.lastFailure = detail;
+        if (this.progress !== null) {
+          this.progress = {
+            ...this.progress,
+            status: "active",
+            nextTask: "",
+            lastFailure: detail,
+            retryAt: Math.min(this.circuit.until, now + 15_000),
+            updatedAt: now,
+          };
+        }
+        this.retryAt = Math.max(this.retryAt, Math.min(this.circuit.until, now + 15_000));
+        this.persist();
+        return null;
+      }
+    }
     // One retry is allowed after a body failure: the world may have changed
     // (a dropped item became reachable, the body respawned, a menu closed).
     // A second consecutive failure of the same strategy is the point at which
@@ -639,7 +777,6 @@ export class GoalRuntime {
     }
 
     const id = this.clock.newId();
-    const now = this.clock.now();
     // A decision is a fresh execution attempt, not a transport retry. Reusing
     // a domain-stable key would hit action_attempt's UNIQUE(idempotency_key)
     // and silently suppress every retry after the first failure.
@@ -664,10 +801,38 @@ export class GoalRuntime {
       speech: goalSpeech(plan.nextTask),
       audienceRef: "",
       trace: null,
+      ...(plan.cardId === undefined || plan.cardTitle === undefined
+        ? {}
+        : {
+            playbook: {
+              id: plan.cardId,
+              title: plan.cardTitle,
+              status: plan.cardStatus ?? "available",
+              reason: plan.cardReason ?? "",
+              switchReason: plan.cardSwitchReason ?? null,
+              modelChoice: plan.cardModelChoice ?? null,
+              fallbackReason: plan.cardFallbackReason ?? null,
+              failureCode: null,
+              recoveryId: null,
+              routeMode:
+                skill.data.name === "goto"
+                  ? (navigationModeSchema.safeParse(skill.data.args.mode).data ?? "walk")
+                  : null,
+              targetLock: plan.targetLock ?? null,
+            },
+          }),
       at: now,
     };
     const commandId = this.clock.newId();
-    this.inFlight = { decision, commandId, taskId, strategyKey, startedAt: now };
+    this.inFlight = {
+      decision,
+      commandId,
+      taskId,
+      strategyKey,
+      startedAt: now,
+      dispatchedAt: now,
+      lastProgress: null,
+    };
     this.progress = {
       ...this.progress,
       nextTask: plan.nextTask.text,
@@ -705,12 +870,23 @@ export class GoalRuntime {
           current.decision.text,
           current.decision.intent,
         );
+        this.onSettlement?.({
+          decision: current.decision,
+          strategyKey: current.strategyKey,
+          status: "failed",
+          errorCode: outcome.errorCode ?? null,
+          detail: missingEvidence,
+          changes: outcome.changes ?? [],
+          at: outcome.at,
+        });
         return true;
       }
       this.consecutiveFailures = 0;
       this.lastFailure = null;
       this.lastFailureStrategy = null;
       this.retryAt = 0;
+      this.circuit = null;
+      this.failureWindow = [];
       // A success breaks the "same stage failed twice in a row" sequence.
       // Keep failures from other stages; `recover()` scopes by stage anyway.
       this.failures = this.failures.filter(
@@ -726,6 +902,47 @@ export class GoalRuntime {
           updatedAt: outcome.at,
         };
       }
+      this.onSettlement?.({
+        decision: current.decision,
+        strategyKey: current.strategyKey,
+        status: "completed",
+        errorCode: null,
+        detail: null,
+        changes: outcome.changes ?? [],
+        at: outcome.at,
+      });
+      this.persist();
+      return true;
+    }
+    if (outcome.status === "preempted") {
+      /*
+       * Death and a deliberate safety handoff are not strategy failures. The
+       * body preempts its in-flight skill, the planner waits for a live body,
+       * and the next observation picks a card from the respawned position.
+       * Counting this as a failure opened the same-strategy circuit after a
+       * normal death and made the agent back off instead of continuing.
+       */
+      const detail = failureDetail(outcome);
+      this.retryAt = 0;
+      if (this.progress !== null) {
+        this.progress = {
+          ...this.progress,
+          status: this.progress.status === "paused" ? "paused" : "active",
+          nextTask: "",
+          lastFailure: detail,
+          retryAt: null,
+          updatedAt: outcome.at,
+        };
+      }
+      this.onSettlement?.({
+        decision: current.decision,
+        strategyKey: current.strategyKey,
+        status: outcome.status,
+        errorCode: outcome.errorCode ?? null,
+        detail,
+        changes: outcome.changes ?? [],
+        at: outcome.at,
+      });
       this.persist();
       return true;
     }
@@ -737,15 +954,35 @@ export class GoalRuntime {
       outcome.at,
       current.decision.text,
       current.decision.intent,
+      outcome.errorCode ?? null,
     );
+    this.onSettlement?.({
+      decision: current.decision,
+      strategyKey: current.strategyKey,
+      status: outcome.status,
+      errorCode: outcome.errorCode ?? null,
+      detail: failureDetail(outcome),
+      changes: outcome.changes ?? [],
+      at: outcome.at,
+    });
     return true;
   }
 
   /** Records a body refusal that never produced a decision row. */
   failDispatch(taskId: string, strategyKey: string, detail: string): void {
     if (this.inFlight === null) return;
+    const current = this.inFlight;
     this.inFlight = null;
     this.recordFailure(taskId, strategyKey, detail, "failed");
+    this.onSettlement?.({
+      decision: current.decision,
+      strategyKey,
+      status: "failed",
+      errorCode: "E_DISPATCH",
+      detail,
+      changes: [],
+      at: this.clock.now(),
+    });
   }
 
   snapshot(): GoalRuntimeRecord {
@@ -766,6 +1003,7 @@ export class GoalRuntime {
 
   private applyPlan(plan: GoalPlan): void {
     if (this.progress === null) return;
+    const now = this.clock.now();
     const completed = plan.milestones.filter((item) => item.status === "completed").length;
     const unverified = plan.milestones.filter((item) => item.status === "unverified").length;
     this.progress = {
@@ -777,7 +1015,29 @@ export class GoalRuntime {
       completed,
       unverified,
       nextTask: plan.nextTask?.text ?? "",
-      updatedAt: this.clock.now(),
+      targetLock: mergeTargetLock(
+        this.progress.targetLock ?? null,
+        plan.targetLock ?? null,
+        now,
+      ),
+      playbook:
+        plan.cardId === undefined || plan.cardTitle === undefined
+          ? null
+          : {
+              cardId: plan.cardId,
+              cardTitle: plan.cardTitle,
+              cardReason: plan.cardReason ?? "",
+              status: plan.cardStatus ?? "available",
+              activeForMs: plan.cardActiveForMs ?? 0,
+              minDwellRemainingMs: plan.cardMinDwellRemainingMs ?? 0,
+              switchReason: plan.cardSwitchReason ?? null,
+              modelChoice: plan.cardModelChoice ?? null,
+              fallbackReason: plan.cardFallbackReason ?? null,
+              failureCode: null,
+              recoveryId: plan.cardRecoveryId ?? null,
+              alternatives: [...(plan.cardAlternatives ?? [])].slice(0, 8),
+            },
+      updatedAt: now,
     };
     if (this.goal !== null && this.goal.status !== "completed") {
       this.goal = { ...this.goal, status: plan.verified ? "active" : "unverified" };
@@ -792,10 +1052,18 @@ export class GoalRuntime {
     at = this.clock.now(),
     taskTitle?: string,
     intent?: Intent,
+    errorCode: string | null = null,
   ): void {
     this.consecutiveFailures += 1;
     this.lastFailure = detail;
     this.lastFailureStrategy = strategyKey;
+    this.noteFailureFingerprint(
+      errorCode ?? status,
+      detail,
+      at,
+      strategyKey,
+      status,
+    );
     if (this.progress !== null && taskId !== null) {
       this.failures.push({
         taskId,
@@ -829,6 +1097,19 @@ export class GoalRuntime {
         consecutiveFailures: this.consecutiveFailures,
         retryAt:
           status === "cancelled" || status === "preempted" ? null : this.retryAt,
+        targetLock:
+          errorCode === "E_UNREACHABLE" ||
+          errorCode === "E_ENCLOSED" ||
+          errorCode === "E_STUCK"
+            ? null
+            : this.progress.targetLock,
+        playbook:
+          this.progress.playbook == null
+            ? null
+            : {
+                ...this.progress.playbook,
+                failureCode: errorCode ?? status,
+              },
         updatedAt: at,
       };
     }
@@ -836,6 +1117,56 @@ export class GoalRuntime {
       this.retryAt = at;
     }
     this.persist();
+  }
+
+  /**
+   * A body can fail the same action for the same reason indefinitely. The
+   * exponential delay alone only slows that loop. Track the exact failure
+   * fingerprint and open a short circuit so the next planning boundary is
+   * forced onto a recovery/alternative card instead of replaying it.
+   */
+  private noteFailureFingerprint(
+    code: string,
+    detail: string,
+    at: number,
+    strategyKey: string | null,
+    status: GoalSettlement["status"],
+  ): void {
+    if (
+      strategyKey === null ||
+      status === "cancelled" ||
+      status === "preempted"
+    ) {
+      return;
+    }
+    this.failureWindow = this.failureWindow.filter(
+      (entry) => at - entry.at <= this.circuitWindowMs,
+    );
+    const fingerprint = `${code}\u0000${detail}`;
+    this.failureWindow.push({ fingerprint, at });
+    const count = this.failureWindow.filter(
+      (entry) => entry.fingerprint === fingerprint,
+    ).length;
+    if (count < this.circuitFailureThreshold) return;
+    this.circuit = {
+      strategyKey,
+      fingerprint,
+      detail,
+      until: at + this.circuitCooldownMs,
+    };
+    this.failureWindow = [];
+    this.onIncident?.({
+      code: "GOAL_STRATEGY_CIRCUIT_OPEN",
+      severity: "warn",
+      detail: {
+        strategyKey,
+        failureCode: code,
+        failureDetail: detail,
+        occurrences: count,
+        windowMs: this.circuitWindowMs,
+        cooldownMs: this.circuitCooldownMs,
+      },
+    });
   }
 
   private resumedStatus(): GoalStatus {
@@ -861,12 +1192,21 @@ export function completionEvidenceProblem(
   decision: Decision,
   changes: NonNullable<GoalSettlement["changes"]>,
 ): string | null {
+  /*
+   * "Already air" and "already present" are observations, not changes. A
+   * body that replays the same cell can otherwise report "completed" forever
+   * while the world never moves. Treat them as absent evidence so the
+   * settlement fails, backs off, and the planner has to choose a new task.
+   */
+  const confirmed = changes.filter(
+    (change) => !/\(already (?:air|present)\)\s*$/u.test(change.detail),
+  );
   // `sleep` reports its evidence as `slept`, but a wake-up can be confirmed
   // after the body result. Do not reject it for lack of a change entry.
-  if (changes.length === 0 && decision.skill?.name !== "sleep") {
+  if (confirmed.length === 0 && decision.skill?.name !== "sleep") {
     return `任务返回完成但没有已确认的世界变化：${decision.text}`;
   }
-  const kinds = new Set(changes.map((change) => change.kind));
+  const kinds = new Set(confirmed.map((change) => change.kind));
   const skill = decision.skill;
   if (skill === null) return "任务完成但没有技能证据";
   switch (skill.name) {
@@ -899,7 +1239,7 @@ export function completionEvidenceProblem(
       // Sleeping has no body `changes` today; the next observed day is the
       // evidence. Do not reject it here, or a real night skip can never
       // settle as completed.
-      return changes.length === 0 || kinds.has("slept")
+      return confirmed.length === 0 || kinds.has("slept")
         ? null
         : `睡眠完成但没有过夜证据：${decision.text}`;
     default:
@@ -911,8 +1251,8 @@ const GOAL_STAGE_ORDER = [
   "wood-and-table",
   "stone-tools",
   "food",
-  "iron",
   "shelter",
+  "iron",
   "nether",
   "eyes",
   "stronghold",
@@ -942,6 +1282,10 @@ export class SurvivalGoalPlanner implements GoalPlanner {
     // for every observed value; only the declaration differs.
     const facts = worldFactsFromSnapshot(
       input.world as Parameters<typeof worldFactsFromSnapshot>[0],
+      {
+        routeBlacklist: input.routeBlacklist ?? [],
+        targetLock: input.progress.targetLock ?? null,
+      },
     );
     const goal = toSurvivalGoal(input.goal);
     const availableSkills = input.health?.skills ?? [];
@@ -966,21 +1310,19 @@ export class SurvivalGoalPlanner implements GoalPlanner {
           normalizedTaskId(entry.taskId) === normalizedTaskId(currentKey),
       ).length;
       if (currentKey === failureKey && failedCount >= 2) {
+        const failureClass = classifyFailure(failure);
+        const movementFailure =
+          failureClass === "NO_PATH" ||
+          failureClass === "RESOURCE_NOT_FOUND" ||
+          failureClass === "STATION_UNREACHABLE" ||
+          failureClass === "NO_PROGRESS" ||
+          failureClass === "TIMEOUT";
         if (
           normalizedCurrent.kind === "combat" ||
           normalizedCurrent.kind === "navigate" ||
-          (normalizedCurrent.kind === "gather" &&
-            /deadline|timeout|no progress|reach|route|超时|寻路|接近|没有安全/u.test(
-              failure.detail,
-            )) ||
-          (normalizedCurrent.kind === "mine" &&
-            /deadline|timeout|no progress|reach|route|visible|obstruct|no safe|超时|寻路|接近|受阻|遮挡|看不见|找不到|no .* within/iu.test(
-              failure.detail,
-            )) ||
-          (normalizedCurrent.kind === "craft" &&
-            /approach|route|walk|reach|no progress|超时|接近|寻路/iu.test(
-              failure.detail,
-            ))
+          (normalizedCurrent.kind === "gather" && movementFailure) ||
+          (normalizedCurrent.kind === "mine" && movementFailure) ||
+          (normalizedCurrent.kind === "craft" && movementFailure)
         ) {
           // Replaying the exact same movement third time is not "recovery",
           // it is the loop an operator sees as "one command, then the body
@@ -1091,8 +1433,28 @@ function projectPlan(
             reason: retried
               ? `重新观察后重试一次「${task.title}」；世界状态可能已变化`
               : `目标阶段「${plan.stageTitle}」：${task.title}`,
+            ...(task.critical === true ? { critical: true } : {}),
             skill: task.skill,
             taskId: task.id,
+            ...(task.targetLock === undefined
+              ? {}
+              : {
+                  targetLock: {
+                    ...task.targetLock,
+                    cardId: task.targetLock.cardId ?? null,
+                    lockedAt: 0,
+                    expiresAt: 0,
+                  },
+                }),
+          },
+    targetLock:
+      task?.targetLock === undefined
+        ? null
+        : {
+            ...task.targetLock,
+            cardId: task.targetLock.cardId ?? null,
+            lockedAt: 0,
+            expiresAt: 0,
           },
     milestones: [...completed, ...pending],
     verified: plan.completedMilestones > 0,
@@ -1163,6 +1525,12 @@ function targetForTitle(title: string): GoalId {
   if (/床|小屋|庇护所|shelter|house/u.test(title)) return "shelter";
   if (/食物|吃|food/u.test(title)) return "food";
   if (/石|镐|stone/u.test(title)) return "stone-tools";
+  // A long-horizon survival goal must not stop at the opening stage. The
+  // default used to fall through to "wood-and-table", which made the DAG
+  // report itself complete as soon as a table was placed; the only available
+  // playbook card was then exploration, and the body wandered until the
+  // acceptance clock ran out. Surface progression up to iron is the v1 scope.
+  if (/长期自主生存|长期生存|持续经营|自主经营/u.test(title)) return "iron";
   return "wood-and-table";
 }
 
@@ -1340,6 +1708,43 @@ function failureDetail(outcome: GoalSettlement): string {
     outcome.nextHint === undefined ? "" : `下一步：${outcome.nextHint}`,
   ].filter((part) => part.length > 0);
   return parts.join("；");
+}
+
+/**
+ * Target locks live in goal progress so an orchestrator restart cannot turn a
+ * moving animal into a new target every planning boundary. A lock follows a
+ * target that moved up to eight blocks; farther movement opens a new choice.
+ */
+export function mergeTargetLock(
+  existing: TargetLock | null,
+  next: TargetLock | null,
+  now: number,
+): TargetLock | null {
+  if (next === null) return null;
+  if (
+    existing !== null &&
+    existing.expiresAt > now &&
+    existing.kind === next.kind &&
+    existing.dimension === next.dimension &&
+    existing.ref === next.ref &&
+    Math.hypot(
+      existing.x - next.x,
+      existing.y - next.y,
+      existing.z - next.z,
+    ) <= 8
+  ) {
+    return {
+      ...next,
+      cardId: next.cardId ?? existing.cardId,
+      lockedAt: existing.lockedAt,
+      expiresAt: existing.expiresAt,
+    };
+  }
+  return {
+    ...next,
+    lockedAt: now,
+    expiresAt: now + (next.kind === "entity" ? 15_000 : 30_000),
+  };
 }
 
 function progressText(progress: NonNullable<GoalSettlement["progress"]>): string {

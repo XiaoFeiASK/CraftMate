@@ -39,12 +39,23 @@ class ViewSlewTest {
 	}
 
 	@Test
-	void bodyTurnRatesStayInsideTheCameraSpringLimits() {
-		// Twenty client ticks per second. The rendered camera may lead the
-		// body, but the body must never outrun it and force vanilla to snap.
-		assertTrue(ViewSlew.WALK_TURN_PER_TICK * 20.0f <= 240.0f);
-		assertTrue(ViewSlew.LOOK_TURN_PER_TICK * 20.0f <= 160.0f);
-		assertTrue(ViewSlew.PITCH_PER_TICK * 20.0f <= 100.0f);
+	void bodyTurnRatesStayGentleEnoughForTheCameraSpring() {
+		// Twenty client ticks per second. The rendered camera is allowed to
+		// lag the body; these bounds keep that lag a gentle spring instead of
+		// a one-frame snap.
+		assertTrue(ViewSlew.WALK_TURN_PER_TICK * 20.0f <= 120.0f);
+		assertTrue(ViewSlew.LOOK_TURN_PER_TICK * 20.0f <= 80.0f);
+		assertTrue(ViewSlew.PITCH_PER_TICK * 20.0f <= 60.0f);
 		assertTrue(ViewSlew.WALK_TURN_PER_TICK > ViewSlew.LOOK_TURN_PER_TICK);
+	}
+
+	@Test
+	void aimingAtABlockUsesTheBodysOwnRotation() {
+		assertEquals(-90.0f, ViewSlew.yawTo(1.0, 0.0), 0.001f);
+		assertEquals(0.0f, ViewSlew.yawTo(0.0, 1.0), 0.001f);
+		assertEquals(90.0f, ViewSlew.yawTo(-1.0, 0.0), 0.001f);
+		assertEquals(180.0f, Math.abs(ViewSlew.yawTo(0.0, -1.0)), 0.001f);
+		assertEquals(90.0f, ViewSlew.pitchTo(0.0, -1.0, 0.0), 0.001f);
+		assertEquals(-90.0f, ViewSlew.pitchTo(0.0, 1.0, 0.0), 0.001f);
 	}
 }

@@ -35,6 +35,10 @@ export function App(): React.JSX.Element {
     approveMemory,
     rejectMemory,
     forgetMemory,
+    updateWorldMemory,
+    forgetWorldMemory,
+    forgetStrategyMemory,
+    forgetRouteBlacklist,
     activatePersona,
     lookupTrace,
     setGoal,
@@ -74,7 +78,12 @@ export function App(): React.JSX.Element {
             state={state}
             snapshot={snapshot}
             telemetry={telemetry}
+            worldEvents={worldEvents}
             personaName={personaName}
+            disabled={state !== "open"}
+            onComment={sendComment}
+            onOperator={sendOperator}
+            onDecideProposal={decideProposal}
             onLookupTrace={(traceId) => {
               lookupTrace(traceId);
               setView("replay");
@@ -95,8 +104,6 @@ export function App(): React.JSX.Element {
             modelCatalog={modelCatalog}
             modelCatalogPending={modelCatalogPending}
             preferences={preferences}
-            onComment={sendComment}
-            onOperator={sendOperator}
             onSpeak={speak}
             onSaveSettings={saveSettings}
             onSaveIntegrationSettings={saveIntegrationSettings}
@@ -106,16 +113,18 @@ export function App(): React.JSX.Element {
             ops={ops}
             timeline={timeline}
             timelinePending={timelinePending}
-            worldEvents={worldEvents}
             onApproveMemory={approveMemory}
             onRejectMemory={rejectMemory}
             onForgetMemory={forgetMemory}
+            onUpdateWorldMemory={updateWorldMemory}
+            onForgetWorldMemory={forgetWorldMemory}
+            onForgetStrategyMemory={forgetStrategyMemory}
+            onForgetRouteBlacklist={forgetRouteBlacklist}
             onActivatePersona={activatePersona}
             onLookupTrace={lookupTrace}
             onSetGoal={setGoal}
             onPauseGoal={pauseGoal}
             onResumeGoal={resumeGoal}
-            onDecideProposal={decideProposal}
           />
         )}
       </div>

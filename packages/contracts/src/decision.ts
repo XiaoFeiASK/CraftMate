@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { navigationModeSchema, targetLockSchema } from "./navigation.ts";
 import { skillCallSchema, skillNameSchema, type SkillCall, type SkillName } from "./skills.ts";
 import { skillOutcomeSchema, type SkillOutcome } from "./outcome.ts";
 
@@ -71,6 +72,27 @@ export const decisionOutcomeSchema = z.object({
 });
 export type DecisionOutcome = z.infer<typeof decisionOutcomeSchema>;
 
+/**
+ * Operator-safe playbook provenance. It names the strategy, not the model's
+ * reasoning, and is stored with the decision trace for replay.
+ */
+export const decisionPlaybookSchema = z.object({
+  id: z.string().min(1).max(80),
+  title: z.string().trim().min(1).max(160),
+  status: z.enum(["available", "blocked", "done"]),
+  reason: z.string().trim().max(500).default(""),
+  switchReason: z.string().trim().max(300).nullable().default(null),
+  modelChoice: z.boolean().nullable().default(null),
+  fallbackReason: z.string().trim().max(300).nullable().default(null),
+  failureCode: z.string().trim().max(64).nullable().default(null),
+  recoveryId: z.string().trim().max(80).nullable().default(null),
+  routeMode: navigationModeSchema.nullable().optional(),
+  blockedReason: z.string().trim().max(300).nullable().optional(),
+  blacklistId: z.string().trim().max(80).nullable().optional(),
+  targetLock: targetLockSchema.nullable().optional(),
+});
+export type DecisionPlaybook = z.infer<typeof decisionPlaybookSchema>;
+
 export const decisionSchema = z.object({
   id: z.string(),
   eventId: z.string(),
@@ -88,6 +110,8 @@ export const decisionSchema = z.object({
   /** Stable hashed audience reference; never the raw platform user id. */
   audienceRef: z.string().default(""),
   trace: decisionTraceSchema.nullable().default(null),
+  /** Which playbook card authorised this decision, when goal mode chose one. */
+  playbook: decisionPlaybookSchema.nullable().optional(),
   /**
    * Filled by the bridge when the body settles the skill. Optional on input
    * so a scored decision produced before any skill exists stays constructible

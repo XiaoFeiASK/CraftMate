@@ -1,5 +1,6 @@
 import {
   audienceEventSchema,
+  DEFAULT_GOAL_STRATEGY,
   type AudienceEvent,
   type Decision,
   type GoalProgress,
@@ -155,6 +156,7 @@ export function defaultSettings(persona: Persona, goalText = "盖一间带床和
     goal: goalText,
     goalDescription: "",
     goalMode: false,
+    goalStrategy: DEFAULT_GOAL_STRATEGY,
     worldName: "本地单人世界",
     gameVersion: "1.20.1",
     accountLabel: "专用直播账号",

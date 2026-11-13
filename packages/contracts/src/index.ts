@@ -12,3 +12,5 @@ export * from "./skills.ts";
 export * from "./settings.ts";
 export * from "./telemetry.ts";
 export * from "./voice.ts";
+export * from "./world-memory.ts";
+export * from "./navigation.ts";

@@ -33,6 +33,40 @@ export const personaProfileSchema = z.object({
 export type PersonaProfile = z.infer<typeof personaProfileSchema>;
 
 /**
+ * Operator-tunable playbook thresholds. These are comfort/risk boundaries,
+ * not milestone evidence: changing them changes which card is offered, never
+ * whether a game fact is considered complete.
+ */
+export const goalStrategySchema = z.object({
+  eatBelow: z.number().int().min(1).max(20).default(16),
+  foodReserve: z.number().int().min(0).max(16).default(3),
+  retreatHealth: z.number().int().min(1).max(20).default(8),
+  engageHealth: z.number().int().min(1).max(20).default(14),
+  miningFood: z.number().int().min(0).max(16).default(3),
+  miningEmptySlots: z.number().int().min(0).max(36).default(4),
+  miningBlocks: z.number().int().min(0).max(128).default(16),
+  nightReturnAt: z.number().int().min(0).max(23_999).default(11_000),
+  sleepAt: z.number().int().min(0).max(23_999).default(12_000),
+  exploreRadius: z.number().int().min(16).max(512).default(128),
+  cardMinDwellMs: z.number().int().min(0).max(600_000).default(60_000),
+});
+export type GoalStrategy = z.infer<typeof goalStrategySchema>;
+
+export const DEFAULT_GOAL_STRATEGY: GoalStrategy = Object.freeze({
+  eatBelow: 16,
+  foodReserve: 3,
+  retreatHealth: 8,
+  engageHealth: 14,
+  miningFood: 3,
+  miningEmptySlots: 4,
+  miningBlocks: 16,
+  nightReturnAt: 11_000,
+  sleepAt: 12_000,
+  exploreRadius: 128,
+  cardMinDwellMs: 60_000,
+});
+
+/**
  * Operator-selectable end goals. The description is display-only: changing it
  * is a product copy change, never a way for the audience to retarget the run.
  */
@@ -69,6 +103,8 @@ export const showSettingsSchema = z.object({
    * the runtime stays idle until an end goal exists.
    */
   goalMode: z.boolean().default(false),
+  /** Playbook thresholds; persisted with the rest of the show settings. */
+  goalStrategy: goalStrategySchema.default(DEFAULT_GOAL_STRATEGY),
   worldName: label(60),
   gameVersion: label(24),
   accountLabel: label(40),

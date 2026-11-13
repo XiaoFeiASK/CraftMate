@@ -18,6 +18,7 @@ import {
   type ProposalStatus,
   type TelemetrySnapshot,
   type AgentEvent,
+  type WorldMemoryUpdate,
 } from "@craftmate/contracts";
 import { reconnectDelay, type WireState } from "./connection.ts";
 
@@ -92,6 +93,10 @@ export interface ControlLink {
   approveMemory(candidateId: string): void;
   rejectMemory(candidateId: string, reason: string): void;
   forgetMemory(memoryId: string): void;
+  updateWorldMemory(memory: WorldMemoryUpdate): void;
+  forgetWorldMemory(memoryId: string): void;
+  forgetStrategyMemory(memoryId: string): void;
+  forgetRouteBlacklist(blacklistId: string): void;
   draftPersona(persona: ShowSettings["persona"]): void;
   activatePersona(versionId: string): void;
   lookupTrace(traceId: string): void;
@@ -371,6 +376,22 @@ export function useControlLink(): ControlLink {
     (memoryId: string) => sendOps({ kind: "forgetMemory", memoryId }),
     [sendOps],
   );
+  const updateWorldMemory = useCallback(
+    (memory: WorldMemoryUpdate) => sendOps({ kind: "updateWorldMemory", memory }),
+    [sendOps],
+  );
+  const forgetWorldMemory = useCallback(
+    (memoryId: string) => sendOps({ kind: "forgetWorldMemory", memoryId }),
+    [sendOps],
+  );
+  const forgetStrategyMemory = useCallback(
+    (memoryId: string) => sendOps({ kind: "forgetStrategyMemory", memoryId }),
+    [sendOps],
+  );
+  const forgetRouteBlacklist = useCallback(
+    (blacklistId: string) => sendOps({ kind: "forgetRouteBlacklist", blacklistId }),
+    [sendOps],
+  );
   const draftPersona = useCallback(
     (persona: ShowSettings["persona"]) => sendOps({ kind: "draftPersona", persona }),
     [sendOps],
@@ -439,6 +460,10 @@ export function useControlLink(): ControlLink {
       approveMemory,
       rejectMemory,
       forgetMemory,
+      updateWorldMemory,
+      forgetWorldMemory,
+      forgetStrategyMemory,
+      forgetRouteBlacklist,
       draftPersona,
       activatePersona,
       lookupTrace,
@@ -476,6 +501,10 @@ export function useControlLink(): ControlLink {
       approveMemory,
       rejectMemory,
       forgetMemory,
+      updateWorldMemory,
+      forgetWorldMemory,
+      forgetStrategyMemory,
+      forgetRouteBlacklist,
       draftPersona,
       activatePersona,
       lookupTrace,

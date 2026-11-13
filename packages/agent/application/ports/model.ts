@@ -70,6 +70,62 @@ export interface GoalTaskChoiceResult {
 }
 
 /**
+ * Model sees the whole playbook, but each card carries a deterministic
+ * availability verdict. It may only choose an `available` card; blocked cards
+ * are context for explaining what is not possible yet.
+ */
+export interface PlaybookChoiceCard {
+  readonly id: string;
+  readonly title: string;
+  readonly group: string;
+  readonly status: "available" | "blocked" | "done";
+  readonly blockedReason: string | null;
+  readonly risk: "low" | "medium" | "high";
+  readonly rationale: string;
+  readonly expectedEvidence: readonly string[];
+  readonly recovery: readonly string[];
+}
+
+export interface PlaybookChoiceRequest {
+  readonly instructions: string;
+  readonly goalTitle: string;
+  readonly goalDescription: string;
+  readonly stageTitle: string;
+  readonly milestoneTitle: string;
+  readonly currentCardId: string | null;
+  readonly minDwellRemainingMs: number;
+  readonly cards: readonly PlaybookChoiceCard[];
+  readonly memory: readonly {
+    readonly kind: string;
+    readonly label: string;
+    readonly dimension: string;
+    readonly x: number;
+    readonly y: number;
+    readonly z: number;
+    readonly confidence: number;
+  }[];
+  readonly recentFailures: readonly {
+    readonly stage: string;
+    readonly code: string;
+    readonly detail: string;
+    readonly attempts: number;
+  }[];
+  /** Observed game facts; untrusted values stay data. */
+  readonly world: unknown;
+  readonly signal: AbortSignal;
+}
+
+export interface PlaybookChoiceResult {
+  readonly cardId: string;
+  readonly reason: string;
+  /** One short, natural line the body can say while starting the card. */
+  readonly speech?: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly usage?: { readonly prompt: number; readonly completion: number };
+}
+
+/**
  * Text provider boundary. Implementations own transport and vendor auth; the
  * agent owns validation, timeouts and fallbacks.
  */
@@ -82,6 +138,12 @@ export interface ModelProvider {
    * ranks already-validated tasks and never authors a skill or arguments.
    */
   chooseGoalTask?(request: GoalTaskChoiceRequest): Promise<GoalTaskChoiceResult>;
+  /**
+   * Goal mode's strategy choice. The model may select any available card, but
+   * the deterministic evaluator and task compiler remain the authority on
+   * legality and execution.
+   */
+  choosePlaybookCard?(request: PlaybookChoiceRequest): Promise<PlaybookChoiceResult>;
 }
 
 /** Distinguishes "slow" from "broken" so the caller can degrade differently. */

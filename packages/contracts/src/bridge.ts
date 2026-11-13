@@ -90,6 +90,17 @@ export const worldSnapshotSchema = z.object({
   surfaceY: z.number().int().nullable().optional(),
   /** True only when the current cell has an unobstructed view of the sky. */
   canSeeSky: z.boolean().nullable().optional(),
+  /**
+   * Emergency-shelter observation. A body that has dug a one-block shaft
+   * reports how many horizontal walls surround it and the surrounding ground
+   * height, so the planner can continue the shaft and cap it instead of
+   * mistaking the floor heightmap for an open surface cell.
+   */
+  shaftWalls: z.number().int().nonnegative().nullable().optional(),
+  shaftTopY: z.number().int().nullable().optional(),
+  shaftDepth: z.number().int().nonnegative().nullable().optional(),
+  /** True when a capped three-block shaft (or a real roofed pocket) encloses the body. */
+  enclosed: z.boolean().nullable().optional(),
   /** Local block light at the body's feet; darkness is a real fact here. */
   lightLevel: z.number().int().nonnegative().nullable().optional(),
   /** A screen the player opened; the agent must pause instead of closing it. */
@@ -97,6 +108,17 @@ export const worldSnapshotSchema = z.object({
   /** Class name of the open screen; useful for diagnosing a stuck menu. */
   screen: z.string().max(160).nullable().optional(),
   floor: z.string().max(160).nullable().optional(),
+  /**
+   * Exact cell the body is standing on. `position` floors the entity centre,
+   * so on a block corner the support cell can be one column away from the
+   * feet cell. Digging tasks must use this cell instead of deriving it from
+   * `position`, or they target air and report "already open" forever.
+   */
+  floorPos: z.object({
+    x: z.number().int(),
+    y: z.number().int(),
+    z: z.number().int(),
+  }).nullable().optional(),
   /** World spawn; available to future goal-directed navigation. */
   spawn: z.object({
     x: z.number(),
@@ -139,6 +161,12 @@ export const worldSnapshotSchema = z.object({
   /** True once this body session confirmed eating a food item. */
   foodConsumed: z.boolean().optional(),
   /**
+   * True once the integrated server observed the ender dragon die. Absence
+   * from the nearby-entity list is not proof: the body may have left the End
+   * or the dragon may simply be outside the observation radius.
+   */
+  dragonDefeated: z.boolean().optional(),
+  /**
    * True once this body session crafted a crafting table. A table later
    * placed far from the player is still a table the agent built; re-planning
    * must not send it back to gather wood just because it walked away.
@@ -150,16 +178,115 @@ export const worldSnapshotSchema = z.object({
   chestCrafted: z.boolean().optional(),
   chestPlaced: z.boolean().optional(),
   bedPlaced: z.boolean().optional(),
+  /** True once this body built the starter hut around the camp chest. */
+  shelterBuilt: z.boolean().optional(),
+  shelter: z.object({
+    x: z.number().finite(),
+    y: z.number().finite(),
+    z: z.number().finite(),
+  }).optional(),
+  /**
+   * The body-selected hut blueprint and the next cell it still needs placed.
+   * The planner does not build the house as one opaque skill; it walks to
+   * `stand` and issues an ordinary `place_block` for `pending`.
+   */
+  hut: z.object({
+    origin: z.object({
+      x: z.number().finite(),
+      y: z.number().finite(),
+      z: z.number().finite(),
+    }),
+    stand: z.object({
+      x: z.number().finite(),
+      y: z.number().finite(),
+      z: z.number().finite(),
+    }),
+    pending: z.object({
+      x: z.number().finite(),
+      y: z.number().finite(),
+      z: z.number().finite(),
+    }).optional(),
+    /** `clear` removes a tree/obstacle in the footprint; `place` builds. */
+    action: z.enum(["clear", "place"]).optional(),
+    /** Registry id of the obstruction when `action` is `clear`. */
+    block: z.string().min(1).max(120).optional(),
+    material: z.string().min(1).max(120).optional(),
+    remaining: z.number().int().nonnegative(),
+  }).optional(),
+  /**
+   * The reusable main mine as live geometry, not an opaque `descend` skill.
+   * `stair` advances one three-block step at a time; `branch` opens the
+   * horizontal tunnel at the target layer. The planner walks to `stand` and
+   * breaks the exact `pending` cell with an ordinary `mine_block`.
+   */
+  mine: z.object({
+    entrance: z.object({
+      x: z.number().finite(),
+      y: z.number().finite(),
+      z: z.number().finite(),
+    }),
+    direction: z.enum(["north", "south", "east", "west"]),
+    stair: z.object({
+      stand: z.object({
+        x: z.number().finite(),
+        y: z.number().finite(),
+        z: z.number().finite(),
+      }),
+      depth: z.number().int().nonnegative(),
+      pending: z.object({
+        id: z.string().min(1).max(120),
+        x: z.number().finite(),
+        y: z.number().finite(),
+        z: z.number().finite(),
+      }).optional(),
+    }).optional(),
+    branch: z.object({
+      stand: z.object({
+        x: z.number().finite(),
+        y: z.number().finite(),
+        z: z.number().finite(),
+      }),
+      distance: z.number().int().nonnegative(),
+      pending: z.object({
+        id: z.string().min(1).max(120),
+        x: z.number().finite(),
+        y: z.number().finite(),
+        z: z.number().finite(),
+      }).optional(),
+    }).optional(),
+  }).optional(),
+  /**
+   * Fixed surface entrance of the body's main staircase mine. Reusing this
+   * cell is what turns repeated mining trips into one walkable tunnel instead
+   * of a fresh hole beside the camp every time.
+   */
+  mineEntrance: z.object({
+    x: z.number().finite(),
+    y: z.number().finite(),
+    z: z.number().finite(),
+  }).optional(),
   chest: z.object({
     x: z.number().finite(),
     y: z.number().finite(),
     z: z.number().finite(),
   }).optional(),
+  /**
+   * Empty slots in the remembered camp chest. Omitted when the chest chunk is
+   * not loaded or the block entity cannot be read. `0` is a real observation:
+   * the planner must make more storage instead of retrying the same deposit.
+   */
+  chestEmptySlots: z.number().int().nonnegative().max(256).optional(),
   bed: z.object({
     x: z.number().finite(),
     y: z.number().finite(),
     z: z.number().finite(),
   }).optional(),
+  /**
+   * True when the body is already within interaction reach of a bed part. A
+   * remembered bed two blocks below the rim is still usable; the planner
+   * must not detour to an unreachable floor cell first.
+   */
+  bedInReach: z.boolean().optional(),
   /** Last furnace this body placed, so a later smelt can walk back to it. */
   furnace: z.object({
     x: z.number().finite(),
@@ -205,9 +332,10 @@ export const worldSnapshotSchema = z.object({
     visible: z.boolean().optional(),
   })).max(64).optional(),
   /**
-   * A block the body can actually reach and aim at right now. Existence in
-   * `nearbyBlocks` is not enough: stone under the floor is nearby but not a
-   * legal mining target. Absence means "no confirmed target", not "no world".
+   * The nearest block with a reachable exposed face. This does not depend on
+   * the camera direction. Existence in `nearbyBlocks` is not enough: stone
+   * under the floor is nearby but not a legal interaction target. Absence
+   * means "no confirmed target", not "no world".
    */
   reachableBlock: z.object({
     id: z.string().min(1).max(160),
@@ -271,6 +399,9 @@ export const bridgeErrorCodeSchema = z.enum([
   "E_CANCELLED",
   "E_WORLD_CHANGED",
   "E_PERMISSION",
+  "E_UNREACHABLE",
+  "E_ENCLOSED",
+  "E_STUCK",
   "E_INTERNAL",
 ]);
 export type BridgeErrorCode = z.infer<typeof bridgeErrorCodeSchema>;

@@ -20,8 +20,6 @@ export const skillNameSchema = z.enum([
   "deposit",
   "place_block",
   "pillar_up",
-  "build_schematic",
-  "descend",
   "smelt",
   "attack",
   "use_block",
@@ -47,6 +45,11 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
     args: z.object({
       target: point,
       /**
+       * Walking is non-destructive by default. `dig` and `recover` are
+       * explicit planner escalations; a failed walk must never enter either.
+       */
+      mode: z.enum(["walk", "dig", "recover"]).optional(),
+      /**
        * Fallback destinations in preference order. Exploration uses this to
        * avoid failing just because its first heading ends in water or a cliff;
        * ordinary movement still gives one exact target.
@@ -68,7 +71,15 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
   }),
   z.object({
     name: z.literal("mine_block"),
-    args: z.object({ block: blockId, count: z.number().int().min(1).max(64).default(1) }),
+    args: z.object({
+      block: blockId,
+      count: z.number().int().min(1).max(64).default(1),
+      /**
+       * Exact blueprint/mine cell. Omitted for ordinary "mine the nearest
+       * matching block" work; a fixed cell never falls back to a broad scan.
+       */
+      at: point.optional(),
+    }),
   }),
   z.object({ name: z.literal("chop_tree"), args: z.object({ count: z.number().int().min(1).max(16).default(1) }) }),
   z.object({
@@ -84,22 +95,18 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
   }),
   z.object({
     name: z.literal("place_block"),
-    args: z.object({ block: blockId, count: z.number().int().min(1).max(64).default(1) }),
+    args: z.object({
+      block: blockId,
+      count: z.number().int().min(1).max(64).default(1),
+      /** Exact cell for a fixed camp fixture; omitted for adjacent placement. */
+      at: point.optional(),
+    }),
   }),
   z.object({
     name: z.literal("pillar_up"),
     args: z.object({
       block: blockId.optional(),
       height: z.number().int().min(1).max(16).default(3),
-    }),
-  }),
-  z.object({ name: z.literal("build_schematic"), args: z.object({ schematic: z.string().trim().min(1).max(120) }) }),
-  z.object({
-    name: z.literal("descend"),
-    args: z.object({
-      targetY: z.number().int().min(-58).max(300),
-      /** Excavate this many horizontal branch blocks after reaching targetY. */
-      branchLength: z.number().int().min(0).max(64).default(0),
     }),
   }),
   z.object({
@@ -179,8 +186,6 @@ export const SKILL_CAPABILITY: Readonly<Record<SkillName, string>> = {
   deposit: "container",
   place_block: "build",
   pillar_up: "build",
-  build_schematic: "build",
-  descend: "mine",
   smelt: "use",
   attack: "attack",
   use_block: "use",
@@ -211,7 +216,6 @@ export const FABRIC_BODY_SKILLS = [
   "use_block",
   "place_block",
   "pillar_up",
-  "descend",
   "smelt",
   "sleep",
 ] as const satisfies readonly SkillName[];

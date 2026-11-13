@@ -1,4 +1,9 @@
-import type { Intent, SkillCall } from "@craftmate/contracts";
+import type {
+  Intent,
+  RouteBlacklist,
+  SkillCall,
+  TargetLock,
+} from "@craftmate/contracts";
 import type { ToolTier } from "../knowledge/src/index.ts";
 
 export type GoalId = "wood-and-table" | "stone-tools" | "food" | "shelter" | "iron" | "nether" | "eyes" | "stronghold" | "dragon";
@@ -7,8 +12,8 @@ export const STAGE_ORDER: readonly GoalId[] = [
   "wood-and-table",
   "stone-tools",
   "food",
-  "iron",
   "shelter",
+  "iron",
   "nether",
   "eyes",
   "stronghold",
@@ -56,6 +61,17 @@ export interface Position {
   readonly z: number;
 }
 
+/** A planner-selected target whose expiry is stamped by the application layer. */
+export interface TargetLockIntent {
+  readonly kind: "entity" | "explore";
+  readonly ref: string;
+  readonly dimension: string;
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly cardId?: string | null;
+}
+
 /**
  * A read-only projection of #39's WorldSnapshot. Every value is optional
  * because an older body, a stalled render thread, or a reconnect may only
@@ -76,6 +92,8 @@ export interface WorldFacts {
   readonly foodAcquired?: boolean | null;
   /** True once this body session confirmed eating a food item. */
   readonly foodConsumed?: boolean | null;
+  /** True once the body observed the ender dragon death event. */
+  readonly dragonDefeated?: boolean | null;
   /** True once this body session crafted a crafting table. */
   readonly craftingTableCrafted?: boolean | null;
   /** True once this body session placed a crafting table in the world. */
@@ -86,8 +104,56 @@ export interface WorldFacts {
   readonly chestPlaced?: boolean | null;
   /** True once this body session placed a bed. */
   readonly bedPlaced?: boolean | null;
+  /** A remembered bed is already inside interaction reach. */
+  readonly bedInReach?: boolean | null;
+  /** True once the body built the starter hut around the camp chest. */
+  readonly shelterBuilt?: boolean | null;
+  /** Centre of the built starter hut. */
+  readonly shelter?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  /** Body-selected hut blueprint and the next atomic placement. */
+  readonly hut?: {
+    readonly origin: Position;
+    readonly stand: Position;
+    readonly pending?: Position;
+    readonly action?: "clear" | "place";
+    readonly block?: string;
+    readonly material?: string;
+    readonly remaining: number;
+  } | null;
+  /** Fixed surface entrance of the reusable main mine staircase. */
+  readonly mineEntrance?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  /**
+   * Live geometry of the reusable mine. The planner never plans a whole
+   * shaft as one skill: it walks to a stand cell and breaks one named block.
+   */
+  readonly mine?: {
+    readonly entrance: Position;
+    readonly direction: "north" | "south" | "east" | "west";
+    readonly stair?: {
+      readonly stand: Position;
+      readonly depth: number;
+      readonly pending?: {
+        readonly id: string;
+        readonly x: number;
+        readonly y: number;
+        readonly z: number;
+      };
+    };
+    readonly branch?: {
+      readonly stand: Position;
+      readonly distance: number;
+      readonly pending?: {
+        readonly id: string;
+        readonly x: number;
+        readonly y: number;
+        readonly z: number;
+      };
+    };
+  } | null;
   /** Camp chest position, when the body still remembers it. */
   readonly chest?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  /** Empty slots in the remembered camp chest; omitted when unobserved. */
+  readonly chestEmptySlots?: number | null;
   /** Camp bed position, when the body still remembers it. */
   readonly bed?: { readonly x: number; readonly y: number; readonly z: number } | null;
   /** Last furnace this body placed, so a later smelt can walk back to it. */
@@ -111,13 +177,31 @@ export interface WorldFacts {
   readonly surfaceY?: number | null;
   /** True only when the current cell can see the sky. */
   readonly canSeeSky?: boolean | null;
+  /** Block below the body's feet, when the body reported one. */
+  readonly floor?: string | null;
+  /** Exact support cell for `floor`; may differ from the floored body column. */
+  readonly floorPos?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  /** Number of solid horizontal neighbours around the body's feet cell. */
+  readonly shaftWalls?: number | null;
+  /** Surrounding ground height for an emergency one-block shaft. */
+  readonly shaftTopY?: number | null;
+  /** Blocks between the shaft floor and its surrounding ground. */
+  readonly shaftDepth?: number | null;
+  /** True when a capped shaft or a real roofed pocket encloses the body. */
+  readonly enclosed?: boolean | null;
   /** Local block light at the body's feet. */
   readonly lightLevel?: number | null;
   readonly inventory: readonly InventorySlot[];
   readonly nearbyBlocks?: readonly NearbyBlock[];
   readonly entities?: readonly NearbyEntity[];
+  /** Active route refusals relevant to this body snapshot. */
+  readonly routeBlacklist?: readonly RouteBlacklist[];
+  /** Planner-selected entity/explore target, already checked for expiry. */
+  readonly targetLock?: TargetLock | null;
+  /** Projection time used to validate route-blacklist and lock expiry. */
+  readonly now?: number;
   readonly selectedItem?: string | null;
-  /** A block the body can aim at now; absence is not proof that none exist. */
+  /** The nearest reachable block; absence is not proof that none exist. */
   readonly reachableBlock?: {
     readonly id: string;
     readonly x: number;
@@ -146,6 +230,12 @@ export interface Stage {
   readonly objective: string;
   /** Stage ids that must be complete before this one is actionable. */
   readonly requires: readonly GoalId[];
+  /**
+   * A home objective is useful but not a hard tool gate. When later work has
+   * already produced real evidence, reopening this stage must not drag the
+   * body away from the active resource trip.
+   */
+  readonly deferrable?: boolean;
   readonly milestones: readonly Milestone[];
 }
 
@@ -161,7 +251,16 @@ export interface SeasonGoal {
   readonly setAt?: number | null;
 }
 
-export type TaskKind = "gather" | "craft" | "place" | "mine" | "smelt" | "combat" | "interact" | "navigate";
+export type TaskKind =
+  | "gather"
+  | "craft"
+  | "place"
+  | "build"
+  | "mine"
+  | "smelt"
+  | "combat"
+  | "interact"
+  | "navigate";
 export type TaskStatus = "ready" | "blocked";
 export type MissingKind =
   | "material"
@@ -185,9 +284,18 @@ export interface Task {
   readonly kind: TaskKind;
   readonly title: string;
   readonly skill: SkillCall;
+  /**
+   * A state gate, not a preference: when true the model may not replace this
+   * task with an optional exploration or stockpile candidate. Examples are
+   * immediate danger, a meal while starving, and restoring a missing tool
+   * before a long trip.
+   */
+  readonly critical?: boolean;
   /** Facts that make this task applicable; used by the runtime to re-check. */
   readonly preconditions: readonly string[];
   readonly expectedEvidence: readonly string[];
+  /** Stable target for hunt/exploration so replanning does not oscillate. */
+  readonly targetLock?: TargetLockIntent;
   /** What the body result should prove. */
   readonly verify: (facts: WorldFacts) => boolean;
 }

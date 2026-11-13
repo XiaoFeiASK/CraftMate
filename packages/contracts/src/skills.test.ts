@@ -9,6 +9,17 @@ describe("skills", () => {
     if (parsed?.name !== "mine_block") throw new Error("mine_block was not parsed");
     assert.equal(parsed.args.block, "minecraft:stone");
     assert.equal(parseSkillArgs("mine_block", { block: "minecraft:stone", count: 0 }), null);
+    assert.deepEqual(
+      parseSkillArgs("mine_block", {
+        block: "minecraft:stone",
+        count: 1,
+        at: { x: 4, y: 32, z: -7 },
+      }),
+      {
+        name: "mine_block",
+        args: { block: "minecraft:stone", count: 1, at: { x: 4, y: 32, z: -7 } },
+      },
+    );
     assert.deepEqual(parseSkillArgs("chop_tree", {}), { name: "chop_tree", args: { count: 1 } });
     assert.equal(parseSkillArgs("chop_tree", { count: 17 }), null);
     assert.deepEqual(parseSkillArgs("collect_items", {}), {
@@ -54,19 +65,31 @@ describe("skills", () => {
         fuel: "minecraft:coal",
       },
     });
-    assert.deepEqual(parseSkillArgs("descend", { targetY: 11 }), {
-      name: "descend",
-      args: { targetY: 11, branchLength: 0 },
+    assert.equal(
+      parseSkillArgs("goto", { target: { x: 1, y: 64, z: 2 } })?.name,
+      "goto",
+    );
+    const digging = parseSkillArgs("goto", {
+      target: { x: 1, y: 64, z: 2 },
+      mode: "dig",
     });
+    if (digging?.name !== "goto") throw new Error("dig goto was not parsed");
+    assert.equal(digging.args.mode, "dig");
+    assert.equal(
+      parseSkillArgs("goto", {
+        target: { x: 1, y: 64, z: 2 },
+        mode: "tunnel",
+      }),
+      null,
+    );
   });
 });
 
 describe("fabric body capability catalogue", () => {
   test("executable skills map to advertised capabilities", () => {
-    assert.equal(FABRIC_BODY_SKILLS.length, 18);
+    assert.equal(FABRIC_BODY_SKILLS.length, 17);
     assert.ok((FABRIC_BODY_SKILLS as readonly SkillName[]).includes("sleep"));
     assert.ok((FABRIC_BODY_SKILLS as readonly SkillName[]).includes("smelt"));
-    assert.ok((FABRIC_BODY_SKILLS as readonly SkillName[]).includes("descend"));
     const capabilities: readonly BridgeCapability[] = FABRIC_BODY_CAPABILITIES;
     for (const skill of FABRIC_BODY_SKILLS) {
       assert.ok(capabilities.includes(SKILL_CAPABILITY[skill] as BridgeCapability));
@@ -75,7 +98,7 @@ describe("fabric body capability catalogue", () => {
 
   test("contract catalogue is not mistaken for current body capabilities", () => {
     const implemented = new Set([
-      "goto", "look_at", "mine_block", "chop_tree", "collect_items", "craft", "deposit", "say", "wait", "attack", "equip", "eat", "use_block", "place_block", "pillar_up", "descend", "smelt", "sleep",
+      "goto", "look_at", "mine_block", "chop_tree", "collect_items", "craft", "deposit", "say", "wait", "attack", "equip", "eat", "use_block", "place_block", "pillar_up", "smelt", "sleep",
     ]);
     for (const skill of skillNameSchema.options) {
       assert.equal((FABRIC_BODY_SKILLS as readonly SkillName[]).includes(skill), implemented.has(skill));

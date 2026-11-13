@@ -163,8 +163,8 @@ describe("bridge handshake and capability negotiation", () => {
     connectHarness(harness);
 
     assert.throws(
-      () => harness.coordinator.issue(harness.frame({ id: "c-1", op: "build_schematic" })),
-      /did not advertise build_schematic/,
+      () => harness.coordinator.issue(harness.frame({ id: "c-1", op: "follow" })),
+      /did not advertise follow/,
     );
     assert.equal(commands(harness).length, 0);
   });
@@ -646,7 +646,7 @@ test("a liveness-only heartbeat does not erase the last world snapshot", () => {
 });
 
 describe("bridge control ownership", () => {
-  test("a reflex event cancels running work, is visible, and keeps its reason", () => {
+  test("a reflex event preempts running work and keeps its reason", () => {
     const control = new ControlAuthority();
     const sessions = createSessions(control);
     const first = sessions.open();
@@ -665,7 +665,7 @@ describe("bridge control ownership", () => {
 
     assert.equal(first.coordinator.health().running, 0);
     const attempt = sessions.actions.snapshot()[0];
-    assert.equal(attempt?.status, "failed");
+    assert.equal(attempt?.status, "preempted");
     assert.equal(attempt?.result?.detail, "safety: 站在岩浆里");
     assert.deepEqual(
       first.coordinator.health().incidents.map((incident) => incident.kind),

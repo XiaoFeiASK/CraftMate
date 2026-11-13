@@ -6,9 +6,9 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Owns the rotation shown by the rendered camera. The player's real rotation
- * stays available for Minecraft's interaction checks and movement, while the
- * audience-facing camera follows an explicit intent through a bounded slew.
+ * Owns the rotation shown by the rendered camera. The body's real rotation is
+ * used for movement and block orientation, while the audience-facing camera
+ * follows an explicit intent through a bounded slew.
  */
 public final class CameraController {
 	/**
@@ -18,13 +18,15 @@ public final class CameraController {
 	 * a long render stall (or a debugger pause) from consuming a second of
 	 * backlog in one frame, which is exactly the jump the audience sees.
 	 */
-	private static final float MAX_YAW_SPEED_DEGREES = 220.0f;
-	private static final float MAX_PITCH_SPEED_DEGREES = 150.0f;
-	private static final float MAX_ACCELERATION_DEGREES = 1_200.0f;
-	private static final float MAX_FRAME_STEP_DEGREES = 26.0f;
+	private static final float MAX_YAW_SPEED_DEGREES = 90.0f;
+	private static final float MAX_PITCH_SPEED_DEGREES = 60.0f;
+	private static final float MAX_ACCELERATION_DEGREES = 420.0f;
+	private static final float MAX_FRAME_STEP_DEGREES = 6.0f;
 	private static final float DEFAULT_FRAME_SECONDS = 1.0f / 60.0f;
 	private static final float MAX_FRAME_SECONDS = 0.1f;
 	private static final float RELEASE_TOLERANCE = 0.35f;
+	private static final float YAW_GAIN = 6.0f;
+	private static final float PITCH_GAIN = 6.0f;
 
 	private static boolean active;
 	private static boolean releasing;
@@ -36,6 +38,11 @@ public final class CameraController {
 	private static float yawVelocity;
 	private static float pitchVelocity;
 	private static long lastFrameNanos;
+	private static Object lastLevel;
+	private static Object lastPlayer;
+	private static Object lastBodyPlayer;
+	private static float lastBodyYaw;
+	private static float lastBodyPitch;
 
 	private CameraController() {
 	}
@@ -115,12 +122,17 @@ public final class CameraController {
 		yawVelocity = 0;
 		pitchVelocity = 0;
 		lastFrameNanos = 0;
+		lastLevel = client.level;
+		lastPlayer = client.player;
 		LocalPlayer player = client.player;
 		if (player != null) {
 			displayYaw = player.getViewYRot(1.0f);
 			displayPitch = player.getViewXRot(1.0f);
 			desiredYaw = displayYaw;
 			desiredPitch = displayPitch;
+			lastBodyPlayer = player;
+			lastBodyYaw = displayYaw;
+			lastBodyPitch = displayPitch;
 		}
 	}
 
@@ -150,8 +162,20 @@ public final class CameraController {
 		}
 		float yawError = Mth.wrapDegrees(desiredYaw - displayYaw);
 		float pitchError = desiredPitch - displayPitch;
-		yawVelocity = approach(yawVelocity, yawError, dt, MAX_YAW_SPEED_DEGREES);
-		pitchVelocity = approach(pitchVelocity, pitchError, dt, MAX_PITCH_SPEED_DEGREES);
+		yawVelocity = approach(
+			yawVelocity,
+			yawError,
+			dt,
+			MAX_YAW_SPEED_DEGREES,
+			YAW_GAIN
+		);
+		pitchVelocity = approach(
+			pitchVelocity,
+			pitchError,
+			dt,
+			MAX_PITCH_SPEED_DEGREES,
+			PITCH_GAIN
+		);
 		displayYaw = Mth.wrapDegrees(
 			displayYaw +
 				Mth.clamp(yawVelocity * dt, -MAX_FRAME_STEP_DEGREES, MAX_FRAME_STEP_DEGREES)
@@ -178,16 +202,35 @@ public final class CameraController {
 
 	/**
 	 * A new world or respawn replaces the entity. Drop any held pose instead
-	 * of interpolating from a viewpoint in the previous world.
+	 * of interpolating from a viewpoint in the previous world. This runs once
+	 * per client tick, so it must compare identities: resetting whenever the
+	 * controller is active snapped the rendered camera back to the body's
+	 * aimed rotation every tick and defeated the spring entirely.
 	 */
 	public static void worldChanged(Minecraft client) {
-		if (active || retained || releasing) reset(client);
+		if (client.level == lastLevel && client.player == lastPlayer) return;
+		reset(client);
+	}
+
+	/**
+	 * Remembers the body pose from before the current client tick runs. Mining
+	 * turns the real player instantly so vanilla selects the right block, but
+	 * the rendered camera must start from the pose the audience last saw, not
+	 * from that already-snapped body rotation.
+	 */
+	public static void observe(Minecraft client) {
+		LocalPlayer player = client.player;
+		if (player == null) return;
+		lastBodyPlayer = player;
+		lastBodyYaw = player.getViewYRot(1.0f);
+		lastBodyPitch = player.getViewXRot(1.0f);
 	}
 
 	private static void begin(LocalPlayer player) {
 		if (active) return;
-		displayYaw = player.getViewYRot(1.0f);
-		displayPitch = player.getViewXRot(1.0f);
+		boolean sameBody = lastBodyPlayer == player;
+		displayYaw = sameBody ? lastBodyYaw : player.getViewYRot(1.0f);
+		displayPitch = sameBody ? lastBodyPitch : player.getViewXRot(1.0f);
 		desiredYaw = displayYaw;
 		desiredPitch = displayPitch;
 		yawVelocity = 0;
@@ -206,10 +249,11 @@ public final class CameraController {
 		float velocity,
 		float error,
 		float dt,
-		float maxSpeedDegrees
+		float maxSpeedDegrees,
+		float gain
 	) {
 		float desiredVelocity = Mth.clamp(
-			error * 14.0f,
+			error * gain,
 			-maxSpeedDegrees,
 			maxSpeedDegrees
 		);

@@ -185,13 +185,43 @@ export const STAGES: readonly Stage[] = [
       },
     ),
   ]),
-  stage("iron", 3, "铁器与熔炉", "采集铁矿石、建造熔炉并升级到铁镐", ["food"], [
+  stage("shelter", 3, "营地与床", "建立有箱子和床的家，天黑回家睡觉", ["food"], [
+    milestone(
+      "have-chest",
+      "营地有箱子",
+      "inventory has a chest, a nearby chest exists, or this body placed one",
+      (facts) => {
+        if (facts.chestPlaced === true) return "complete";
+        return hasItem(facts, "minecraft:chest") ||
+          nearbyHas(facts, /(^|:)chest$/u) !== null
+          ? "complete"
+          : "incomplete";
+      },
+    ),
+    milestone(
+      "have-bed",
+      "营地有床",
+      "inventory has a bed, a nearby bed exists, or this body placed one",
+      (facts) => {
+        if (facts.bedPlaced === true) return "complete";
+        return hasAnyByRegex(facts, BED_ITEMS) || nearbyHas(facts, BED_ITEMS) !== null
+          ? "complete"
+          : "incomplete";
+      },
+    ),
+  ], true),
+  stage("iron", 4, "铁器与熔炉", "采集铁矿石、建造熔炉并升级到铁镐", ["shelter"], [
     milestone(
       "have-furnace",
       "背包或附近有熔炉",
       "inventory has furnace or a nearby furnace block exists",
       (facts) => {
         if (facts.inventory.length === 0 && facts.nearbyBlocks === undefined) return "unverified";
+        // A furnace this body placed is durable progress even when the body
+        // is currently mining far away. Requiring it to stay inside the
+        // observation cube kept the iron stage on "have furnace" forever and
+        // made every later milestone unreachable.
+        if (facts.furnacePlaced === true) return "complete";
         return hasItem(facts, "minecraft:furnace") || nearbyHas(facts, /furnace$/u) !== null
           ? "complete"
           : "incomplete";
@@ -234,31 +264,6 @@ export const STAGES: readonly Stage[] = [
       "背包有铁剑",
       "inventory contains iron_sword",
       (facts) => hasItem(facts, "minecraft:iron_sword") ? "complete" : "incomplete",
-    ),
-  ]),
-  stage("shelter", 4, "营地与床", "建立有箱子和床的家，天黑回家睡觉", ["iron"], [
-    milestone(
-      "have-chest",
-      "营地有箱子",
-      "inventory has a chest, a nearby chest exists, or this body placed one",
-      (facts) => {
-        if (facts.chestPlaced === true) return "complete";
-        return hasItem(facts, "minecraft:chest") ||
-          nearbyHas(facts, /(^|:)chest$/u) !== null
-          ? "complete"
-          : "incomplete";
-      },
-    ),
-    milestone(
-      "have-bed",
-      "营地有床",
-      "inventory has a bed, a nearby bed exists, or this body placed one",
-      (facts) => {
-        if (facts.bedPlaced === true) return "complete";
-        return hasAnyByRegex(facts, BED_ITEMS) || nearbyHas(facts, BED_ITEMS) !== null
-          ? "complete"
-          : "incomplete";
-      },
     ),
   ]),
   stage("nether", 5, "下界与烈焰棒", "获得黑曜石、进入下界并击杀烈焰人", ["iron"], [
@@ -327,6 +332,7 @@ export const STAGES: readonly Stage[] = [
       "末影龙已被击败",
       "body reports dragon defeat evidence",
       (facts) => {
+        if (facts.dragonDefeated === true) return "complete";
         if (facts.entities === undefined) return "unverified";
         return facts.entities.some((entity) => /dragon/iu.test(entity.type)) ? "incomplete" : "unverified";
       },
@@ -379,8 +385,9 @@ function stage(
   objective: string,
   requires: readonly GoalId[],
   milestones: readonly Milestone[],
+  deferrable = false,
 ): Stage {
-  return { id, index, title, objective, requires, milestones };
+  return { id, index, title, objective, requires, milestones, ...(deferrable ? { deferrable } : {}) };
 }
 
 function milestone(

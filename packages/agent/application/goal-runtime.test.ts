@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import type { BridgeHealth, SkillCall } from "@craftmate/contracts";
 import type { Clock } from "./ports/clock.ts";
 import {
+  completionEvidenceProblem,
   GoalRuntime,
   MemoryGoalRuntimeStore,
   SurvivalGoalPlanner,
@@ -98,6 +99,30 @@ function runtime(goalPlanner: GoalPlanner = planner()) {
 }
 
 describe("goal runtime", () => {
+  test("a completed mine that only replays an open cell is a failure", () => {
+    const { value } = runtime();
+    const issued = value.beginStep(context());
+    assert.ok(issued);
+    const changes = [
+      { kind: "block_broken", detail: "31,74,196 (already air)" },
+    ];
+    assert.match(
+      completionEvidenceProblem(issued.decision, changes) ?? "",
+      /没有已确认的世界变化/u,
+    );
+    assert.equal(
+      value.settle(issued.decision.id, {
+        status: "completed",
+        at: 2_000,
+        changes,
+      }),
+      true,
+    );
+    assert.equal(value.currentProgress?.status, "active");
+    assert.match(value.currentProgress?.lastFailure ?? "", /没有已确认/u);
+    assert.ok((value.currentProgress?.consecutiveFailures ?? 0) >= 1);
+  });
+
   test("issues one task at a time and waits for its terminal outcome", () => {
     const { value } = runtime();
     const first = value.beginStep(context());
@@ -139,6 +164,69 @@ describe("goal runtime", () => {
     assert.equal(value.beginStep(context()), null);
     assert.match(value.currentProgress?.lastFailure ?? "", /^$/u);
     assert.equal(value.settle(issued.decision.id, { status: "completed", at: clock.now() }), true);
+  });
+
+  test("identical progress frames do not keep a stuck task alive", () => {
+    const { clock, advance } = testClock();
+    const store = new MemoryGoalRuntimeStore();
+    const value = new GoalRuntime({
+      store,
+      planner: planner(),
+      clock,
+      taskTimeoutMs: 30_000,
+    });
+    value.restore();
+    value.setGoal({ title: "击败末影龙", description: "完整生存链" });
+    const issued = value.beginStep(context());
+    assert.ok(issued);
+    advance(20_000);
+    assert.equal(
+      value.noteProgress(issued.commandId, clock.now(), {
+        phase: "breaking",
+        done: 0,
+        total: 100,
+      }),
+      true,
+    );
+    advance(20_000);
+    assert.equal(
+      value.noteProgress(issued.commandId, clock.now(), {
+        phase: "breaking",
+        done: 0,
+        total: 100,
+      }),
+      true,
+    );
+    advance(11_000);
+    assert.equal(value.beginStep(context()), null);
+    assert.match(value.currentProgress?.lastFailure ?? "", /超过 30 秒/u);
+  });
+
+  test("progress cannot extend the hard task cap", () => {
+    const { clock, advance } = testClock();
+    const store = new MemoryGoalRuntimeStore();
+    const value = new GoalRuntime({
+      store,
+      planner: planner(),
+      clock,
+      taskTimeoutMs: 30_000,
+      hardTaskTimeoutMs: 70_000,
+    });
+    value.restore();
+    value.setGoal({ title: "击败末影龙", description: "完整生存链" });
+    const issued = value.beginStep(context());
+    assert.ok(issued);
+    const expired: string[] = [];
+    value.setExpiryHandler((interruption) => expired.push(interruption.commandId));
+    for (let index = 0; index < 4; index += 1) {
+      advance(15_000);
+      assert.equal(value.noteProgress(issued.commandId, clock.now()), true);
+      assert.equal(value.beginStep(context()), null);
+    }
+    advance(15_000);
+    assert.equal(value.beginStep(context()), null);
+    assert.deepEqual(expired, [issued.commandId]);
+    assert.match(value.currentProgress?.lastFailure ?? "", /硬熔断/u);
   });
 
   test("a timed-out task cancels the stale body command exactly once", () => {
@@ -239,6 +327,65 @@ describe("goal runtime", () => {
     assert.equal(value.currentProgress?.consecutiveFailures, 2);
     assert.notEqual(value.currentProgress?.retryAt, null);
     advance(value.currentProgress?.retryAt ?? 0);
+    assert.ok(value.beginStep(context()));
+  });
+
+  test("a death preemption continues without backoff or a strategy circuit", () => {
+    const { value } = runtime();
+    const first = value.beginStep(context());
+    assert.ok(first);
+    assert.equal(
+      value.settle(first.decision.id, {
+        status: "preempted",
+        errorCode: "E_CANCELLED",
+        detail: "角色死亡，重生后继续当前目标",
+        at: 1_500,
+      }),
+      true,
+    );
+    assert.equal(value.currentProgress?.consecutiveFailures, 0);
+    assert.equal(value.currentProgress?.retryAt, null);
+    assert.equal(value.currentProgress?.status, "active");
+
+    const next = value.beginStep(context());
+    assert.ok(next, "the next planning boundary should be available immediately");
+  });
+
+  test("three identical failures in 60 seconds open a strategy circuit", () => {
+    const { clock, advance } = testClock();
+    const store = new MemoryGoalRuntimeStore();
+    const incidents: { readonly code: string }[] = [];
+    const value = new GoalRuntime({
+      store,
+      planner: planner({ strategyKey: "wood:chop" }),
+      clock,
+      failureBaseMs: 1,
+      failureMaxMs: 1,
+      onIncident: (incident) => incidents.push({ code: incident.code }),
+    });
+    value.restore();
+    value.setGoal({ title: "击败末影龙", description: "完整生存链" });
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const issued = value.beginStep(context());
+      assert.ok(issued, `attempt ${attempt + 1} should be issued`);
+      assert.equal(
+        value.settle(issued.decision.id, {
+          status: "failed",
+          errorCode: "E_PRECONDITION",
+          detail: "Failed to load class file for ToolSelection",
+          at: clock.now() + 1,
+        }),
+        true,
+      );
+      advance(2);
+    }
+
+    assert.deepEqual(incidents, [{ code: "GOAL_STRATEGY_CIRCUIT_OPEN" }]);
+    assert.equal(value.beginStep(context()), null);
+    assert.match(value.currentProgress?.lastFailure ?? "", /策略熔断中/u);
+
+    advance(60_000);
     assert.ok(value.beginStep(context()));
   });
 
@@ -379,6 +526,40 @@ describe("goal runtime", () => {
     assert.equal(plan.nextTask?.skill.name, "chop_tree");
     assert.equal(plan.verified, false);
     assert.ok(plan.milestones.some((milestone) => milestone.status === "completed") === false);
+  });
+
+  test("long-horizon survival goal advances past the wood stage", () => {
+    const plan = new SurvivalGoalPlanner().plan({
+      goal: { ...goal(), title: "长期自主生存" },
+      progress: progress(),
+      world: {
+        inWorld: true,
+        inventory: [
+          { section: "hotbar", slot: 0, item: "minecraft:oak_log", count: 8 },
+          { section: "hotbar", slot: 1, item: "minecraft:oak_planks", count: 4 },
+          {
+            section: "hotbar",
+            slot: 2,
+            item: "minecraft:wooden_pickaxe",
+            count: 1,
+            durability: 59,
+            maxDurability: 59,
+          },
+        ],
+        craftingTablePlaced: true,
+        craftingTableNearby: true,
+        position: { x: 0, y: 64, z: 0 },
+        timeOfDay: 1_000,
+        health: 20,
+        food: 20,
+      },
+      health: health({ skills: ["mine_block", "craft", "goto"] }),
+      proposals: [],
+      lastFailure: null,
+      consecutiveFailures: 0,
+    });
+    assert.equal(plan.stage.id, "stone-tools");
+    assert.notEqual(plan.nextTask, null);
   });
 
   test("survival planner reports a real blocked reason instead of inventing a task", () => {
@@ -747,6 +928,8 @@ describe("goal runtime", () => {
       inWorld: true,
       health: 20,
       food: 20,
+      chestPlaced: true,
+      bedPlaced: true,
       inventory: [
         { section: "hotbar" as const, slot: 0, item: "minecraft:iron_pickaxe", count: 1 },
         { section: "hotbar" as const, slot: 1, item: "minecraft:torch", count: 4 },
@@ -758,18 +941,28 @@ describe("goal runtime", () => {
         { id: "minecraft:iron_ore", count: 12 },
       ],
       position: { x: -12.5, y: 16, z: -40.5 },
+      mine: {
+        entrance: { x: -12, y: 40, z: -40 },
+        direction: "east" as const,
+        branch: {
+          stand: { x: -12, y: 16, z: -40 },
+          distance: 0,
+          pending: { id: "minecraft:iron_ore", x: -11, y: 16, z: -40 },
+        },
+      },
     };
     const plan = new SurvivalGoalPlanner().plan({
       goal: goal(),
       progress: progress(),
       world,
-      health: health({ skills: ["descend", "goto", "craft", "place_block"] }),
+      health: health({ skills: ["mine_block", "goto", "craft", "place_block"] }),
       proposals: [],
       lastFailure: null,
       consecutiveFailures: 0,
     });
     assert.equal(plan.stage.id, "iron");
-    assert.equal(plan.nextTask?.skill.name, "descend");
+    assert.equal(plan.nextTask?.skill.name, "mine_block");
+    assert.deepEqual(plan.nextTask?.skill.args["at"], { x: -11, y: 16, z: -40 });
     const strategy = plan.strategyKey;
     assert.ok(strategy);
     const first: TaskFailure = {
@@ -784,7 +977,7 @@ describe("goal runtime", () => {
       goal: goal(),
       progress: progress(),
       world,
-      health: health({ skills: ["descend", "goto", "craft", "place_block"] }),
+      health: health({ skills: ["mine_block", "goto", "craft", "place_block"] }),
       proposals: [],
       lastFailure: second.detail,
       consecutiveFailures: 2,

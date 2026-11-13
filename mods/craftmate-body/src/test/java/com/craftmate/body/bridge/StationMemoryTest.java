@@ -17,4 +17,11 @@ class StationMemoryTest {
 		assertTrue(StationMemory.shouldForget(true, false));
 		assertFalse(StationMemory.shouldForget(true, true));
 	}
+
+	@Test
+	void aDistantStationSurvivesAWorldJoinLoadingRace() {
+		assertFalse(StationMemory.shouldForgetNearby(35.0 * 35.0, true, false));
+		assertTrue(StationMemory.shouldForgetNearby(2.0 * 2.0, true, false));
+		assertFalse(StationMemory.shouldForgetNearby(2.0 * 2.0, true, true));
+	}
 }

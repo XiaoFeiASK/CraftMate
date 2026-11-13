@@ -3,20 +3,15 @@ import type {
   IntegrationSettingsView,
   ModelCatalog,
   OpsSnapshot,
-  OperatorKind,
   ShowMode,
   ShowSettings,
   ShowSnapshot,
   VoiceStatus,
   TimelineEntry,
   VoiceSubtitle,
-  BodyEvent,
-  ProposalStatus,
+  WorldMemoryUpdate,
 } from "@craftmate/contracts";
 import { useState } from "react";
-import { DecisionStream } from "../DecisionStream.tsx";
-import { WorldEventStream } from "../WorldEventStream.tsx";
-import { OperatorBar } from "../OperatorBar.tsx";
 import { SettingsView } from "../settings/SettingsView.tsx";
 import { OpsView } from "../ops/OpsView.tsx";
 import { ReplayView } from "../ops/ReplayView.tsx";
@@ -26,11 +21,9 @@ import { clock } from "../../lib/format.ts";
 import mascot from "../../assets/dafeiyu.png";
 
 export type WorkspaceView =
-  | "decisions"
   | "persona"
   | "connections"
   | "settings"
-  | "proposals"
   | "memory"
   | "replay";
 
@@ -48,8 +41,6 @@ interface OperationsPageProps {
   readonly modelCatalog: ModelCatalog | null;
   readonly modelCatalogPending: boolean;
   readonly preferences: Preferences;
-  readonly onComment: (nickname: string, text: string) => void;
-  readonly onOperator: (kind: OperatorKind, text?: string) => void;
   readonly onSpeak: (text: string) => void;
   readonly onSaveSettings: (next: ShowSettings) => void;
   readonly onSaveIntegrationSettings: (
@@ -62,28 +53,24 @@ interface OperationsPageProps {
   readonly ops: OpsSnapshot | null;
   readonly timeline: readonly TimelineEntry[];
   readonly timelinePending: boolean;
-  readonly worldEvents: readonly BodyEvent[];
   readonly onApproveMemory: (candidateId: string) => void;
   readonly onRejectMemory: (candidateId: string, reason: string) => void;
   readonly onForgetMemory: (memoryId: string) => void;
+  readonly onUpdateWorldMemory: (memory: WorldMemoryUpdate) => void;
+  readonly onForgetWorldMemory: (memoryId: string) => void;
+  readonly onForgetStrategyMemory: (memoryId: string) => void;
+  readonly onForgetRouteBlacklist: (blacklistId: string) => void;
   readonly onActivatePersona: (versionId: string) => void;
   readonly onLookupTrace: (traceId: string) => void;
   readonly onSetGoal: (title: string, description: string) => void;
   readonly onPauseGoal: () => void;
   readonly onResumeGoal: () => void;
-  readonly onDecideProposal: (
-    proposalId: string,
-    status: Exclude<ProposalStatus, "pending">,
-    reason: string,
-  ) => void;
 }
 
 const TITLES: Record<WorkspaceView, string> = {
-  decisions: "评论与决策",
   persona: "角色与人格",
   connections: "接入与语音",
   settings: "设置",
-  proposals: "观众提议",
   memory: "记忆与版本",
   replay: "回放",
 };
@@ -102,8 +89,6 @@ export function OperationsPage({
   modelCatalog,
   modelCatalogPending,
   preferences,
-  onComment,
-  onOperator,
   onSpeak,
   onSaveSettings,
   onSaveIntegrationSettings,
@@ -113,16 +98,18 @@ export function OperationsPage({
   ops,
   timeline,
   timelinePending,
-  worldEvents,
   onApproveMemory,
   onRejectMemory,
   onForgetMemory,
+  onUpdateWorldMemory,
+  onForgetWorldMemory,
+  onForgetStrategyMemory,
+  onForgetRouteBlacklist,
   onActivatePersona,
   onLookupTrace,
   onSetGoal,
   onPauseGoal,
   onResumeGoal,
-  onDecideProposal,
 }: OperationsPageProps): React.JSX.Element {
   const title = TITLES[mode];
 
@@ -136,9 +123,6 @@ export function OperationsPage({
         </header>
 
         <div className="drawer__body">
-          {mode === "decisions" ? (
-            <DecisionsView snapshot={snapshot} worldEvents={worldEvents} />
-          ) : null}
           {mode === "persona" ? (
             <PersonaView personaName={personaName} settings={settings} />
           ) : null}
@@ -162,18 +146,15 @@ export function OperationsPage({
               onApprove={onApproveMemory}
               onReject={onRejectMemory}
               onForget={onForgetMemory}
+              onUpdateWorldMemory={onUpdateWorldMemory}
+              onForgetWorldMemory={onForgetWorldMemory}
+              onForgetStrategyMemory={onForgetStrategyMemory}
+              onForgetRouteBlacklist={onForgetRouteBlacklist}
               onActivate={onActivatePersona}
             />
           ) : null}
           {mode === "replay" ? (
             <ReplayView entries={timeline} pending={timelinePending} onLookup={onLookupTrace} />
-          ) : null}
-          {mode === "proposals" ? (
-            <ProposalsView
-              proposals={snapshot.proposals}
-              disabled={state !== "open"}
-              onDecide={onDecideProposal}
-            />
           ) : null}
           {mode === "settings" ? (
             <SettingsView
@@ -199,41 +180,7 @@ export function OperationsPage({
           ) : null}
         </div>
 
-        {mode === "decisions" ? (
-          <OperatorBar
-            personaName={personaName}
-            onComment={onComment}
-            onOperator={onOperator}
-            disabled={state !== "open"}
-          />
-        ) : null}
     </main>
-  );
-}
-
-function DecisionsView({
-  snapshot,
-  worldEvents,
-}: {
-  readonly snapshot: ShowSnapshot;
-  readonly worldEvents: readonly BodyEvent[];
-}): React.JSX.Element {
-  return (
-    <div className="drawer__decisions">
-      {snapshot.operatorNotice ? (
-        <p className="panel-note" role="status">
-          {snapshot.operatorNotice.detail}
-          {snapshot.operatorNotice.kind === "whisper" ? " · 内容只在服务端留存" : ""}
-        </p>
-      ) : null}
-      <dl className="decision-summary">
-        <div><dt>本场输入</dt><dd>{snapshot.stats.received}</dd></div>
-        <div><dt>执行</dt><dd>{snapshot.stats.executed}</dd></div>
-        <div><dt>拒绝</dt><dd>{snapshot.stats.refused}</dd></div>
-      </dl>
-      <WorldEventStream events={worldEvents} />
-      <DecisionStream decisions={snapshot.decisions} />
-    </div>
   );
 }
 
@@ -554,146 +501,8 @@ function ConnectionRow({ label, value, tone }: ConnectionRowProps): React.JSX.El
   );
 }
 
-const PROPOSAL_TABS = [
-  ["pending", "待处理"],
-  ["accepted", "已采纳"],
-  ["deferred", "已延后"],
-  ["rejected", "已拒绝"],
-] as const;
-
-const RISK_LABELS: Record<string, string> = {
-  low: "低风险",
-  medium: "中风险",
-  high: "高风险",
-  blocked: "安全拦截",
-};
-
-const ALIGNMENT_LABELS: Record<string, string> = {
-  aligned: "符合目标",
-  neutral: "中性",
-  off_goal: "偏离目标",
-  unknown: "目标未验证",
-};
-
-/**
- * A read/decide surface over the inbox. It deliberately has no skill button:
- * accepting a proposal still goes through the operator's three gates.
- */
-function ProposalsView({
-  proposals,
-  disabled,
-  onDecide,
-}: {
-  readonly proposals: readonly ShowSnapshot["proposals"][number][];
-  readonly disabled: boolean;
-  readonly onDecide: (
-    proposalId: string,
-    status: "accepted" | "deferred" | "rejected" | "clarify",
-    reason: string,
-  ) => void;
-}): React.JSX.Element {
-  const [tab, setTab] = useState<(typeof PROPOSAL_TABS)[number][0]>("pending");
-  const [clarifications, setClarifications] = useState<Record<string, string>>({});
-  const visible = proposals.filter((proposal) => proposal.status === tab);
-
-  return (
-    <div className="proposal-view">
-      <div className="proposal-tabs" role="tablist" aria-label="提议状态">
-        {PROPOSAL_TABS.map(([status, label]) => (
-          <button
-            key={status}
-            type="button"
-            role="tab"
-            aria-selected={tab === status}
-            data-selected={tab === status}
-            onClick={() => setTab(status)}
-          >
-            {label}
-            <span>{proposals.filter((proposal) => proposal.status === status).length}</span>
-          </button>
-        ))}
-      </div>
-      {visible.length === 0 ? (
-        <p className="panel-note">这个分组里还没有提议。</p>
-      ) : (
-        <ol className="proposal-list">
-          {visible.map((proposal) => (
-            <li key={proposal.id} className="proposal-item" data-status={proposal.status}>
-              <div className="proposal-item__head">
-                <span className="proposal-item__votes">{proposal.votes} 票</span>
-                <span data-risk={proposal.risk}>{RISK_LABELS[proposal.risk] ?? proposal.risk}</span>
-                <span data-alignment={proposal.goalAlignment}>
-                  {ALIGNMENT_LABELS[proposal.goalAlignment] ?? proposal.goalAlignment}
-                </span>
-                <time>{clock(proposal.createdAt)}</time>
-              </div>
-              <p className="proposal-item__text">
-                意图 {proposal.intent} · 观众 {audienceRef(proposal.audienceRef)}
-              </p>
-              <p className="proposal-item__reason">
-                {proposal.reason}
-              </p>
-              {proposal.status === "pending" ? (
-                <div className="proposal-item__actions">
-                  <input
-                    className="input"
-                    value={clarifications[proposal.id] ?? ""}
-                    placeholder="决定理由（必填）"
-                    maxLength={600}
-                    disabled={disabled}
-                    onChange={(event) =>
-                      setClarifications((current) => ({
-                        ...current,
-                        [proposal.id]: event.target.value,
-                      }))
-                    }
-                  />
-                  {(
-                    [
-                      ["accepted", "采纳"],
-                      ["clarify", "澄清"],
-                      ["deferred", "延后"],
-                      ["rejected", "拒绝"],
-                    ] as const
-                  ).map(([status, label]) => (
-                    <button
-                      key={status}
-                      type="button"
-                      className="action action--ghost"
-                      disabled={disabled || (clarifications[proposal.id] ?? "").trim().length === 0}
-                      onClick={() => {
-                        onDecide(
-                          proposal.id,
-                          status,
-                          (clarifications[proposal.id] ?? "").trim(),
-                        );
-                        setClarifications((current) => ({ ...current, [proposal.id]: "" }));
-                      }}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              ) : proposal.decidedAt ? (
-                proposal.decidedAt === proposal.createdAt ? null : (
-                  <small className="proposal-item__time">决定于 {clock(proposal.decidedAt)}</small>
-                )
-              ) : null}
-            </li>
-          ))}
-        </ol>
-      )}
-    </div>
-  );
-}
-
 function modeLabel(mode: ShowMode): string {
   if (mode === "operator") return "操作员接管";
   if (mode === "stopped") return "已急停";
   return "Agent 自主";
-}
-
-function audienceRef(value: string): string {
-  if (value.length === 0) return "身份未上报";
-  return value.length <= 10 ? value : `${value.slice(0, 7)}…${value.slice(-3)}`;
 }

@@ -1,4 +1,15 @@
+import {
+  routeBlacklistCovers,
+  type RouteBlacklist,
+  type TargetLock,
+} from "@craftmate/contracts";
 import type { InventorySlot, NearbyBlock, NearbyEntity, WorldFacts } from "./types.ts";
+
+export interface FactFilters {
+  readonly routeBlacklist?: readonly RouteBlacklist[];
+  readonly targetLock?: TargetLock | null;
+  readonly now?: number;
+}
 
 /**
  * The subset of the body snapshot this layer reads. Every field is optional
@@ -16,12 +27,51 @@ export interface SnapshotView {
   readonly food?: number | null;
   readonly foodAcquired?: boolean | null;
   readonly foodConsumed?: boolean | null;
+  readonly dragonDefeated?: boolean | null;
   readonly craftingTableCrafted?: boolean | null;
   readonly craftingTablePlaced?: boolean | null;
   readonly chestCrafted?: boolean | null;
   readonly chestPlaced?: boolean | null;
   readonly bedPlaced?: boolean | null;
+  readonly bedInReach?: boolean | null;
+  readonly shelterBuilt?: boolean | null;
+  readonly shelter?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  readonly hut?: {
+    readonly origin: { readonly x: number; readonly y: number; readonly z: number };
+    readonly stand: { readonly x: number; readonly y: number; readonly z: number };
+    readonly pending?: { readonly x: number; readonly y: number; readonly z: number };
+    readonly action?: "clear" | "place";
+    readonly block?: string;
+    readonly material?: string;
+    readonly remaining: number;
+  } | null;
+  readonly mineEntrance?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  readonly mine?: {
+    readonly entrance: { readonly x: number; readonly y: number; readonly z: number };
+    readonly direction: "north" | "south" | "east" | "west";
+    readonly stair?: {
+      readonly stand: { readonly x: number; readonly y: number; readonly z: number };
+      readonly depth: number;
+      readonly pending?: {
+        readonly id: string;
+        readonly x: number;
+        readonly y: number;
+        readonly z: number;
+      };
+    };
+    readonly branch?: {
+      readonly stand: { readonly x: number; readonly y: number; readonly z: number };
+      readonly distance: number;
+      readonly pending?: {
+        readonly id: string;
+        readonly x: number;
+        readonly y: number;
+        readonly z: number;
+      };
+    };
+  } | null;
   readonly chest?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  readonly chestEmptySlots?: number | null;
   readonly bed?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly furnace?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly furnacePlaced?: boolean | null;
@@ -36,6 +86,12 @@ export interface SnapshotView {
   readonly onGround?: boolean | null;
   readonly surfaceY?: number | null;
   readonly canSeeSky?: boolean | null;
+  readonly floor?: string | null;
+  readonly floorPos?: { readonly x: number; readonly y: number; readonly z: number } | null;
+  readonly shaftWalls?: number | null;
+  readonly shaftTopY?: number | null;
+  readonly shaftDepth?: number | null;
+  readonly enclosed?: boolean | null;
   readonly lightLevel?: number | null;
   readonly selectedItem?: string | null;
   readonly inventory?: readonly {
@@ -82,11 +138,78 @@ export interface SnapshotView {
  * domain facts. Missing fields stay missing on purpose: a planner must not
  * treat "not reported" as "false" or "zero".
  */
-export function worldFactsFromSnapshot(snapshot: SnapshotView | null): WorldFacts {
+export function worldFactsFromSnapshot(
+  snapshot: SnapshotView | null,
+  filters: FactFilters = {},
+): WorldFacts {
   if (snapshot === null) return emptyWorldFacts();
   const inventory = normalizeInventory(snapshot.inventory, snapshot.hotbar);
   const nearbyBlocks = normalizeBlocks(snapshot.nearbyBlocks);
-  const entities = normalizeEntities(snapshot.entities);
+  const now = filters.now ?? Date.now();
+  let entities = normalizeEntities(snapshot.entities);
+  /*
+   * A target lock is a focus aid, not a suicide pact. Low health or a
+   * hostile inside melee range must release the animal/explore lock at
+   * once so the safety card can run; the next snapshot may lock a new
+   * target once the danger is gone.
+   */
+  const hostileNearby = entities.some(
+    (entity) =>
+      entity.distance <= 8 &&
+      /zombie|husk|drowned|skeleton|stray|creeper|spider|witch|pillager|vindicator|evoker|enderman|slime|magma_cube|blaze|ghast|wither|piglin|hoglin|phantom/iu.test(
+        entity.type,
+      ),
+  );
+  const lockDanger =
+    hostileNearby ||
+    (snapshot.health !== undefined &&
+      snapshot.health !== null &&
+      snapshot.health <= 8);
+  let targetLock =
+    filters.targetLock !== null &&
+    filters.targetLock !== undefined &&
+    filters.targetLock.expiresAt > now &&
+    !lockDanger
+      ? filters.targetLock
+      : null;
+  const routeBlacklist = (filters.routeBlacklist ?? []).filter(
+    (entry) => entry.expiresAt === null || entry.expiresAt > now,
+  );
+  if (routeBlacklist.length > 0) {
+    entities = entities.filter(
+      (entity) =>
+        entity.x === undefined ||
+        entity.y === undefined ||
+        entity.z === undefined ||
+        !routeBlacklist.some((entry) =>
+          routeBlacklistCovers(entry, {
+            x: entity.x!,
+            y: entity.y!,
+            z: entity.z!,
+          }, now),
+        ),
+    );
+  }
+  if (targetLock?.kind === "entity") {
+    const lock = targetLock;
+    const locked = entities.filter(
+      (entity) =>
+        entity.x !== undefined &&
+        entity.y !== undefined &&
+        entity.z !== undefined &&
+        `${entity.type}:${entity.name}` === lock.ref &&
+        Math.hypot(
+          entity.x - lock.x,
+          entity.y - lock.y,
+          entity.z - lock.z,
+        ) <= 8,
+    );
+    if (locked.length > 0) {
+      entities = locked;
+    } else {
+      targetLock = null;
+    }
+  }
   const stations = inferStations(nearbyBlocks).filter(
     (station) =>
       station !== "crafting_table" || snapshot.craftingTableReachable !== false,
@@ -105,6 +228,9 @@ export function worldFactsFromSnapshot(snapshot: SnapshotView | null): WorldFact
     inventory,
     nearbyBlocks,
     entities,
+    ...(routeBlacklist.length === 0 ? {} : { routeBlacklist }),
+    targetLock,
+    now,
     dimension: dimensionOf(snapshot.world),
     ...(stations.length === 0 ? {} : { stations }),
   };
@@ -117,12 +243,20 @@ export function worldFactsFromSnapshot(snapshot: SnapshotView | null): WorldFact
     food: snapshot.food,
     foodAcquired: snapshot.foodAcquired,
     foodConsumed: snapshot.foodConsumed,
+    dragonDefeated: snapshot.dragonDefeated,
     craftingTableCrafted: snapshot.craftingTableCrafted,
     craftingTablePlaced: snapshot.craftingTablePlaced,
     chestCrafted: snapshot.chestCrafted,
     chestPlaced: snapshot.chestPlaced,
     bedPlaced: snapshot.bedPlaced,
+    bedInReach: snapshot.bedInReach,
+    shelterBuilt: snapshot.shelterBuilt,
+    shelter: snapshot.shelter,
+    hut: snapshot.hut,
+    mineEntrance: snapshot.mineEntrance,
+    mine: snapshot.mine,
     chest: snapshot.chest,
+    chestEmptySlots: snapshot.chestEmptySlots,
     bed: snapshot.bed,
     furnace: snapshot.furnace,
     furnacePlaced: snapshot.furnacePlaced,
@@ -137,6 +271,12 @@ export function worldFactsFromSnapshot(snapshot: SnapshotView | null): WorldFact
     onGround: snapshot.onGround,
     surfaceY: snapshot.surfaceY,
     canSeeSky: snapshot.canSeeSky,
+    floor: snapshot.floor === undefined || snapshot.floor === null ? snapshot.floor : normalizeItem(snapshot.floor),
+    floorPos: snapshot.floorPos,
+    shaftWalls: snapshot.shaftWalls,
+    shaftTopY: snapshot.shaftTopY,
+    shaftDepth: snapshot.shaftDepth,
+    enclosed: snapshot.enclosed,
     lightLevel: snapshot.lightLevel,
     selectedItem: snapshot.selectedItem,
     reachableBlock,
@@ -222,8 +362,10 @@ export function pickaxeTier(facts: WorldFacts): number {
 }
 
 /**
- * Remaining pickaxe uses reported by the body, or null when the body does not
- * report durability. Treating "unknown" as zero would strand older bodies.
+ * Best remaining pickaxe uses reported by the body, or null when the body
+ * does not report durability. A mining trip can only use one tool at a time,
+ * so summing every worn backup made the planner believe a nearly broken
+ * pickaxe was safe.
  */
 export function pickaxeUses(
   facts: WorldFacts,
@@ -243,7 +385,7 @@ export function pickaxeUses(
   });
   if (!pickaxes.some((slot) => slot.durability !== undefined)) return null;
   return pickaxes.reduce(
-    (total, slot) => total + Math.max(0, slot.durability ?? 0),
+    (best, slot) => Math.max(best, Math.max(0, slot.durability ?? 0)),
     0,
   );
 }
@@ -335,6 +477,14 @@ export function nearestEntityWithinHeight(
   maxVertical = 12,
 ): NearbyEntity | null {
   const origin = facts.position;
+  const layerPenalty = (entity: NearbyEntity): number =>
+    origin === undefined ||
+    origin === null ||
+    entity.y === undefined
+      ? 0
+      : Math.abs(entity.y - origin.y) > 3
+        ? 1
+        : 0;
   return (
     (facts.entities ?? [])
       .filter(
@@ -346,7 +496,11 @@ export function nearestEntityWithinHeight(
             entity.y === undefined ||
             Math.abs(entity.y - origin.y) <= maxVertical),
       )
-      .sort((left, right) => left.distance - right.distance)[0] ?? null
+      .sort(
+        (left, right) =>
+          layerPenalty(left) - layerPenalty(right) ||
+          left.distance - right.distance,
+      )[0] ?? null
   );
 }
 
@@ -488,12 +642,20 @@ function withOptionals(
     readonly food?: number | null | undefined;
     readonly foodAcquired?: boolean | null | undefined;
     readonly foodConsumed?: boolean | null | undefined;
+    readonly dragonDefeated?: boolean | null | undefined;
     readonly craftingTableCrafted?: boolean | null | undefined;
     readonly craftingTablePlaced?: boolean | null | undefined;
     readonly chestCrafted?: boolean | null | undefined;
     readonly chestPlaced?: boolean | null | undefined;
     readonly bedPlaced?: boolean | null | undefined;
+    readonly bedInReach?: boolean | null | undefined;
+    readonly shelterBuilt?: boolean | null | undefined;
+    readonly shelter?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
+    readonly hut?: WorldFacts["hut"] | undefined;
+    readonly mineEntrance?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
+    readonly mine?: WorldFacts["mine"] | undefined;
     readonly chest?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
+    readonly chestEmptySlots?: number | null | undefined;
     readonly bed?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
     readonly furnace?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
     readonly furnacePlaced?: boolean | null | undefined;
@@ -508,6 +670,12 @@ function withOptionals(
     readonly onGround?: boolean | null | undefined;
     readonly surfaceY?: number | null | undefined;
     readonly canSeeSky?: boolean | null | undefined;
+    readonly floor?: string | null | undefined;
+    readonly floorPos?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
+    readonly shaftWalls?: number | null | undefined;
+    readonly shaftTopY?: number | null | undefined;
+    readonly shaftDepth?: number | null | undefined;
+    readonly enclosed?: boolean | null | undefined;
     readonly lightLevel?: number | null | undefined;
     readonly selectedItem?: string | null | undefined;
     readonly reachableBlock?: WorldFacts["reachableBlock"] | undefined;
@@ -523,12 +691,20 @@ function withOptionals(
     ...(optional.food === undefined ? {} : { food: optional.food }),
     ...(optional.foodAcquired === undefined ? {} : { foodAcquired: optional.foodAcquired }),
     ...(optional.foodConsumed === undefined ? {} : { foodConsumed: optional.foodConsumed }),
+    ...(optional.dragonDefeated === undefined ? {} : { dragonDefeated: optional.dragonDefeated }),
     ...(optional.craftingTableCrafted === undefined ? {} : { craftingTableCrafted: optional.craftingTableCrafted }),
     ...(optional.craftingTablePlaced === undefined ? {} : { craftingTablePlaced: optional.craftingTablePlaced }),
     ...(optional.chestCrafted === undefined ? {} : { chestCrafted: optional.chestCrafted }),
     ...(optional.chestPlaced === undefined ? {} : { chestPlaced: optional.chestPlaced }),
     ...(optional.bedPlaced === undefined ? {} : { bedPlaced: optional.bedPlaced }),
+    ...(optional.bedInReach === undefined ? {} : { bedInReach: optional.bedInReach }),
+    ...(optional.shelterBuilt === undefined ? {} : { shelterBuilt: optional.shelterBuilt }),
+    ...(optional.shelter === undefined ? {} : { shelter: optional.shelter }),
+    ...(optional.hut === undefined ? {} : { hut: optional.hut }),
+    ...(optional.mineEntrance === undefined ? {} : { mineEntrance: optional.mineEntrance }),
+    ...(optional.mine === undefined ? {} : { mine: optional.mine }),
     ...(optional.chest === undefined ? {} : { chest: optional.chest }),
+    ...(optional.chestEmptySlots === undefined ? {} : { chestEmptySlots: optional.chestEmptySlots }),
     ...(optional.bed === undefined ? {} : { bed: optional.bed }),
     ...(optional.furnace === undefined ? {} : { furnace: optional.furnace }),
     ...(optional.furnacePlaced === undefined ? {} : { furnacePlaced: optional.furnacePlaced }),
@@ -543,6 +719,12 @@ function withOptionals(
     ...(optional.onGround === undefined ? {} : { onGround: optional.onGround }),
     ...(optional.surfaceY === undefined ? {} : { surfaceY: optional.surfaceY }),
     ...(optional.canSeeSky === undefined ? {} : { canSeeSky: optional.canSeeSky }),
+    ...(optional.floor === undefined ? {} : { floor: optional.floor }),
+    ...(optional.floorPos === undefined ? {} : { floorPos: optional.floorPos }),
+    ...(optional.shaftWalls === undefined ? {} : { shaftWalls: optional.shaftWalls }),
+    ...(optional.shaftTopY === undefined ? {} : { shaftTopY: optional.shaftTopY }),
+    ...(optional.shaftDepth === undefined ? {} : { shaftDepth: optional.shaftDepth }),
+    ...(optional.enclosed === undefined ? {} : { enclosed: optional.enclosed }),
     ...(optional.lightLevel === undefined ? {} : { lightLevel: optional.lightLevel }),
     ...(optional.selectedItem === undefined ? {} : { selectedItem: optional.selectedItem }),
     ...(optional.reachableBlock === undefined ? {} : { reachableBlock: optional.reachableBlock }),

@@ -66,5 +66,55 @@ describe("agent telemetry storage", () => {
     assert.equal(store.recent(10).length, 1);
     db.close();
   });
+
+  test("playbook provenance survives a restart", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "craftmate-telemetry-")), "show.db");
+    const first = openDatabase({ file });
+    const context = new SessionStore(first).bootstrap(dafeiyu, "盖房");
+    new AgentEventStore(first, context).append(
+      event({
+        id: "evt-playbook",
+        stage: "task_settled",
+        playbookId: "mine.ore",
+        cardStatus: "available",
+        switchReason: "看到铁矿",
+        failureCode: "E_PATH",
+        recoveryId: "mine.surface",
+        modelChoice: true,
+        fallbackReason: null,
+        routeMode: "recover",
+        blockedReason: "normal walk was enclosed",
+        blacklistId: "blacklist-1",
+        targetLock: {
+          kind: "explore",
+          ref: "explore:iron:iron_ore",
+          dimension: "minecraft:overworld",
+          x: 12,
+          y: 64,
+          z: 8,
+          cardId: "mine.ore",
+          lockedAt: 1_000,
+          expiresAt: 31_000,
+        },
+        source: "goal",
+      }),
+    );
+    first.close();
+
+    const second = openDatabase({ file });
+    const restored = new AgentEventStore(second, context).recent(1)[0];
+    assert.equal(restored?.playbookId, "mine.ore");
+    assert.equal(restored?.cardStatus, "available");
+    assert.equal(restored?.switchReason, "看到铁矿");
+    assert.equal(restored?.failureCode, "E_PATH");
+    assert.equal(restored?.recoveryId, "mine.surface");
+    assert.equal(restored?.modelChoice, true);
+    assert.equal(restored?.fallbackReason, null);
+    assert.equal(restored?.routeMode, "recover");
+    assert.equal(restored?.blockedReason, "normal walk was enclosed");
+    assert.equal(restored?.blacklistId, "blacklist-1");
+    assert.equal(restored?.targetLock?.ref, "explore:iron:iron_ore");
+    second.close();
+  });
 });
 

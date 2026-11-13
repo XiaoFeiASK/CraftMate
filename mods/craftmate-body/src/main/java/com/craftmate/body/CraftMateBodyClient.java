@@ -1,14 +1,17 @@
 package com.craftmate.body;
 
 import com.craftmate.body.bridge.BridgeClient;
+import com.craftmate.body.bridge.BridgeSelfCheck;
 import com.craftmate.body.bridge.CameraController;
 import com.craftmate.body.bridge.GameActions;
 import com.craftmate.body.stream.FrameServer;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.GameRules;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,8 +27,20 @@ public final class CraftMateBodyClient implements ClientModInitializer {
 
 	@Override
 	public void onInitializeClient() {
+		var missing = BridgeSelfCheck.verify();
+		if (!missing.isEmpty()) {
+			throw new IllegalStateException(
+				"CraftMate body jar is incomplete; restart with a freshly built jar. Missing: " + missing
+			);
+		}
+		LOGGER.info("CraftMate bridge class self-check passed; {} classes loaded", BridgeSelfCheck.classNames().size());
 		bridge = BridgeClient.startDefault();
 		frames = FrameServer.start(() -> Minecraft.getInstance().level != null);
+		ServerLivingEntityEvents.AFTER_DEATH.register((entity, damageSource) -> {
+			if (entity.getType() == EntityType.ENDER_DRAGON) {
+				GameActions.noteDragonDefeated();
+			}
+		});
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
 			// A background autonomous body must keep ticking when the operator
 			// switches to the dashboard or another window. Vanilla pauses the
@@ -38,8 +53,9 @@ public final class CraftMateBodyClient implements ClientModInitializer {
 			}
 			ensureViewerBrightness(client);
 			ensureKeepInventory(client);
-			bridge.tick(client);
 			CameraController.worldChanged(client);
+			CameraController.observe(client);
+			bridge.tick(client);
 			boolean agentControlled = bridge.agentControlled();
 			if (agentOwnedLastTick && !agentControlled) {
 				// The body can outlive a dead orchestrator. Refuse to keep
