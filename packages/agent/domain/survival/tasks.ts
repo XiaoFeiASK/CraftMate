@@ -41,6 +41,13 @@ export interface TaskContext {
   readonly stage: GoalId;
   readonly facts: WorldFacts;
   readonly newId: () => string;
+  /**
+   * `full` keeps the cross-stage safety, food, night and storage gates.
+   * `stage` evaluates only the stage's own task builder so a playbook card
+   * can offer useful work when the mainline is blocked by an unrelated
+   * route refusal (for example an old mine entrance).
+   */
+  readonly scope?: "full" | "stage";
 }
 
 const WOOD_ITEMS = /(^|:)[a-z_]+_(log|wood|stem|hyphae)$/u;
@@ -130,6 +137,13 @@ const MAX_WALK_TABLE_VERTICAL = 12;
  * especially underground, where no tree exists at all.
  */
 const WALK_BACK_TABLE_DISTANCE = 64;
+/**
+ * A table is only "the one this body just placed" when it is still within a
+ * short walk. A remembered table 20+ blocks away is not a local station even
+ * if the place flag is still set; treating it as usable made the planner skip
+ * the rebuild and then fail the craft with "no table within range".
+ */
+const JUST_PLACED_TABLE_DISTANCE = 8;
 
 /**
  * Builds the single next executable task for a stage. When no task is ready,
@@ -138,81 +152,54 @@ const WALK_BACK_TABLE_DISTANCE = 64;
  */
 export function nextTaskForStage(context: TaskContext): Task | BlockedTask | null {
   const { stage, facts, newId } = context;
-  const safety = immediateSafetyTask(stage, facts, newId);
-  if (safety !== null) return safety;
-  // Hunger is a survival need in every stage, not only while the food stage
-  // happens to be the current milestone. This keeps a later mining trip from
-  // ignoring a steak in the backpack until the body starves.
-  const meal = immediateFoodTask(stage, facts, newId);
-  if (meal !== null) return meal;
-  // Night and a full backpack are cross-stage needs too. Going home must win
-  // over a mining or exploration task, and offloading bulk items has to win
-  // before a full inventory silently blocks every pickup.
-  const nightHome = nightHomeTask(stage, facts, newId);
-  if (nightHome !== null) return nightHome;
-  // A broken pickaxe is a hard capability loss, not a storage problem. When
-  // the backpack is full the old order walked home first, then tried to mine
-  // a staircase bare-handed. Restore the tool (or make a safe local table)
-  // before any long transfer or exploration.
-  const toolRescue = essentialPickaxeTask(stage, facts, newId);
-  if (toolRescue !== null) return toolRescue;
-  // A pickaxe is not a weapon. The first live night produced nine deaths in
-  // twenty minutes because the body carried cobblestone and sticks but kept
-  // running from zombies bare-handed. Craft the basic sword while daylight
-  // and a station are still available, then let the combat card use it.
-  const weaponPrep = essentialWeaponTask(stage, facts, newId);
-  if (weaponPrep !== null) return weaponPrep;
-  const campChest = campChestTask(stage, facts, newId);
-  if (campChest !== null) return campChest;
-  const campBed = campBedTask(stage, facts, newId);
-  if (campBed !== null) return campBed;
-  const overflow = overflowStorageTask(stage, facts, newId);
-  if (overflow !== null) return overflow;
-  const storage = homeStorageTask(stage, facts, newId);
-  if (storage !== null) {
-    return reclaimStationTask(stage, facts, storage, newId) ?? storage;
+  if (context.scope !== "stage") {
+    const safety = immediateSafetyTask(stage, facts, newId);
+    if (safety !== null) return safety;
+    // Hunger is a survival need in every stage, not only while the food stage
+    // happens to be the current milestone. This keeps a later mining trip from
+    // ignoring a steak in the backpack until the body starves.
+    const meal = immediateFoodTask(stage, facts, newId);
+    if (meal !== null) return meal;
+    // Night and a full backpack are cross-stage needs too. Going home must win
+    // over a mining or exploration task, and offloading bulk items has to win
+    // before a full inventory silently blocks every pickup.
+    const nightHome = nightHomeTask(stage, facts, newId);
+    if (nightHome !== null) return nightHome;
+    // A broken pickaxe is a hard capability loss, not a storage problem. When
+    // the backpack is full the old order walked home first, then tried to mine
+    // a staircase bare-handed. Restore the tool (or make a safe local table)
+    // before any long transfer or exploration.
+    const toolRescue = essentialPickaxeTask(stage, facts, newId);
+    if (toolRescue !== null) return toolRescue;
+    // A pickaxe is not a weapon. The first live night produced nine deaths in
+    // twenty minutes because the body carried cobblestone and sticks but kept
+    // running from zombies bare-handed. Craft the basic sword while daylight
+    // and a station are still available, then let the combat card use it.
+    const weaponPrep = essentialWeaponTask(stage, facts, newId);
+    if (weaponPrep !== null) return weaponPrep;
+    const campChest = campChestTask(stage, facts, newId);
+    if (campChest !== null) return campChest;
+    const campBed = campBedTask(stage, facts, newId);
+    if (campBed !== null) return campBed;
+    const overflow = overflowStorageTask(stage, facts, newId);
+    if (overflow !== null) return overflow;
+    const storage = homeStorageTask(stage, facts, newId);
+    if (storage !== null) {
+      return reclaimStationTask(stage, facts, storage, newId) ?? storage;
+    }
+    const miningReturn = miningReturnTask(stage, facts, newId);
+    if (miningReturn !== null) return miningReturn;
+    const reserve = foodReserveTask(stage, facts, newId);
+    if (reserve !== null) return reserve;
+    // A visible ore is a state-driven opportunity, not a stage reward. Waiting
+    // for the linear DAG to reach `iron` made the body walk past a lit iron
+    // vein while it was still polishing off stone tools. The deterministic
+    // fallback now takes the one-block opportunity; the model can still rank
+    // food, shelter or a failure recovery beside it.
+    const visibleIron = crossStageIronOpportunity(stage, facts, newId);
+    if (visibleIron !== null) return visibleIron;
   }
-  const miningReturn = miningReturnTask(stage, facts, newId);
-  if (miningReturn !== null) return miningReturn;
-  const reserve = foodReserveTask(stage, facts, newId);
-  if (reserve !== null) return reserve;
-  // A visible ore is a state-driven opportunity, not a stage reward. Waiting
-  // for the linear DAG to reach `iron` made the body walk past a lit iron
-  // vein while it was still polishing off stone tools. The deterministic
-  // fallback now takes the one-block opportunity; the model can still rank
-  // food, shelter or a failure recovery beside it.
-  const visibleIron = crossStageIronOpportunity(stage, facts, newId);
-  if (visibleIron !== null) return visibleIron;
-  let task: Task | BlockedTask | null;
-  switch (stage) {
-    case "wood-and-table":
-      task = woodAndTable(facts, newId);
-      break;
-    case "stone-tools":
-      task = stoneTools(facts, newId);
-      break;
-    case "food":
-      task = foodTask(facts, newId);
-      break;
-    case "shelter":
-      task = shelter(facts, newId);
-      break;
-    case "iron":
-      task = iron(facts, newId);
-      break;
-    case "nether":
-      task = nether(facts, newId);
-      break;
-    case "eyes":
-      task = eyes(facts, newId);
-      break;
-    case "stronghold":
-      task = stronghold(facts, newId);
-      break;
-    case "dragon":
-      task = dragon(facts, newId);
-      break;
-  }
+  const task = stageTask(stage, facts, newId);
   const reclaim =
     task !== null && "skill" in task
       ? reclaimStationTask(stage, facts, task, newId)
@@ -223,6 +210,33 @@ export function nextTaskForStage(context: TaskContext): Task | BlockedTask | nul
     if (fullCamp !== null) return fullCamp;
   }
   return resolved;
+}
+
+function stageTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | BlockedTask | null {
+  switch (stage) {
+    case "wood-and-table":
+      return woodAndTable(facts, newId);
+    case "stone-tools":
+      return stoneTools(facts, newId);
+    case "food":
+      return foodTask(facts, newId);
+    case "shelter":
+      return shelter(facts, newId);
+    case "iron":
+      return iron(facts, newId);
+    case "nether":
+      return nether(facts, newId);
+    case "eyes":
+      return eyes(facts, newId);
+    case "stronghold":
+      return stronghold(facts, newId);
+    case "dragon":
+      return dragon(facts, newId);
+  }
 }
 
 function immediateFoodTask(
@@ -1279,7 +1293,7 @@ function foodTask(facts: WorldFacts, newId: () => string): Task | BlockedTask | 
   if (
     facts.food !== undefined &&
     facts.food !== null &&
-    facts.food >= 18 &&
+    facts.food >= 17 &&
     (facts.health === undefined || facts.health === null || facts.health >= 12)
   ) {
     // The milestone advances in this state; do not keep chopping trees for an
@@ -1806,11 +1820,39 @@ function deepUnderground(facts: WorldFacts): boolean {
   return (depthBelowSurface(facts) ?? 0) > 8;
 }
 
+function routePointBlacklisted(
+  facts: WorldFacts,
+  point: { readonly x: number; readonly y: number; readonly z: number },
+): boolean {
+  return (facts.routeBlacklist ?? []).some((entry) =>
+    routeBlacklistCovers(entry, point, facts.now ?? Date.now()),
+  );
+}
+
 function distanceTo(
   left: { readonly x: number; readonly y: number; readonly z: number },
   right: { readonly x: number; readonly y: number; readonly z: number },
 ): number {
   return Math.hypot(left.x - right.x, left.y - right.y, left.z - right.z);
+}
+
+/**
+ * The body's natural-route search has a hard 56/64-block budget. A camp
+ * ninety blocks away is still a valid destination, but one command cannot
+ * cover it. Let long transfers settle on a verified partial route (at least
+ * four blocks of real progress) and re-plan from the new position. Short
+ * station approaches keep the strict "must arrive" contract.
+ */
+const PARTIAL_TRANSFER_DISTANCE = 48;
+
+function transferAcceptsPartial(
+  facts: WorldFacts,
+  target: { readonly x: number; readonly y: number; readonly z: number },
+): boolean {
+  const position = facts.position;
+  return position !== undefined &&
+    position !== null &&
+    distanceTo(position, target) > PARTIAL_TRANSFER_DISTANCE;
 }
 
 function nearbyPoint(block: NearbyBlock | null): { x: number; y: number; z: number } | undefined {
@@ -1846,7 +1888,7 @@ function exactOpportunisticAt(
   return { at: { x: block.x!, y: block.y!, z: block.z! } };
 }
 
-function gotoHomeTask(
+export function gotoHomeTask(
   stage: GoalId,
   facts: WorldFacts,
   newId: () => string,
@@ -1864,49 +1906,52 @@ function gotoHomeTask(
   // Offering both lets a chest on a raised block be approached from its own
   // level instead of asking the body to jump two blocks onto the shelf.
   const seen = new Set<string>();
-  const candidates: { x: number; y: number; z: number }[] = [];
-  for (const anchor of anchors) {
-    // A station can sit on a shelf: the chest is often two blocks above the
-    // floor the body walks on. Offering only the station's own height made
-    // the pathfinder aim at an unstandable cell beside the chest and report
-    // "dangerous drop or water ahead" while the body was already at camp.
-    for (const y of [anchor.y, anchor.y + 1, anchor.y - 1, anchor.y - 2]) {
-      for (const cell of [
-        { x: anchor.x + 1, y, z: anchor.z },
-        { x: anchor.x - 1, y, z: anchor.z },
-        { x: anchor.x, y, z: anchor.z + 1 },
-        { x: anchor.x, y, z: anchor.z - 1 },
-      ]) {
+  const candidates: {
+    x: number;
+    y: number;
+    z: number;
+    anchor: number;
+    level: number;
+  }[] = [];
+  // A station can sit on a shelf: the chest is often two blocks above the
+  // floor the body walks on. Offering several heights lets a raised chest be
+  // approached from its own level instead of asking the body to jump onto
+  // the shelf. Level-major order keeps every remembered station represented
+  // in the first eight cells instead of spending them all on the chest.
+  for (const [level, offset] of [0, 1, -1, -2].entries()) {
+    for (const side of [0, 1, 2, 3]) {
+      for (const [anchorIndex, anchor] of anchors.entries()) {
+        const y = anchor.y + offset;
+        const cell =
+          side === 0
+            ? { x: anchor.x + 1, y, z: anchor.z }
+            : side === 1
+              ? { x: anchor.x - 1, y, z: anchor.z }
+              : side === 2
+                ? { x: anchor.x, y, z: anchor.z + 1 }
+                : { x: anchor.x, y, z: anchor.z - 1 };
         const key = `${cell.x},${cell.y},${cell.z}`;
         if (!seen.has(key)) {
           seen.add(key);
-          candidates.push(cell);
+          candidates.push({ ...cell, anchor: anchorIndex, level });
         }
       }
     }
   }
+  /*
+   * Rank by station and floor level only. The old comparator mixed in the
+   * body's current distance, so walking toward the east side of the chest
+   * made the west side look closer on the next tick and the body reversed.
+   * That produced the visible 77 <-> 83 block oscillation on the beach. A
+   * stable order lets the bridge try every side of the same station without
+   * the plan changing its mind every snapshot.
+   */
   candidates.sort(
-    (left, right) => {
-      // Prefer the station's own floor, then lower terraces. A pure
-      // Euclidean sort picked a cell two blocks below a raised chest even
-      // when the chest's floor was reachable, which reads as standing in a
-      // hole instead of walking up to the chest.
-      const anchor = anchors.reduce((best, entry) =>
-        Math.hypot(left.x - entry.x, left.z - entry.z) <
-        Math.hypot(left.x - best.x, left.z - best.z)
-          ? entry
-          : best,
-      );
-      const leftPenalty = Math.abs(left.y - anchor.y) * 1_000;
-      const rightPenalty = Math.abs(right.y - anchor.y) * 1_000;
-      return (
-        leftPenalty +
-        distanceTo(position, left) -
-        (rightPenalty + distanceTo(position, right))
-      );
-    },
+    (left, right) =>
+      left.level - right.level ||
+      left.anchor - right.anchor,
   );
-  const ranked = candidates.slice(0, 8);
+  const ranked = candidates.slice(0, 8).map(({ x, y, z }) => ({ x, y, z }));
   return {
     id: `task:${newId()}`,
     stage,
@@ -1915,7 +1960,7 @@ function gotoHomeTask(
     skill: skill("goto", {
       target: ranked[0],
       candidates: ranked,
-      acceptPartial: false,
+      acceptPartial: transferAcceptsPartial(facts, ranked[0]!),
       mode: "walk",
     }, newId),
     preconditions: ["a placed home station is remembered", "a safe route home exists"],
@@ -1945,7 +1990,7 @@ function gotoHomeTask(
  * climb back to the surface before hunger, a broken pickaxe or a full
  * backpack turns a productive trip into a death.
  */
-function returnToSurfaceTask(
+export function returnToSurfaceTask(
   stage: GoalId,
   facts: WorldFacts,
   newId: () => string,
@@ -2070,6 +2115,12 @@ function mineStepTask(
   const step = descending ? mine.stair : mine.branch;
   if (step === undefined) return null;
   const stand = step.stand;
+  if (
+    routePointBlacklisted(facts, stand) ||
+    (step.pending !== undefined && routePointBlacklisted(facts, step.pending))
+  ) {
+    return null;
+  }
   if (distanceTo(position, stand) > 2 || Math.abs(position.y - stand.y) > 1) {
     return {
       id: `task:${newId()}`,
@@ -2357,7 +2408,7 @@ function gotoFurnaceTask(
     skill: skill("goto", {
       target: candidates[0],
       candidates,
-      acceptPartial: false,
+      acceptPartial: transferAcceptsPartial(facts, candidates[0]!),
       mode: "walk",
     }, newId),
     preconditions: ["a placed furnace is remembered", "a route to the station exists"],
@@ -2488,9 +2539,10 @@ function gotoBedTask(
       candidates.push(cell);
     }
   }
-  candidates.sort(
-    (left, right) => distanceTo(position, left) - distanceTo(position, right),
-  );
+  // Keep the bed's own floor first. Sorting by the body's current distance
+  // made the preferred side flip whenever the body crossed the bed's column,
+  // which showed up as pacing left and right beside the bed instead of
+  // arriving. The construction order is already deterministic.
   const ranked = candidates.slice(0, 8);
   return {
     id: `task:${newId()}`,
@@ -2500,7 +2552,7 @@ function gotoBedTask(
     skill: skill("goto", {
       target: ranked[0],
       candidates: ranked,
-      acceptPartial: false,
+      acceptPartial: transferAcceptsPartial(facts, ranked[0]!),
       mode: "walk",
     }, newId),
     preconditions: ["the camp bed is remembered", "a safe route to its floor exists"],
@@ -2719,23 +2771,30 @@ function nightCraftTask(
   return null;
 }
 
+/*
+ * Cobblestone is a tool and building reserve, not ordinary junk. It becomes
+ * storable only when the body carries more than it can use. `deposit` still
+ * empties one inventory stack per transfer; the range task passes
+ * `maxStacks: 1`, so the reserve survives while one slot is freed for food.
+ */
 const STORAGE_ITEMS =
-  /(^|:)(cobblestone|raw_copper|dirt|oak_sapling|gravel|andesite|diorite|granite|tuff|deepslate|netherrack)$/u;
+  /(^|:)(raw_copper|dirt|oak_sapling|gravel|andesite|diorite|granite|tuff|deepslate|netherrack|cobblestone)$/u;
+const COBBLESTONE_RESERVE = 32;
+const COBBLESTONE_DEPOSIT_STACK = 64;
 
 function usedInventorySlots(facts: WorldFacts): number {
   return facts.inventory.filter((slot) => slot.count > 0).length;
 }
 
 function storageChoice(facts: WorldFacts): string | null {
+  const cobblestone = inventoryCount(facts, "minecraft:cobblestone");
   const candidates = facts.inventory
-    .filter((slot) => STORAGE_ITEMS.test(slot.item) && slot.count > 0)
     .filter(
       (slot) =>
-        !(
-          slot.item === "minecraft:cobblestone" &&
-          pickaxeTier(facts) < 2 &&
-          slot.count < 32
-        ),
+        STORAGE_ITEMS.test(slot.item) &&
+        slot.count > 0 &&
+        (!/(^|:)cobblestone$/u.test(slot.item) ||
+          cobblestone > COBBLESTONE_RESERVE + COBBLESTONE_DEPOSIT_STACK),
     )
     .sort((left, right) => right.count - left.count);
   return candidates[0]?.item ?? null;
@@ -2818,6 +2877,7 @@ function homeStorageTask(
     skill: skill("deposit", {
       item,
       container,
+      maxStacks: 1,
     }, newId),
     preconditions: ["the camp chest is remembered", "a bulk material is filling the backpack"],
     expectedEvidence: ["the item count in the inventory decreases", "the chest receives the items"],
@@ -3104,7 +3164,14 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
         ? gotoFurnaceTask("iron", facts, newId)
         : null;
     if (rememberedFurnace !== null) return rememberedFurnace;
-    if (hasItem(facts, "minecraft:furnace")) {
+    // Do not put the field furnace down while the pack carries partial ore.
+    // The live run placed and reclaimed the same furnace every few seconds:
+    // the upcoming mine entrance was far enough to trigger reclaim, then the
+    // next plan saw the carried furnace and placed it again before mining.
+    // With no raw iron at all, placing it for charcoal/torch work is still
+    // useful and must remain allowed.
+    const waitingForMoreOre = rawIron > 0 && metalDeficit > 0;
+    if (hasItem(facts, "minecraft:furnace") && !waitingForMoreOre) {
       // Carrying the furnace in a deep cave is not a reason to climb out.
       // Keep it for the next local smelt and continue the mining task.
       if (!deepUnderground(facts)) {
@@ -3443,6 +3510,29 @@ export function miningLayerTask(
   // body happens to stand is what cut a new staircase beside the camp on
   // every trip; the old one was still open and perfectly reusable.
   const entrance = facts.mineEntrance;
+  const mineStands = [
+    entrance,
+    facts.mine?.entrance,
+    facts.mine?.stair?.stand,
+    facts.mine?.branch?.stand,
+  ].filter(
+    (point): point is { readonly x: number; readonly y: number; readonly z: number } =>
+      point !== undefined && point !== null,
+  );
+  if (
+    mineStands.some((point) =>
+      (facts.routeBlacklist ?? []).some((entry) =>
+        routeBlacklistCovers(entry, point, facts.now ?? Date.now()),
+      ),
+    )
+  ) {
+    return blockedWith(stage, "mine", title, [
+      {
+        kind: "safety",
+        detail: "旧矿道入口已被路线黑名单拒绝；先换区域重新观察，不重复走同一条路",
+      },
+    ]);
+  }
   if (
     (entrance === undefined || entrance === null) &&
     !isUnderground(facts) &&
@@ -3624,7 +3714,7 @@ function gotoMineEntranceTask(
     skill: skill("goto", {
       target: entrance,
       candidates: [entrance, { x: entrance.x, y: entrance.y + 1, z: entrance.z }],
-      acceptPartial: false,
+      acceptPartial: transferAcceptsPartial(facts, entrance),
       mode: "walk",
     }, newId),
     preconditions: ["the body remembers its reusable mine entrance", "a safe surface route exists"],
@@ -3913,6 +4003,17 @@ export function explore(
       : null;
   const lockedExplore =
     suggestedLock !== null &&
+    /*
+     * A lock is a direction, not a destination the body may stand on
+     * forever. Once the body is already at the locked point, re-issuing it
+     * produced a tight loop of `goto completed` frames every few hundred
+     * milliseconds until the thirty-second lock expired. Treat "arrived" as
+     * satisfied and choose the next heading.
+     */
+    Math.hypot(
+      suggestedLock.x - origin.x,
+      suggestedLock.z - origin.z,
+    ) > 4 &&
     !(facts.routeBlacklist ?? []).some((entry) =>
       routeBlacklistCovers(entry, suggestedLock, facts.now),
     )
@@ -3939,14 +4040,19 @@ export function explore(
               ) > 1,
           ),
         ];
+  // A sticky lock plus eight sweep headings produced nine destinations,
+  // which the bridge schema caps at eight. The whole plan then failed with
+  // `invalid args for goto` on every tick until the lock expired. Keep the
+  // locked target first and trim the sweep to the remaining slots.
+  const boundedCandidates = candidates.slice(0, 8);
   return {
     id: `task:${newId()}`,
     stage,
     kind: "navigate",
     title: `${title}（搜索 ${resource}）`,
     skill: skill("goto", {
-      target: candidates[0]!,
-      candidates,
+      target: boundedCandidates[0]!,
+      candidates: boundedCandidates,
       acceptPartial: true,
       mode: "walk",
     }, newId),
@@ -3954,9 +4060,9 @@ export function explore(
       kind: "explore",
       ref: `explore:${stage}:${resource}`,
       dimension: facts.dimension ?? "minecraft:overworld",
-      x: candidates[0]!.x,
-      y: candidates[0]!.y,
-      z: candidates[0]!.z,
+      x: boundedCandidates[0]!.x,
+      y: boundedCandidates[0]!.y,
+      z: boundedCandidates[0]!.z,
     },
     preconditions: [
       "a safe bounded route exists from the current position",
@@ -4105,6 +4211,27 @@ function ensureTable(
       return gotoCraftingTableTask(stage, facts, newId);
     }
     return null;
+  }
+
+  // `reachable=false` means the bridge could not interact with the remembered
+  // table, not that the table is a valid walking destination. The live run
+  // kept asking for a stone pickaxe and failing with "no safe route to the
+  // crafting table" while carrying enough planks to build a 2x2 table on the
+  // spot. Prefer the local rebuild when the materials are already in the pack;
+  // otherwise keep the existing walk-home behaviour for partially observed
+  // tables.
+  // A table this body just placed beside itself is not "missing" merely
+  // because the crosshair ray did not reach it. Rebuilding in that state was
+  // the visible table place/reclaim loop: every snapshot saw the fresh table
+  // as unreachable, crafted another, and placed it on a newer ledge. Let the
+  // craft skill walk to a same-level table first; only rebuild when the
+  // remembered station is genuinely out of walking range.
+  if (
+    facts.craftingTableReachable === false &&
+    !placedTableWithinWalk(facts)
+  ) {
+    const rescue = rescueTableTask(stage, facts, newId);
+    if (rescue !== null) return rescue;
   }
 
   // A lost pickaxe deep underground is a tool rescue, not a commute. When
@@ -4257,7 +4384,7 @@ function gotoCraftingTableTask(
     skill: skill("goto", {
       target: candidates[0],
       candidates,
-      acceptPartial: false,
+      acceptPartial: transferAcceptsPartial(facts, candidates[0]!),
       mode: "walk",
     }, newId),
     preconditions: ["a placed crafting table is remembered", "a route to the station exist"],
@@ -4292,7 +4419,7 @@ function placedTableWithinWalk(facts: WorldFacts): boolean {
       table.x - position.x,
       table.y - position.y,
       table.z - position.z,
-    ) <= WALK_BACK_TABLE_DISTANCE
+    ) <= JUST_PLACED_TABLE_DISTANCE
   );
 }
 

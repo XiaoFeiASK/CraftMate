@@ -894,6 +894,10 @@ public final class GameActions {
 			client.level.getHeight(Heightmap.Types.WORLD_SURFACE, bodyPos.getX(), bodyPos.getZ())
 		);
 		world.addProperty("canSeeSky", client.level.canSeeSky(bodyPos));
+		world.addProperty(
+			"inWater",
+			player.isInWater() || player.isEyeInFluid(FluidTags.WATER)
+		);
 		/*
 		 * A one-block emergency shaft is a real shelter even though the
 		 * heightmap at its floor says "surface". The planner needs the wall
@@ -1673,7 +1677,8 @@ public final class GameActions {
 				case "deposit" -> new DepositTask(
 					id,
 					optional(args, "item"),
-					optionalBlockPos(args, "container")
+					optionalBlockPos(args, "container"),
+					integer(args, "maxStacks", Integer.MAX_VALUE)
 				);
 				case "attack" -> new AttackTask(
 					id,
@@ -1844,6 +1849,36 @@ public final class GameActions {
 			!reflexes.tick(client, agentControlled, emergencyAction)
 		) {
 			advanceTasks(client, agentControlled);
+		}
+		// Vanilla buoyancy is slow. A body that falls into deep water used to
+		// sink for several seconds before any task noticed and started
+		// swimming. Surface on the first water-contact tick regardless of
+		// which skill owns the body; tasks may still steer forward while this
+		// key lifts the eyes out of the fluid.
+		surfaceIfSubmerged(client);
+	}
+
+	private static void surfaceIfSubmerged(Minecraft client) {
+		LocalPlayer player = client.player;
+		if (
+			player == null ||
+			!player.isAlive()
+		) return;
+		boolean bodyInWater = player.isInWater();
+		boolean eyesInWater = player.isEyeInFluid(FluidTags.WATER);
+		if (!WaterSurface.needsJump(bodyInWater, eyesInWater, player.onGround())) {
+			return;
+		}
+		client.options.keyJump.setDown(true);
+		if (player.input != null) {
+			// KeyboardInput normally derives this from keyJump, but writing
+			// the field as well makes the very next player tick rise even if
+			// another input backend (or a same-tick task) already refreshed it.
+			player.input.jumping = true;
+			if (player.input instanceof KeyboardInput keyboard) {
+				keyboard.tick(false, 1.0f);
+			}
+			player.input.jumping = true;
 		}
 	}
 
@@ -2418,6 +2453,7 @@ public final class GameActions {
 		private boolean pillarRetreatMining;
 		private int pillarRetreatAt;
 		/** Water has no standable cells, so it needs a swim-to-shore state. */
+		private boolean swimming;
 		private Vec3 swimTarget;
 		private int swimTicks;
 		private Vec3 swimLastPosition;
@@ -2692,6 +2728,10 @@ public final class GameActions {
 				args.has("acceptPartial")
 					&& args.get("acceptPartial").isJsonPrimitive()
 					&& args.get("acceptPartial").getAsBoolean();
+			// A retreat chosen by the planner is already the answer to the
+			// nearby mob. Let it run instead of letting the threat reflex
+			// release every key and restart the same escape each report.
+			this.emergencyAction = flag(args, "emergency");
 		}
 
 		/**
@@ -2932,6 +2972,32 @@ public final class GameActions {
 				send.accept(progress(id, "unstick", 0, 1));
 				return;
 			}
+			/*
+			 * Land pathfinding refuses water, so a body that starts inside a
+			 * lake or a flooded shaft used to fail the walk immediately and
+			 * then only drift upward on vanilla buoyancy until the coordinator
+			 * happened to issue another command. Enter the swim state right
+			 * away instead; it holds jump and heads for the nearest shore.
+			 * Standing in a shallow riverbed is not swimming: keep the walk
+			 * plan when both feet are on the ground and the eyes are clear.
+			 */
+			if (WaterSurface.needsJump(
+				client.player.isInWater(),
+				client.player.isEyeInFluid(FluidTags.WATER),
+				client.player.onGround()
+			)) {
+				beginSwim(client);
+				return;
+			}
+			planRoute(client);
+		}
+
+		/**
+		 * Install a fresh walk route. Used both for the first tick and after a
+		 * swim leg reaches dry land, so leaving water does not leave the task
+		 * with an empty waypoint list.
+		 */
+		private void planRoute(Minecraft client) {
 			Route route = firstSafeRoute(client, client.player);
 			if (route == null || !routeMovesBody(route, client.player)) {
 				if (mode.isWalk()) {
@@ -2953,6 +3019,7 @@ public final class GameActions {
 			lastWaypointIndex = waypointIndex;
 			lastWaypointDistance = playerDistance(client.player);
 			nextReplanAt = 0;
+			escapingNoRoute = false;
 			CraftMateBodyClient.LOGGER.info(
 				"CraftMate goto start target={} destination={} position={} points={} complete={} distance={}",
 				target,
@@ -2966,6 +3033,19 @@ public final class GameActions {
 				)
 			);
 			send.accept(progress(id, "walking", 0, 1));
+		}
+
+		private void beginSwim(Minecraft client) {
+			swimming = true;
+			swimTarget = null;
+			swimTicks = 0;
+			swimStalledTicks = 0;
+			swimBestDistance = Double.POSITIVE_INFINITY;
+			swimLastPosition = client.player.position();
+			// Start rising on the same tick the command arrives instead of
+			// waiting for the next tickSwim frame.
+			setSwimInput(client, false);
+			send.accept(progress(id, "swimming", 0, 1));
 		}
 
 		private void startEscape(Minecraft client, LocalPlayer player) {
@@ -3779,7 +3859,33 @@ public final class GameActions {
 				client,
 				BlockPos.containing(swimTarget)
 			)) {
-				swimTarget = findShore(client, player);
+				Vec3 shore = findShore(client, player, 10);
+				/*
+				 * A ten-block scan is enough for a river bank or a flooded
+				 * shaft, but not for a bay. Scan farther at most once per
+				 * second so a body that was carried into open water can pick
+				 * the visible island instead of treading until the timeout.
+				 */
+				if (shore == null && swimTicks % 20 == 1) {
+					shore = findShore(client, player, 32);
+				}
+				if (shore != null) {
+					swimTarget = shore;
+				} else if (target.y >= player.getY() - 1.0) {
+					/*
+					 * Open water has no dry cell inside the ten-block shore
+					 * scan. Treading water there never reaches land: the old
+					 * branch waited twenty seconds and failed with "could not
+					 * find a nearby shore", then the planner re-issued the
+					 * same command. A human swims across the bay toward the
+					 * destination; do the same and let the shore scan take
+					 * over as soon as a beach is close. Underground targets
+					 * keep the pillar/dig-escape path below.
+					 */
+					swimTarget = new Vec3(target.x, player.getY(), target.z);
+				} else {
+					swimTarget = null;
+				}
 				swimBestDistance = Double.POSITIVE_INFINITY;
 			}
 			if (swimTarget == null) {
@@ -3790,7 +3896,7 @@ public final class GameActions {
 				// Treading water until the command deadline only loses air;
 				// start a pillar or ceiling cut on the first second and repeat
 				// it, so a re-issued goto can still make vertical progress.
-				if (swimTicks >= 20) {
+				if (!mode.isWalk() && swimTicks >= 20) {
 					if (pillarInWater(client, player)) {
 						swimStalledTicks = 0;
 						send.accept(progress(id, "bridging", 0, 1));
@@ -3802,8 +3908,21 @@ public final class GameActions {
 						return;
 					}
 				}
-				if (swimTicks > 20 * 20) {
-					finish(id, "failed", "E_PRECONDITION", "could not find a nearby shore");
+				/*
+				 * A body floating at the surface of a roofed pond cannot
+				 * reach any shore, and waiting twenty seconds only delays the
+				 * planner's recovery card. Give up after six surfaced
+				 * seconds; a submerged body keeps the full budget because it
+				 * may still be rising from the bottom of a lake.
+				 */
+				boolean surfaced = !player.isEyeInFluid(FluidTags.WATER);
+				if (swimTicks > (surfaced ? 20 * 6 : 20 * 20)) {
+					finish(
+						id,
+						"failed",
+						mode.isWalk() ? "E_UNREACHABLE" : "E_PRECONDITION",
+						"could not find a nearby shore"
+					);
 				}
 				return;
 			}
@@ -3819,6 +3938,22 @@ public final class GameActions {
 				swimStalledTicks = 0;
 			} else {
 				swimStalledTicks++;
+			}
+			/*
+			 * Ordinary walking may not mine or pillar, so a body pressed
+			 * into a flooded wall has nothing useful left to try. Report the
+			 * failure after two seconds instead of treading until the
+			 * twenty-second budget; the deterministic planner can then hand
+			 * the pocket to `recovery.escape`.
+			 */
+			if (mode.isWalk() && swimStalledTicks >= 40) {
+				finish(
+					id,
+					"failed",
+					"E_UNREACHABLE",
+					"swimming made no progress toward a shore"
+				);
+				return;
 			}
 			if (swimTicks % 20 == 0) {
 				CraftMateBodyClient.LOGGER.info(
@@ -3841,7 +3976,7 @@ public final class GameActions {
 			// wall or ceiling. Do that after one second without displacement,
 			// then let the escape-wall branch finish the destroy and swim
 			// through the opening.
-			if (swimStalledTicks >= 12) {
+			if (!mode.isWalk() && swimStalledTicks >= 12) {
 				// A flooded shaft has no ledge to swim onto. Jump, then place
 				// the block under the feet at the apex; repeat to rise one
 				// block at a time. This is the water version of pillaring and
@@ -3865,12 +4000,17 @@ public final class GameActions {
 			CameraController.steerHeading(player, player.getYRot(), 0.0f);
 			setSwimInput(client, aligned);
 			if (player.onGround() && !player.isInWater()) {
+				swimming = false;
 				swimTarget = null;
 				swimTicks = 0;
 				swimLastPosition = null;
 				swimStalledTicks = 0;
 				swimBestDistance = Double.POSITIVE_INFINITY;
 				releaseWalkInput(client);
+				// The original route was never installed because the body was
+				// already in water when the command arrived. Re-plan from the
+				// dry landing cell so the same command continues inland.
+				planRoute(client);
 				return;
 			}
 			if (swimTicks % 20 == 0) send.accept(progress(id, "swimming", 0, 1));
@@ -4003,11 +4143,15 @@ public final class GameActions {
 		 * Scanning a small horizontal ring keeps the search bounded and gives
 		 * a river or pond an obvious exit instead of a random swim direction.
 		 */
-		private static Vec3 findShore(Minecraft client, LocalPlayer player) {
+		private static Vec3 findShore(
+			Minecraft client,
+			LocalPlayer player,
+			int maxRadius
+		) {
 			BlockPos feet = player.blockPosition();
 			Vec3 best = null;
 			double bestScore = Double.POSITIVE_INFINITY;
-			for (int radius = 1; radius <= 10; radius++) {
+			for (int radius = 1; radius <= maxRadius; radius++) {
 				for (int dx = -radius; dx <= radius; dx++) {
 					for (int dz = -radius; dz <= radius; dz++) {
 						if (Math.max(Math.abs(dx), Math.abs(dz)) != radius) continue;
@@ -5304,6 +5448,23 @@ public final class GameActions {
 			if (age > 20 * 60) {
 				stop(client);
 				finish(id, "timeout", "E_TIMEOUT", "bounded walk did not reach target");
+				return;
+			}
+			if (swimming) {
+				tickSwim(client, player);
+				return;
+			}
+			/*
+			 * A route can also end with the body stepping off a bank. If the
+			 * eyes go under water, stop following the land route and surface
+			 * immediately; waiting for the stuck timer meant several seconds
+			 * of sinking before the swim branch noticed.
+			 */
+			if (
+				!escapingNoRoute &&
+				player.isEyeInFluid(FluidTags.WATER)
+			) {
+				beginSwim(client);
 				return;
 			}
 			if (ledgeTarget != null) {
@@ -9351,6 +9512,7 @@ public final class GameActions {
 		private static final int MENU_TIMEOUT_TICKS = 20;
 		private final String itemId;
 		private final BlockPos requestedContainer;
+		private final int maxStacks;
 		private BlockPos containerPos;
 		private BaseContainerBlockEntity container;
 		private AbstractContainerMenu menu;
@@ -9373,12 +9535,19 @@ public final class GameActions {
 		private int transferStartedAt = -1;
 		private int lastConfirmedAt = -1;
 		private int moved;
+		private int transferredStacks;
 		private final Map<String, Integer> deposited = new java.util.LinkedHashMap<>();
 
-		DepositTask(String id, String itemId, BlockPos requestedContainer) {
+		DepositTask(
+			String id,
+			String itemId,
+			BlockPos requestedContainer,
+			int maxStacks
+		) {
 			super(id);
 			this.itemId = itemId;
 			this.requestedContainer = requestedContainer;
+			this.maxStacks = Math.max(1, maxStacks);
 		}
 
 		@Override
@@ -9692,6 +9861,7 @@ public final class GameActions {
 					for (var entry : confirmed.entrySet()) {
 						deposited.merge(entry.getKey(), entry.getValue(), Integer::sum);
 					}
+					transferredStacks++;
 					moved += confirmed.values().stream().mapToInt(Integer::intValue).sum();
 					settledInventory = inventory;
 					settledContainer = stored;
@@ -9702,10 +9872,18 @@ public final class GameActions {
 				lastInventory = inventory;
 				lastContainer = stored;
 				stableTicks = 0;
+				if (transferredStacks >= maxStacks) {
+					complete(client, null);
+					return;
+				}
 				if (!hasEligibleItems(client)) {
 					complete(client, null);
 					return;
 				}
+				return;
+			}
+			if (transferredStacks >= maxStacks) {
+				complete(client, null);
 				return;
 			}
 			if (!inventory.equals(lastInventory) || !stored.equals(lastContainer) || stableTicks < CONTAINER_STABLE_TICKS) {

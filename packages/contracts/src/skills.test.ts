@@ -51,6 +51,23 @@ describe("skills", () => {
         args: { container: { x: 1, y: 64, z: 2 }, item: "minecraft:oak_log" },
       },
     );
+    assert.deepEqual(
+      parseSkillArgs("deposit", {
+        container: { x: 1, y: 64, z: 2 },
+        item: "minecraft:cobblestone",
+        maxStacks: 1,
+      }),
+      {
+        name: "deposit",
+        args: {
+          container: { x: 1, y: 64, z: 2 },
+          item: "minecraft:cobblestone",
+          maxStacks: 1,
+        },
+      },
+    );
+    assert.equal(parseSkillArgs("deposit", { maxStacks: 0 }), null);
+    assert.equal(parseSkillArgs("deposit", { maxStacks: 37 }), null);
     assert.deepEqual(parseSkillArgs("smelt", {
       input: "minecraft:raw_iron",
       output: "minecraft:iron_ingot",

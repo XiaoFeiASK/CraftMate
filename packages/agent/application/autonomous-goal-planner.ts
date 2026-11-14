@@ -13,6 +13,7 @@ import {
   availableCards,
   evaluatePlaybook,
   explore,
+  filterRouteBlacklist,
   nextTaskForStage,
   selectPlaybookCard,
   taskSignature,
@@ -263,6 +264,24 @@ export class AutonomousGoalPlanner implements GoalPlanner {
         targetLock: input.progress.targetLock ?? null,
       },
     );
+    if (process.env["CRAFTMATE_DEBUG_FACTS"] === "1") {
+      console.log(
+        "[facts]",
+        JSON.stringify({
+          stage: baseline.stage.id,
+          position: facts.position ?? null,
+          surfaceY: facts.surfaceY ?? null,
+          canSeeSky: facts.canSeeSky ?? null,
+          inWater: facts.inWater ?? null,
+          enclosed: facts.enclosed ?? null,
+          shaftWalls: facts.shaftWalls ?? null,
+          food: facts.food ?? null,
+          health: facts.health ?? null,
+          nextTask: baseline.nextTask?.text ?? null,
+          lastFailure: input.lastFailure,
+        }),
+      );
+    }
     const strategy = this.readStrategy?.() ?? DEFAULT_GOAL_STRATEGY;
     const memory = this.readMemory?.(facts) ?? [];
     const evaluations = evaluatePlaybook(
@@ -271,6 +290,7 @@ export class AutonomousGoalPlanner implements GoalPlanner {
         facts,
         strategy,
         lastFailure: input.lastFailure,
+        lastStrategy: input.lastFailureStrategy ?? null,
         consecutiveFailures: input.consecutiveFailures,
         memory,
         now: Date.now(),
@@ -278,10 +298,22 @@ export class AutonomousGoalPlanner implements GoalPlanner {
       },
       strategy,
     );
-    const allEvaluations = addMainlineEvaluation(evaluations, baseline);
+    const allEvaluations = addMainlineEvaluation(evaluations, baseline, facts);
     this.lastEvaluations = allEvaluations;
     const available = availableCards(allEvaluations);
-    if (available.length === 0) return null;
+    if (available.length === 0) {
+      // A blocked baseline with no playbook fallback leaves the body standing
+      // still with no next task. Keep the reason visible in the live console;
+      // otherwise a card whose precondition quietly became impossible looks
+      // exactly like a frozen planner.
+      console.warn(
+        "[playbook] no available card:",
+        allEvaluations
+          .map((item) => `${item.card.id}=${item.status}(${item.reason})`)
+          .join(" | "),
+      );
+      return null;
+    }
     const active =
       this.activeCardId === null
         ? null
@@ -429,7 +461,18 @@ export class AutonomousGoalPlanner implements GoalPlanner {
     }
 
     const fallback = selectPlaybookCard(allEvaluations);
-    if (fallback === null) return null;
+    if (fallback === null) {
+      console.warn(
+        "[playbook] no deterministic selection:",
+        allEvaluations
+          .map(
+            (item) =>
+              `${item.card.id}=${item.status}(${item.blockedReason ?? item.reason})`,
+          )
+          .join(" | "),
+      );
+      return null;
+    }
     if (fallback.card.id === MAINLINE_CARD_ID) {
       return this.applyMainline(
         baseline,
@@ -614,7 +657,21 @@ export class AutonomousGoalPlanner implements GoalPlanner {
   ): GoalPlan {
     const task = evaluation.task;
     if (task === null) return baseline;
-    const skill = skillCallSchema.parse(task.skill);
+    const parsedSkill = skillCallSchema.safeParse(task.skill);
+    if (!parsedSkill.success) {
+      // One malformed card must not abort every planning cycle. The live run
+      // showed `invalid args for goto` repeating on every snapshot while the
+      // body stood still; log enough evidence to fix the producer and fall
+      // back to the deterministic baseline for this tick.
+      console.warn(
+        "[playbook] invalid card skill:",
+        evaluation.card.id,
+        JSON.stringify(task.skill.args),
+        parsedSkill.error.issues.map((issue) => issue.message).join("; "),
+      );
+      return baseline;
+    }
+    const skill = parsedSkill.data;
     const changed = this.activeCardId !== evaluation.card.id;
     if (changed) {
       this.activeCardId = evaluation.card.id;
@@ -1110,9 +1167,16 @@ function goalCandidates(
 function addMainlineEvaluation(
   evaluations: readonly CardEvaluation[],
   baseline: GoalPlan,
+  facts: WorldFacts,
 ): readonly CardEvaluation[] {
   const next = baseline.nextTask;
   if (next === null) return evaluations;
+  const filtered = filterRouteBlacklist(
+    facts,
+    next.skill,
+    facts.now ?? Date.now(),
+  );
+  const refusal = filtered.refusal;
   const skillKey = `${next.skill.name}:${JSON.stringify(next.skill.args)}`;
   const duplicate = evaluations.some(
     (evaluation) =>
@@ -1148,7 +1212,7 @@ function addMainlineEvaluation(
     kind: taskKindForIntent(next.intent),
     title: next.text,
     critical: next.critical === true,
-    skill: next.skill,
+    skill: filtered.skill,
     preconditions: [],
     expectedEvidence: [skillKey],
     verify: () => true,
@@ -1157,10 +1221,10 @@ function addMainlineEvaluation(
     ...evaluations,
     {
       card,
-      status: "available",
-      reason: next.reason,
-      task,
-      blockedReason: null,
+      status: refusal === null ? "available" : "blocked",
+      reason: refusal ?? next.reason,
+      task: refusal === null ? task : null,
+      blockedReason: refusal,
     },
   ];
 }

@@ -66,6 +66,34 @@ test("a lost pickaxe cancels a storage trip before it mines bare-handed", () => 
   assert.equal(opportunity?.key, "tool-recovery");
 });
 
+test("an emergency retreat is not replaced by tool recovery", () => {
+  const opportunity = detectStateOpportunity({
+    stage: "stone-tools",
+    decision: {
+      text: "低血量撤离 minecraft:spider",
+      at: now - 5_000,
+      skill: {
+        name: "goto",
+        args: {
+          target: { x: 60, y: 64, z: 40 },
+          mode: "walk",
+          emergency: true,
+        },
+      },
+    },
+    now,
+    lastPreemptAt: 0,
+    world: {
+      inWorld: true,
+      position: { x: 0, y: 40, z: 0 },
+      inventory: [
+        { item: "minecraft:oak_log", count: 4, slot: 0, section: "main" as const },
+      ],
+    },
+  });
+  assert.equal(opportunity, null);
+});
+
 test("a tool recovery navigation is not re-interrupted", () => {
   const opportunity = detectStateOpportunity({
     stage: "stone-tools",

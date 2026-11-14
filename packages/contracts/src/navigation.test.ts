@@ -44,4 +44,11 @@ describe("route blacklist geometry", () => {
       true,
     );
   });
+
+  test("a precise point refusal still leaves adjacent station approaches open", () => {
+    const precise = entry({ radius: 0.75 });
+    assert.equal(routeBlacklistCovers(precise, { x: 10, y: 70, z: 0 }, 1_000), true);
+    assert.equal(routeBlacklistCovers(precise, { x: 11, y: 70, z: 0 }, 1_000), false);
+    assert.equal(routeBlacklistCovers(precise, { x: 10, y: 70, z: 1 }, 1_000), false);
+  });
 });

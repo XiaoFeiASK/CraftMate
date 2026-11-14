@@ -107,4 +107,18 @@ describe("route blacklist store", () => {
     );
     db.close();
   });
+
+  test("an active read without a point returns distant target refusals", () => {
+    const { db, store } = stores();
+    const now = Date.now();
+    store.record({ ...draft, expiresAt: now + 60_000 }, now);
+    const active = store.active(
+      { dimension: "minecraft:overworld", limit: 256 },
+      now,
+    );
+    assert.equal(active.length, 1);
+    assert.equal(active[0]?.x, draft.x);
+    assert.equal(active[0]?.z, draft.z);
+    db.close();
+  });
 });

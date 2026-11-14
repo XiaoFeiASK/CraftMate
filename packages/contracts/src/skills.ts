@@ -61,6 +61,12 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
        * column was not reached. Ordinary movement must stay exact.
        */
       acceptPartial: z.boolean().optional(),
+      /**
+       * Safety-critical movement chosen by the planner (retreat or escape).
+       * The body's threat reflex must not cancel the action that is already
+       * answering the danger.
+       */
+      emergency: z.boolean().optional(),
     }),
   }),
   z.object({ name: z.literal("follow"), args: z.object({ player: playerName }) }),
@@ -91,7 +97,16 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
   z.object({ name: z.literal("eat"), args: z.object({ item: itemId.optional() }) }),
   z.object({
     name: z.literal("deposit"),
-    args: z.object({ container: point.optional(), item: itemId.optional() }),
+    args: z.object({
+      container: point.optional(),
+      item: itemId.optional(),
+      /**
+       * Stop after this many inventory stacks instead of emptying every
+       * matching stack. A full backpack needs one free slot, not a chest
+       * transfer that also removes the tool-building reserve.
+       */
+      maxStacks: z.number().int().min(1).max(36).optional(),
+    }),
   }),
   z.object({
     name: z.literal("place_block"),

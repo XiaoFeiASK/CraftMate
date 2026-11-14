@@ -36,6 +36,8 @@ export interface CardContext {
   readonly facts: WorldFacts;
   readonly strategy: GoalStrategy;
   readonly lastFailure: string | null;
+  /** Strategy key that produced `lastFailure`, for segmented recovery. */
+  readonly lastStrategy?: string | null;
   readonly consecutiveFailures: number;
   readonly memory: readonly WorldMemory[];
   readonly now: number;

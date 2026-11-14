@@ -90,6 +90,8 @@ export const worldSnapshotSchema = z.object({
   surfaceY: z.number().int().nullable().optional(),
   /** True only when the current cell has an unobstructed view of the sky. */
   canSeeSky: z.boolean().nullable().optional(),
+  /** True while the body's eyes or feet are in water; distinguishes a bay from a walled pocket. */
+  inWater: z.boolean().nullable().optional(),
   /**
    * Emergency-shelter observation. A body that has dug a one-block shaft
    * reports how many horizontal walls surround it and the surrounding ground

@@ -276,10 +276,12 @@ export function createPersistentShow(options: {
             ...(facts.dimension === null || facts.dimension === undefined
               ? {}
               : { dimension: canonicalDimension(facts.dimension) }),
-            ...(facts.position === null || facts.position === undefined
-              ? {}
-              : { position: facts.position }),
-            limit: 32,
+            // A refusal belongs to the target, not to the body's current
+            // cell. Filtering by position hid a blacklisted mine entrance
+            // twenty blocks away, so every replan walked to the same blocked
+            // endpoint again. Load the active entries for this dimension and
+            // let task selection check each candidate.
+            limit: 256,
           },
           Date.now(),
         ),
@@ -353,19 +355,58 @@ export function createPersistentShow(options: {
             cardId === "recovery.reobserve";
           const kind = entity ? "entity" : region ? "region" : "point";
           const ttl = entity || region ? 5 * 60_000 : 10 * 60_000;
+          /*
+           * A twelve-block "do not re-observe this area" refusal is harmless
+           * in empty wilderness and catastrophic beside the camp: the live
+           * run blacklisted a recovery ring that covered the chest, so every
+           * home/store and mainline walk was refused for five minutes and
+           * the body froze in place. Never let an area refusal swallow a
+           * remembered landmark. Downgrade it to the exact failed cell,
+           * which still prevents the byte-identical retry.
+           */
+          const protectedLandmark =
+            kind === "region" &&
+            worldMemory.list().some(
+              (entry) =>
+                (entry.kind === "home" ||
+                  entry.kind === "bed" ||
+                  entry.kind === "container" ||
+                  entry.kind === "furnace" ||
+                  entry.kind === "crafting_table" ||
+                  entry.kind === "mine") &&
+                (entry.expiresAt === null || entry.expiresAt > event.at) &&
+                entry.dimension === dimension &&
+                Math.hypot(entry.x - target.x, entry.z - target.z) <= 12,
+            );
+          const storedKind = protectedLandmark ? "point" : kind;
+          const storedTtl = protectedLandmark ? 10 * 60_000 : ttl;
           routeBlacklist.record(
             {
               dimension,
-              kind,
+              kind: storedKind,
               x: target.x,
               y: target.y,
               z: target.z,
-              radius: entity ? 2.5 : region ? 12 : 1.5,
+              /*
+               * A point refusal is the exact cell the body failed to reach.
+               * Radius 1.5 also covered all four cardinal neighbours, so a
+               * blacklisted chest destination made every `gotoHomeTask`
+               * candidate (chest.x ± 1, chest.z ± 1) ineligible for ten
+               * minutes. Keep the failed cell itself refused without sealing
+               * every legal approach to a station.
+               */
+              radius: protectedLandmark
+                ? 0.75
+                : entity
+                  ? 2.5
+                  : region
+                    ? 12
+                    : 0.75,
               targetRef: event.decision.playbook?.id ?? null,
               reasonCode: event.errorCode,
               reasonDetail: event.detail,
               source: "agent",
-              expiresAt: event.at + ttl,
+              expiresAt: event.at + storedTtl,
             },
             event.at,
           );

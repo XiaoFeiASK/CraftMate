@@ -69,6 +69,12 @@ export function detectStateOpportunity(
   const stageIndex = STAGE_ORDER.indexOf(input.stage as (typeof STAGE_ORDER)[number]);
   if (stageIndex < STAGE_ORDER.indexOf("stone-tools")) return null;
   const skillName = decision.skill.name;
+  // The planner already chose a safety-critical move. Tool recovery or a
+  // visible ore must not replace the escape that is answering a nearby mob;
+  // the body's reflex still guards lava, falls and other immediate hazards.
+  if (skillName === "goto" && decision.skill.args["emergency"] === true) {
+    return null;
+  }
   const isNavigation = skillName === "goto";
   const isResourceWork =
     skillName === "mine_block" || skillName === "chop_tree";

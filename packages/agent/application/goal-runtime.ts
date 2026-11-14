@@ -1055,7 +1055,17 @@ export class GoalRuntime {
     errorCode: string | null = null,
   ): void {
     this.consecutiveFailures += 1;
-    this.lastFailure = detail;
+    /*
+     * Keep the structured bridge code in the same string the planner sees.
+     * `detail` alone ("no natural route within the walk budget") is identical
+     * for E_UNREACHABLE and E_ENCLOSED, so the playbook could never tell a
+     * sealed hut apart from an ordinary unreachable target. The prefix is
+     * also useful in the console and survives a restart with the goal record.
+     */
+    this.lastFailure =
+      errorCode === null || detail.startsWith(errorCode)
+        ? detail
+        : `${errorCode}: ${detail}`;
     this.lastFailureStrategy = strategyKey;
     this.noteFailureFingerprint(
       errorCode ?? status,

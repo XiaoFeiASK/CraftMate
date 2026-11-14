@@ -537,8 +537,14 @@ export class BodySession {
       // command that is already doing exactly that made every close-range
       // fight impossible: the planner re-issued attack, the next threat
       // event cancelled it, and the body never got a full swing window.
-      // Lava, falling, drowning and low health still outrank an attack.
-      if (parsed.data.kind === "threat" && record.command.op === "attack") {
+      // A safety-critical retreat is the same situation: the command exists
+      // because a mob is close, so preempting it only restarts the escape
+      // from the same cell every few seconds. Lava, falling, drowning and
+      // low health still outrank both.
+      const answeringThreat =
+        record.command.op === "attack" ||
+        (record.command.op === "goto" && record.command.args["emergency"] === true);
+      if (parsed.data.kind === "threat" && answeringThreat) {
         continue;
       }
       const reachedBody = record.status === "running" || this.sentCommands.has(record.command.id);

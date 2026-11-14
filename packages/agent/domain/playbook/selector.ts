@@ -1,6 +1,7 @@
 import {
   routeBlacklistCovers,
   type GoalStrategy,
+  type SkillCall,
 } from "@craftmate/contracts";
 import type { CardContext, CardEvaluation } from "./types.ts";
 import { playbookCards } from "./cards.ts";
@@ -70,53 +71,136 @@ function applyRouteBlacklist(
   ) {
     return evaluation;
   }
-  const args = evaluation.task.skill.args;
-  const mode = args.mode === "dig" || args.mode === "recover" ? args.mode : "walk";
-  const points: Array<{ x: number; y: number; z: number }> = [];
-  const target = args.target;
-  if (
-    target !== null &&
-    typeof target === "object" &&
-    "x" in target &&
-    "y" in target &&
-    "z" in target &&
-    typeof target.x === "number" &&
-    typeof target.y === "number" &&
-    typeof target.z === "number"
-  ) {
-    points.push({ x: target.x, y: target.y, z: target.z });
-  }
-  if (Array.isArray(args.candidates)) {
-    for (const candidate of args.candidates) {
-      if (
-        candidate !== null &&
-        typeof candidate === "object" &&
-        "x" in candidate &&
-        "y" in candidate &&
-        "z" in candidate &&
-        typeof candidate.x === "number" &&
-        typeof candidate.y === "number" &&
-        typeof candidate.z === "number"
-      ) {
-        points.push({ x: candidate.x, y: candidate.y, z: candidate.z });
-      }
-    }
-  }
-  const blocking = points.find((point) =>
-    (context.facts.routeBlacklist ?? []).some(
-      (entry) =>
-        routeBlacklistCovers(entry, point, context.now) &&
-        (mode === "walk" || entry.kind === "hazard"),
-    ),
+  const filtered = filterRouteBlacklist(
+    context.facts,
+    evaluation.task.skill,
+    context.now,
   );
-  if (blocking === undefined) return evaluation;
-  const reason = `路线黑名单拒绝 ${mode} 目标 (${blocking.x}, ${blocking.y}, ${blocking.z})`;
+  if (filtered.refusal === null) {
+    return {
+      ...evaluation,
+      task: {
+        ...evaluation.task,
+        skill: filtered.skill,
+      },
+    };
+  }
   return {
     ...evaluation,
     status: "blocked",
-    reason,
-    blockedReason: reason,
+    reason: filtered.refusal,
+    blockedReason: filtered.refusal,
     task: null,
+  };
+}
+
+/**
+ * Normal walking and target selection obey durable route refusals. An
+ * explicit dig/recover may retry a non-hazard refusal (the operator's
+ * "override once" path), but never a hazard. Exported so the mainline
+ * candidate, which is assembled outside the card catalog, uses the same rule.
+ */
+export function routeBlacklistRefusal(
+  facts: CardContext["facts"],
+  skill: { readonly name: string; readonly args: Record<string, unknown> },
+  now: number,
+): string | null {
+  return filterRouteBlacklist(facts, skill as SkillCall, now).refusal;
+}
+
+interface RouteBlacklistFilter {
+  readonly skill: SkillCall;
+  readonly refusal: string | null;
+}
+
+function pointOf(value: unknown): { x: number; y: number; z: number } | null {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    !("x" in value) ||
+    !("y" in value) ||
+    !("z" in value)
+  ) {
+    return null;
+  }
+  const point = value as { x?: unknown; y?: unknown; z?: unknown };
+  return typeof point.x === "number" &&
+    typeof point.y === "number" &&
+    typeof point.z === "number"
+    ? { x: point.x, y: point.y, z: point.z }
+    : null;
+}
+
+/**
+ * A refusal applies to a *cell*, not to the whole errand. A chest with its
+ * west standing cell blacklisted still has three other sides; blocking the
+ * entire `home.store` card over one bad cell left the live body standing
+ * beside its own camp with every card blocked. Drop blocked cells from the
+ * candidate list and only refuse the action when no usable destination is
+ * left.
+ */
+export function filterRouteBlacklist(
+  facts: CardContext["facts"],
+  skill: SkillCall,
+  now: number,
+): RouteBlacklistFilter {
+  if (skill.name !== "goto") return { skill, refusal: null };
+  const args = skill.args as Record<string, unknown>;
+  const mode = args.mode === "dig" || args.mode === "recover" ? args.mode : "walk";
+  const target = pointOf(args.target);
+  const candidates: Array<{ x: number; y: number; z: number }> = [];
+  if (Array.isArray(args.candidates)) {
+    for (const candidate of args.candidates) {
+      const point = pointOf(candidate);
+      if (point !== null) candidates.push(point);
+    }
+  }
+  const blocked = (point: { x: number; y: number; z: number }): boolean =>
+    (facts.routeBlacklist ?? []).some(
+      (entry) =>
+        routeBlacklistCovers(entry, point, now) &&
+        (mode === "walk" || entry.kind === "hazard"),
+    );
+  const isBlocked = (point: { x: number; y: number; z: number } | null): boolean =>
+    point !== null && blocked(point);
+  const targetBlocked = isBlocked(target);
+  const safeCandidates = candidates.filter((candidate) => !blocked(candidate));
+  // A locked or canonical target may not appear in `candidates` at all. Treat
+  // it as the first preference so a walk never silently switches direction
+  // just because the planner's old primary cell was refused.
+  const safeTarget =
+    target !== null && !targetBlocked ? target : safeCandidates[0] ?? null;
+  if (safeTarget === null) {
+    const blocking = target ?? candidates[0] ?? null;
+    return {
+      skill,
+      refusal:
+        blocking === null
+          ? `路线黑名单拒绝 ${mode} 目标`
+          : `路线黑名单拒绝 ${mode} 目标 (${blocking.x}, ${blocking.y}, ${blocking.z})`,
+    };
+  }
+  const deduped: Array<{ x: number; y: number; z: number }> = [];
+  const seen = new Set<string>();
+  for (const point of [safeTarget, ...safeCandidates]) {
+    const key = `${point.x},${point.y},${point.z}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(point);
+    if (deduped.length === 8) break;
+  }
+  return {
+    skill: {
+      ...skill,
+      args: {
+        ...args,
+        target: safeTarget,
+        ...(Array.isArray(args.candidates)
+          ? { candidates: deduped }
+          : {}),
+      },
+    },
+    refusal: null,
   };
 }
 

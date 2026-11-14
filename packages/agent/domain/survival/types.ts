@@ -177,6 +177,8 @@ export interface WorldFacts {
   readonly surfaceY?: number | null;
   /** True only when the current cell can see the sky. */
   readonly canSeeSky?: boolean | null;
+  /** True while the body is swimming or standing in water. */
+  readonly inWater?: boolean | null;
   /** Block below the body's feet, when the body reported one. */
   readonly floor?: string | null;
   /** Exact support cell for `floor`; may differ from the floored body column. */

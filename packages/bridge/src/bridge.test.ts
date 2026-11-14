@@ -710,6 +710,45 @@ describe("bridge control ownership", () => {
     assert.equal(first.coordinator.health().running, 0);
   });
 
+  test("a threat reflex does not cancel an emergency retreat", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    first.coordinator.issue({
+      ...sessionsCommand("r-retreat"),
+      op: "goto",
+      args: {
+        target: { x: 60, y: 64, z: 40 },
+        mode: "walk",
+        emergency: true,
+      },
+    });
+    sessions.advance(50);
+
+    first.coordinator.handle({
+      v: 1,
+      type: "event",
+      seq: 1,
+      tick: 1,
+      name: "reflex",
+      data: { kind: "threat", detail: "僵尸离你 5 格" },
+    });
+
+    // The retreat is the response to the threat. Restarting it every four
+    // seconds was the live loop that kept the body beside the mob.
+    assert.equal(first.coordinator.health().running, 1);
+
+    first.coordinator.handle({
+      v: 1,
+      type: "event",
+      seq: 2,
+      tick: 2,
+      name: "reflex",
+      data: { kind: "lava", detail: "站在岩浆里" },
+    });
+    assert.equal(first.coordinator.health().running, 0);
+  });
+
   test("a body cannot use reflex events to cancel an operator's work", () => {
     const control = new ControlAuthority();
     const sessions = createSessions(control);

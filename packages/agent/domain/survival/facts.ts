@@ -86,6 +86,7 @@ export interface SnapshotView {
   readonly onGround?: boolean | null;
   readonly surfaceY?: number | null;
   readonly canSeeSky?: boolean | null;
+  readonly inWater?: boolean | null;
   readonly floor?: string | null;
   readonly floorPos?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly shaftWalls?: number | null;
@@ -271,6 +272,7 @@ export function worldFactsFromSnapshot(
     onGround: snapshot.onGround,
     surfaceY: snapshot.surfaceY,
     canSeeSky: snapshot.canSeeSky,
+    inWater: snapshot.inWater,
     floor: snapshot.floor === undefined || snapshot.floor === null ? snapshot.floor : normalizeItem(snapshot.floor),
     floorPos: snapshot.floorPos,
     shaftWalls: snapshot.shaftWalls,
@@ -417,12 +419,19 @@ export function hasUsablePickaxe(
  */
 export function isUnderground(facts: WorldFacts): boolean {
   if (facts.canSeeSky === true) return false;
-  if (facts.canSeeSky === false) return true;
   const y = facts.position?.y;
   const surface = facts.surfaceY;
-  return y !== undefined && y !== null && surface !== undefined && surface !== null
-    ? y < surface - 4
-    : false;
+  if (y !== undefined && y !== null && surface !== undefined && surface !== null) {
+    /*
+     * A tree canopy blocks the sky ray without putting the body underground.
+     * The live run treated a surface cell under an oak as a mine, so
+     * `mine.surface` spent every cycle digging a staircase back to the same
+     * column. Depth is the reliable signal; `canSeeSky` only overrides it in
+     * the open-air direction (a ravine floor is not a mine).
+     */
+    return y < surface - 4;
+  }
+  return facts.canSeeSky === false;
 }
 
 /** Blocks below the local surface, or null when height is not observed. */
@@ -670,6 +679,7 @@ function withOptionals(
     readonly onGround?: boolean | null | undefined;
     readonly surfaceY?: number | null | undefined;
     readonly canSeeSky?: boolean | null | undefined;
+    readonly inWater?: boolean | null | undefined;
     readonly floor?: string | null | undefined;
     readonly floorPos?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
     readonly shaftWalls?: number | null | undefined;
@@ -719,6 +729,7 @@ function withOptionals(
     ...(optional.onGround === undefined ? {} : { onGround: optional.onGround }),
     ...(optional.surfaceY === undefined ? {} : { surfaceY: optional.surfaceY }),
     ...(optional.canSeeSky === undefined ? {} : { canSeeSky: optional.canSeeSky }),
+    ...(optional.inWater === undefined ? {} : { inWater: optional.inWater }),
     ...(optional.floor === undefined ? {} : { floor: optional.floor }),
     ...(optional.floorPos === undefined ? {} : { floorPos: optional.floorPos }),
     ...(optional.shaftWalls === undefined ? {} : { shaftWalls: optional.shaftWalls }),

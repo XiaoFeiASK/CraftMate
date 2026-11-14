@@ -139,11 +139,14 @@ export const STAGES: readonly Stage[] = [
         // apple. An unbounded food stage blocked every later milestone even
         // though the body was in no danger. Keep the stage dynamic: if hunger
         // later drops below the safety threshold, this milestone becomes
-        // incomplete again and the planner resumes eating/hunting.
+        // incomplete again and the planner resumes eating/hunting. The
+        // default eat threshold is 16, so 17 already means "no action yet";
+        // requiring 18 made a body at 17 hunt forever for a meal it could not
+        // legally eat.
         if (
           facts.food !== undefined &&
           facts.food !== null &&
-          facts.food >= 18 &&
+          facts.food >= 17 &&
           (facts.health === undefined || facts.health === null || facts.health >= 12)
         ) {
           return "complete";
@@ -162,10 +165,12 @@ export const STAGES: readonly Stage[] = [
         // A safe hunger bar is the actual survival condition. Requiring a
         // reserve at 20/20 made the first food stage endless and produced
         // apple-farming loops. If hunger falls later, the stage reopens.
+        // Seventeen is above the default eat threshold, so it is safe even
+        // when the body has nothing edible in the pack.
         if (
           facts.food !== undefined &&
           facts.food !== null &&
-          facts.food >= 18
+          facts.food >= 17
         ) {
           return "complete";
         }
