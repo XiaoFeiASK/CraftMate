@@ -279,6 +279,13 @@ export class AutonomousGoalPlanner implements GoalPlanner {
           health: facts.health ?? null,
           nextTask: baseline.nextTask?.text ?? null,
           lastFailure: input.lastFailure,
+          inventory: facts.inventory.map(
+            (slot) => `${slot.item.replace(/^minecraft:/u, "")}:${slot.count}`,
+          ),
+          entities: (facts.entities ?? []).slice(0, 8).map(
+            (entity) =>
+              `${entity.type.replace(/^minecraft:/u, "")}@${Math.round(entity.distance)}`,
+          ),
         }),
       );
     }
@@ -306,13 +313,46 @@ export class AutonomousGoalPlanner implements GoalPlanner {
       // still with no next task. Keep the reason visible in the live console;
       // otherwise a card whose precondition quietly became impossible looks
       // exactly like a frozen planner.
+      const blockedReasons = allEvaluations
+        .filter((evaluation) => evaluation.status === "blocked")
+        .slice(0, 8)
+        .map(
+          (evaluation) =>
+            `${evaluation.card.id}=${evaluation.blockedReason ?? evaluation.reason}`,
+        )
+        .join(" | ");
       console.warn(
         "[playbook] no available card:",
-        allEvaluations
-          .map((item) => `${item.card.id}=${item.status}(${item.reason})`)
-          .join(" | "),
+        blockedReasons,
       );
-      return null;
+      if (baseline.complete === true || baseline.nextTask === null) return null;
+      /*
+       * Returning null here used to fall through to the legacy baseline plan,
+       * which then reissued the same blocked/blacklisted route every few
+       * seconds. If every card is blocked, no executable action is known.
+       * Surface that state to the runtime and let the next observation or
+       * backoff re-evaluate it instead of wandering to create motion.
+       */
+      return {
+        ...baseline,
+        nextTask: null,
+        blockedReason:
+          `没有可执行的玩法卡：${blockedReasons}`.slice(0, 600),
+        cardId: MAINLINE_CARD_ID,
+        cardTitle: "没有可执行的玩法卡",
+        cardReason: "全部玩法卡均未通过确定性前置校验",
+        cardStatus: "blocked",
+        cardRecoveryId: null,
+        cardAlternatives: allEvaluations.slice(0, 8).map((evaluation) => ({
+          id: evaluation.card.id,
+          title: evaluation.card.title,
+          status: evaluation.status,
+          blockedReason: evaluation.blockedReason,
+        })),
+        cardModelChoice: false,
+        cardFallbackReason: "全部玩法卡 blocked",
+        cardSwitchReason: "无可执行卡",
+      };
     }
     const active =
       this.activeCardId === null
@@ -616,6 +656,10 @@ export class AutonomousGoalPlanner implements GoalPlanner {
         controller,
       );
       recordUsage(result, this.onUsage);
+      // An empty card id means "no opinion this tick", not a malformed
+      // model answer. Keep the deterministic executive in charge and do not
+      // emit GOAL_PLAYBOOK_INVALID incidents for a deliberate abstention.
+      if (result.cardId.trim().length === 0) return null;
       const selected = available.find(
         (evaluation) => evaluation.card.id === result.cardId,
       );

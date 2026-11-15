@@ -43,10 +43,11 @@ Bridge 是受控命令通道，不是模型网关。
   "data": { "kind": "lava", "detail": "站在岩浆里或离岩浆只有一格", "health": 4 } }
 ```
 
-- 协调器收到普通危险后把在跑和排队中的 Agent 任务判 `failed`，错误码
+- 协调器收到紧急危险后把在跑和排队中的 Agent 任务判 `failed`，错误码
   `E_PRECONDITION`，原因写成 `safety: <detail>`，并给身体发 `cancel`。
 - `kind="threat"` 表示近身敌人或来箭。它不会取消已经在执行的 `attack`，否则每次
-  近战都会在第 7 格被自己的反射打断；其它危险仍然高于攻击。
+  近战都会在第 7 格被自己的反射打断；`urgent=false` 的威胁只记录 incident，
+  不打断普通行走。紧急威胁、低血撤退和坠落恢复也不会取消正在回答它们的任务。
 - 只有 `owner=agent` 时才这么处理。Operator 接管期间，身体不能借"安全"名义
   取消操作员的任务。
 - 事件同时留在 `BridgeHealth.incidents`（最近 24 条）里，控制台直接显示。
@@ -62,9 +63,9 @@ Bridge 是受控命令通道，不是模型网关。
 声明的能力不会下发。未在真实身体清单中的技能只能作为 roadmap，不得写成现有
 产品能力。
 
-当前 Fabric 身体声明 16 个技能：`goto`、`look_at`、`mine_block`、`chop_tree`、
+当前 Fabric 身体声明 18 个技能：`goto`、`look_at`、`mine_block`、`chop_tree`、
 `collect_items`、`craft`、`deposit`、`say`、`wait`、`attack`、`equip`、`eat`、
-`use_block`、`place_block`、`pillar_up`、`sleep`。
+`use_block`、`place_block`、`pillar_up`、`smelt`、`sleep`、`run_job`。
 
 ### 3.2 移动、镜头与地形
 
@@ -94,6 +95,12 @@ Bridge 是受控命令通道，不是模型网关。
 略高于请求数。没有可达配方、材料不足、满包、界面未打开或结果未出现都会返回
 `E_PRECONDITION` 和已确认数量。当前不含熔炉、高炉、烟熏炉、切石机等非合成台
 配方。
+
+`run_job` 接受 `jobId`、`title`、一个非空的原子技能节点数组和可选
+`stopOnFailure`（默认 `true`）。节点只允许普通技能，不能嵌套 `run_job`；每个节点
+仍按自己的契约、前置和结果证据执行。当前用于把“熔炼铁锭 → 制作多件铁装”合成为
+一个连续任务，避免节点之间出现空闲重排。任何节点失败后停止后续节点并返回该节点
+的 error/detail。
 
 `deposit` 的参数为可选的 `container`（整数方块坐标）与可选的 `item`；不传
 `item` 时只转移非损坏物品，并跳过工具和装备。容器结果必须以背包减少量与容器

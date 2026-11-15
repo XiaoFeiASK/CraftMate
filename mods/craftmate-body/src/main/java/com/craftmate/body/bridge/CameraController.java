@@ -3,6 +3,10 @@ package com.craftmate.body.bridge;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -43,6 +47,11 @@ public final class CameraController {
 	private static Object lastBodyPlayer;
 	private static float lastBodyYaw;
 	private static float lastBodyPitch;
+	private static final CameraSpring POSITION = new CameraSpring();
+	private static long lastPositionNanos;
+	/** A continuous job owns the camera across its child tasks. */
+	private static int jobHolds;
+	private static boolean positionSettled = true;
 
 	private CameraController() {
 	}
@@ -99,8 +108,17 @@ public final class CameraController {
 	 * produces a one-frame camera jump.
 	 */
 	public static void release() {
-		if (!active || retained) return;
+		if (!active || retained || jobHolds > 0) return;
 		releasing = true;
+		positionSettled = false;
+	}
+
+	public static void holdForJob() {
+		jobHolds++;
+	}
+
+	public static void releaseJobHold() {
+		if (jobHolds > 0) jobHolds--;
 	}
 
 	/** Keeps an explicit observation pose after its task has completed. */
@@ -122,6 +140,10 @@ public final class CameraController {
 		yawVelocity = 0;
 		pitchVelocity = 0;
 		lastFrameNanos = 0;
+		lastPositionNanos = 0;
+		POSITION.reset();
+		jobHolds = 0;
+		positionSettled = true;
 		lastLevel = client.level;
 		lastPlayer = client.player;
 		LocalPlayer player = client.player;
@@ -134,6 +156,80 @@ public final class CameraController {
 			lastBodyYaw = displayYaw;
 			lastBodyPitch = displayPitch;
 		}
+	}
+
+	/**
+	 * Third-person camera position. Vanilla has already placed the camera
+	 * behind the body at four blocks; this replaces only that third-person
+	 * pose with the adaptive shoulder framing. First person is left untouched.
+	 */
+	public static Vec3 framePosition(
+		BlockGetter level,
+		Entity entity,
+		LocalPlayer player,
+		float partialTick,
+		boolean thirdPerson,
+		Vec3 vanillaPosition
+	) {
+		if (!thirdPerson) {
+			positionSettled = true;
+			return null;
+		}
+		if (!active || entity != player || player.isSleeping()) {
+			return null;
+		}
+		long now = System.nanoTime();
+		float dt = lastPositionNanos == 0
+			? DEFAULT_FRAME_SECONDS
+			: Math.min(MAX_FRAME_SECONDS, (now - lastPositionNanos) / 1_000_000_000.0f);
+		lastPositionNanos = now;
+
+		Vec3 eye = entity.getEyePosition(partialTick);
+		Vec3 desired = new Vec3(vanillaPosition.x, vanillaPosition.y, vanillaPosition.z);
+		if (!releasing) {
+			Vec3 movement = entity.getDeltaMovement();
+			CameraSpring.Target shoulder = CameraSpring.shoulderTarget(
+				eye.x,
+				eye.y,
+				eye.z,
+				displayYaw,
+				displayPitch,
+				movement.x,
+				movement.z
+			);
+			desired = new Vec3(shoulder.x(), shoulder.y(), shoulder.z());
+			HitResult hit = level.clip(new ClipContext(
+				eye,
+				desired,
+				ClipContext.Block.VISUAL,
+				ClipContext.Fluid.NONE,
+				entity
+			));
+			if (hit.getType() != HitResult.Type.MISS) {
+				CameraSpring.Target clipped = CameraSpring.clipped(
+					eye.x,
+					eye.y,
+					eye.z,
+					shoulder,
+					hit.getLocation().distanceTo(eye)
+				);
+				desired = new Vec3(clipped.x(), clipped.y(), clipped.z());
+			}
+		}
+		POSITION.step(
+			new CameraSpring.Target(desired.x, desired.y, desired.z),
+			dt
+		);
+		if (releasing && POSITION.distanceTo(
+			vanillaPosition.x,
+			vanillaPosition.y,
+			vanillaPosition.z
+		) <= 0.06) {
+			positionSettled = true;
+		} else {
+			positionSettled = false;
+		}
+		return new Vec3(POSITION.x(), POSITION.y(), POSITION.z());
 	}
 
 	public static float displayYaw(LocalPlayer player) {
@@ -193,6 +289,7 @@ public final class CameraController {
 				&& Math.abs(desiredPitch - displayPitch) <= RELEASE_TOLERANCE
 				&& Math.abs(yawVelocity) <= 2.0f
 				&& Math.abs(pitchVelocity) <= 2.0f
+				&& positionSettled
 		) {
 			active = false;
 			return null;

@@ -13,7 +13,7 @@ import {
   type CommitmentGate,
   type TtsProvider,
 } from "./provider.ts";
-import { splitUtterance } from "./split.ts";
+import { sentencePauseMs, splitUtterance } from "./split.ts";
 
 const PRIORITY_RANK: Record<Priority, number> = {
   reflex: 0,
@@ -47,6 +47,11 @@ export interface VoiceEngineOptions {
   readonly capacity?: number;
   readonly maxChars?: number;
   synthesisTimeoutMs?: number;
+  /**
+   * Gap between synthesized sentences. Defaults to the punctuation-derived
+   * beat; tests and batch callers may pass a constant zero.
+   */
+  readonly pauseMs?: (text: string) => number;
   readonly circuitThreshold?: number;
   readonly circuitCooldownMs?: number;
   readonly onEvent?: (event: VoiceEvent) => void;
@@ -79,6 +84,7 @@ export class VoiceEngine {
   private readonly commitmentGate: CommitmentGate | undefined;
   private readonly capacity: number;
   private readonly maxChars: number;
+  private readonly pauseMs: (text: string) => number;
   synthesisTimeoutMs: number;
   private readonly circuitThreshold: number;
   private readonly circuitCooldownMs: number;
@@ -87,6 +93,8 @@ export class VoiceEngine {
   private readonly circuits = new Map<string, ProviderCircuit>();
   private queue: Segment[] = [];
   private current: { controller: AbortController; utterance: VoiceUtterance } | null = null;
+  private pauseTimer: ReturnType<typeof setTimeout> | null = null;
+  private pauseResolve: (() => void) | null = null;
   private running = false;
   private voice: PersonaProfile["voice"] | null = null;
   private sequence = 0;
@@ -106,6 +114,7 @@ export class VoiceEngine {
     this.capacity = options.capacity ?? 32;
     this.maxChars = options.maxChars ?? MAX_UTTERANCE_CHARS;
     this.synthesisTimeoutMs = options.synthesisTimeoutMs ?? 8_000;
+    this.pauseMs = options.pauseMs ?? sentencePauseMs;
     this.circuitThreshold = options.circuitThreshold ?? 3;
     this.circuitCooldownMs = options.circuitCooldownMs ?? 30_000;
     this.onEvent = options.onEvent;
@@ -207,6 +216,14 @@ export class VoiceEngine {
       this.current.controller.abort(new Error(reason));
       this.current = null;
     }
+    // A stop must not wait out the natural beat between two sentences.
+    if (this.pauseTimer !== null) {
+      clearTimeout(this.pauseTimer);
+      this.pauseTimer = null;
+    }
+    const resume = this.pauseResolve;
+    this.pauseResolve = null;
+    resume?.();
     this.emitStatus();
     this.resolveIdle();
   }
@@ -277,6 +294,11 @@ export class VoiceEngine {
         const segment = this.queue.shift();
         if (!segment) break;
         await this.speakSegment(segment, this.voice);
+        // Only a queued follow-up needs a beat. A single utterance should end
+        // the moment its audio does, otherwise "idle" arrives late.
+        if (this.queue.length > 0) {
+          await this.rest(this.pauseMs(segment.utterance.text));
+        }
       }
     } finally {
       this.running = false;
@@ -284,6 +306,19 @@ export class VoiceEngine {
       this.emitStatus();
       this.resolveIdle();
     }
+  }
+
+  /** Abortable silence between two sentences. */
+  private rest(ms: number): Promise<void> {
+    if (ms <= 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.pauseResolve = resolve;
+      this.pauseTimer = setTimeout(() => {
+        this.pauseTimer = null;
+        this.pauseResolve = null;
+        resolve();
+      }, ms);
+    });
   }
 
   private async speakSegment(segment: Segment, voice: PersonaProfile["voice"]): Promise<void> {

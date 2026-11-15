@@ -30,6 +30,7 @@ final class SkillLabels {
 			case "say" -> "说话";
 			case "emote" -> "表情";
 			case "wait" -> "等待";
+			case "run_job" -> "连续任务";
 			default -> skill;
 		};
 	}

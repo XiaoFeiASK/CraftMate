@@ -3,6 +3,7 @@ import {
   hasCraftingTableProduct,
   hasItem,
   hasStoneCapablePickaxe,
+  hasUsablePickaxe,
   inventoryCount,
   isNight,
   nearbyHas,
@@ -117,7 +118,16 @@ export const STAGES: readonly Stage[] = [
       "have-cobblestone",
       "背包有 3 块圆石",
       "inventory contains at least 3 cobblestone",
-      (facts) => (inventoryCount(facts, "minecraft:cobblestone") >= 3 ? "complete" : "incomplete"),
+      (facts) => {
+        // Cobblestone is a consumable bootstrap material, not a permanent
+        // achievement. A stone or better pickaxe proves the body already
+        // gathered and used stone; keeping this milestone inventory-only made
+        // the whole season goal fall back from iron to stone-tools whenever
+        // the last cobblestone went into a furnace or a chest. The planner
+        // then mined "three stone" again while iron ingots sat in the pack.
+        if (inventoryCount(facts, "minecraft:cobblestone") >= 3) return "complete";
+        return pickaxeTier(facts) >= 2 ? "complete" : "incomplete";
+      },
     ),
     milestone(
       "have-stone-pickaxe",
@@ -140,13 +150,14 @@ export const STAGES: readonly Stage[] = [
         // though the body was in no danger. Keep the stage dynamic: if hunger
         // later drops below the safety threshold, this milestone becomes
         // incomplete again and the planner resumes eating/hunting. The
-        // default eat threshold is 16, so 17 already means "no action yet";
-        // requiring 18 made a body at 17 hunt forever for a meal it could not
-        // legally eat.
+        // Eight is four hunger shards: enough to keep mining a short leg and
+        // climb out before starvation. Requiring seventeen rolled the whole
+        // goal back to food after every trip and turned scarce-animal worlds
+        // into hours of aimless sweeping.
         if (
           facts.food !== undefined &&
           facts.food !== null &&
-          facts.food >= 17 &&
+          facts.food >= 8 &&
           (facts.health === undefined || facts.health === null || facts.health >= 12)
         ) {
           return "complete";
@@ -165,12 +176,12 @@ export const STAGES: readonly Stage[] = [
         // A safe hunger bar is the actual survival condition. Requiring a
         // reserve at 20/20 made the first food stage endless and produced
         // apple-farming loops. If hunger falls later, the stage reopens.
-        // Seventeen is above the default eat threshold, so it is safe even
-        // when the body has nothing edible in the pack.
+        // Eight leaves a real margin before starvation even when the body has
+        // nothing edible in the pack.
         if (
           facts.food !== undefined &&
           facts.food !== null &&
-          facts.food >= 17
+          facts.food >= 8
         ) {
           return "complete";
         }
@@ -215,7 +226,7 @@ export const STAGES: readonly Stage[] = [
       },
     ),
   ], true),
-  stage("iron", 4, "铁器与熔炉", "采集铁矿石、建造熔炉并升级到铁镐", ["shelter"], [
+  stage("iron", 4, "铁器与熔炉", "采集铁矿石、建造熔炉并打造整套铁装备", ["shelter"], [
     milestone(
       "have-furnace",
       "背包或附近有熔炉",
@@ -241,42 +252,69 @@ export const STAGES: readonly Stage[] = [
     milestone(
       "have-raw-iron",
       "背包有粗铁",
-      "inventory contains raw iron, or an iron tool proves it was already smelted",
+      "inventory contains raw iron, or iron equipment proves it was already smelted",
       (facts) =>
         hasItem(facts, "minecraft:raw_iron") ||
         hasItem(facts, "minecraft:iron_ingot") ||
-        hasIronTool(facts)
+        hasIronEquipment(facts)
           ? "complete"
           : "incomplete",
     ),
     milestone(
       "have-iron-ingot",
       "背包有铁锭",
-      "inventory contains iron_ingot, or an iron tool proves one was produced",
+      "inventory contains iron_ingot, or iron equipment proves one was produced",
       (facts) =>
-        hasItem(facts, "minecraft:iron_ingot") || hasIronTool(facts)
+        hasItem(facts, "minecraft:iron_ingot") || hasIronEquipment(facts)
           ? "complete"
           : "incomplete",
     ),
     milestone(
       "have-iron-pickaxe",
-      "背包有铁镐",
-      "inventory contains iron_pickaxe",
-      (facts) => hasItem(facts, "minecraft:iron_pickaxe") ? "complete" : "incomplete",
+      "背包有铁镐或更好的镐",
+      "inventory contains a usable iron, diamond or netherite pickaxe",
+      (facts) => hasUsablePickaxe(facts, 3) ? "complete" : "incomplete",
     ),
     milestone(
       "have-iron-sword",
-      "背包有铁剑",
-      "inventory contains iron_sword",
-      (facts) => hasItem(facts, "minecraft:iron_sword") ? "complete" : "incomplete",
+      "背包有铁剑或更好的剑",
+      "inventory contains an iron, diamond or netherite sword",
+      (facts) => hasSword(facts, 3) ? "complete" : "incomplete",
+    ),
+    milestone(
+      "have-iron-helmet",
+      "背包或装备栏有铁头盔",
+      "inventory contains iron_helmet",
+      (facts) => hasItem(facts, "minecraft:iron_helmet") ? "complete" : "incomplete",
+    ),
+    milestone(
+      "have-iron-chestplate",
+      "背包或装备栏有铁胸甲",
+      "inventory contains iron_chestplate",
+      (facts) => hasItem(facts, "minecraft:iron_chestplate") ? "complete" : "incomplete",
+    ),
+    milestone(
+      "have-iron-leggings",
+      "背包或装备栏有铁护腿",
+      "inventory contains iron_leggings",
+      (facts) => hasItem(facts, "minecraft:iron_leggings") ? "complete" : "incomplete",
+    ),
+    milestone(
+      "have-iron-boots",
+      "背包或装备栏有铁靴子",
+      "inventory contains iron_boots",
+      (facts) => hasItem(facts, "minecraft:iron_boots") ? "complete" : "incomplete",
     ),
   ]),
-  stage("nether", 5, "下界与烈焰棒", "获得黑曜石、进入下界并击杀烈焰人", ["iron"], [
+  stage("diamond-gear", 5, "钻石装备", "开采钻石并打造钻石镐、剑和整套钻石护甲", ["iron"], [
     milestone(
       "have-diamonds",
-      "背包有 3 颗钻石",
-      "inventory contains at least 3 diamond",
-      (facts) => (inventoryCount(facts, "minecraft:diamond") >= 3 ? "complete" : "incomplete"),
+      "已获得钻石",
+      "inventory contains diamonds or any diamond equipment proves they were found",
+      (facts) =>
+        inventoryCount(facts, "minecraft:diamond") >= 3 || hasDiamondEquipment(facts)
+          ? "complete"
+          : "incomplete",
     ),
     milestone(
       "have-diamond-pickaxe",
@@ -284,6 +322,38 @@ export const STAGES: readonly Stage[] = [
       "inventory contains diamond_pickaxe",
       (facts) => hasItem(facts, "minecraft:diamond_pickaxe") ? "complete" : "incomplete",
     ),
+    milestone(
+      "have-diamond-sword",
+      "背包有钻石剑",
+      "inventory contains diamond_sword",
+      (facts) => hasItem(facts, "minecraft:diamond_sword") ? "complete" : "incomplete",
+    ),
+    milestone(
+      "have-diamond-helmet",
+      "背包或装备栏有钻石头盔",
+      "inventory contains diamond_helmet",
+      (facts) => hasItem(facts, "minecraft:diamond_helmet") ? "complete" : "incomplete",
+    ),
+    milestone(
+      "have-diamond-chestplate",
+      "背包或装备栏有钻石胸甲",
+      "inventory contains diamond_chestplate",
+      (facts) => hasItem(facts, "minecraft:diamond_chestplate") ? "complete" : "incomplete",
+    ),
+    milestone(
+      "have-diamond-leggings",
+      "背包或装备栏有钻石护腿",
+      "inventory contains diamond_leggings",
+      (facts) => hasItem(facts, "minecraft:diamond_leggings") ? "complete" : "incomplete",
+    ),
+    milestone(
+      "have-diamond-boots",
+      "背包或装备栏有钻石靴子",
+      "inventory contains diamond_boots",
+      (facts) => hasItem(facts, "minecraft:diamond_boots") ? "complete" : "incomplete",
+    ),
+  ]),
+  stage("nether", 6, "下界与烈焰棒", "获得黑曜石、进入下界并击杀烈焰人", ["diamond-gear"], [
     milestone(
       "have-obsidian",
       "背包有黑曜石",
@@ -297,7 +367,7 @@ export const STAGES: readonly Stage[] = [
       (facts) => hasItem(facts, "minecraft:blaze_rod") ? "complete" : "incomplete",
     ),
   ]),
-  stage("eyes", 6, "末影珍珠与末影之眼", "收集末影珍珠并制作末影之眼", ["nether"], [
+  stage("eyes", 7, "末影珍珠与末影之眼", "收集末影珍珠并制作末影之眼", ["nether"], [
     milestone(
       "have-ender-pearl",
       "背包有末影珍珠",
@@ -311,7 +381,7 @@ export const STAGES: readonly Stage[] = [
       (facts) => (inventoryCount(facts, "minecraft:ender_eye") >= 12 ? "complete" : "incomplete"),
     ),
   ]),
-  stage("stronghold", 7, "寻找要塞", "使用末影之眼定位并进入要塞", ["eyes"], [
+  stage("stronghold", 8, "寻找要塞", "使用末影之眼定位并进入要塞", ["eyes"], [
     milestone(
       "found-stronghold",
       "已定位要塞",
@@ -322,7 +392,7 @@ export const STAGES: readonly Stage[] = [
       },
     ),
   ]),
-  stage("dragon", 8, "进入末地并击败末影龙", "完成终局目标", ["stronghold"], [
+  stage("dragon", 9, "进入末地并击败末影龙", "完成终局目标", ["stronghold"], [
     milestone(
       "in-end",
       "已进入末地",
@@ -408,10 +478,29 @@ function hasAnyByRegex(facts: WorldFacts, pattern: RegExp): boolean {
   return facts.inventory.some((slot) => pattern.test(slot.item));
 }
 
-function hasIronTool(facts: WorldFacts): boolean {
+function hasIronEquipment(facts: WorldFacts): boolean {
   return facts.inventory.some((slot) =>
-    /^minecraft:iron_(pickaxe|sword|axe|shovel|hoe)$/u.test(slot.item),
+    /^minecraft:iron_(pickaxe|sword|axe|shovel|hoe|helmet|chestplate|leggings|boots)$/u.test(slot.item),
   );
+}
+
+function hasDiamondEquipment(facts: WorldFacts): boolean {
+  return facts.inventory.some((slot) =>
+    /^minecraft:diamond_(pickaxe|sword|axe|shovel|hoe|helmet|chestplate|leggings|boots)$/u.test(slot.item),
+  );
+}
+
+function hasSword(facts: WorldFacts, minimumTier: 3 | 4 | 5): boolean {
+  const ranks: Readonly<Record<string, number>> = {
+    iron: 3,
+    diamond: 4,
+    netherite: 5,
+  };
+  return facts.inventory.some((slot) => {
+    if (slot.durability === 0) return false;
+    const match = /^minecraft:([a-z]+)_sword$/u.exec(slot.item);
+    return match !== null && (ranks[match[1] ?? ""] ?? 0) >= minimumTier;
+  });
 }
 
 const FOOD =

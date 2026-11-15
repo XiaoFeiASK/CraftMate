@@ -176,6 +176,8 @@ export const worldSnapshotSchema = z.object({
   craftingTableCrafted: z.boolean().optional(),
   /** True once this body session placed a crafting table in the world. */
   craftingTablePlaced: z.boolean().optional(),
+  /** Ticks since the remembered crafting table was placed, when known. */
+  craftingTableAgeTicks: z.number().int().nonnegative().optional(),
   /** Home-camp evidence: a chest and bed the body crafted/placed. */
   chestCrafted: z.boolean().optional(),
   chestPlaced: z.boolean().optional(),
@@ -278,6 +280,13 @@ export const worldSnapshotSchema = z.object({
    * the planner must make more storage instead of retrying the same deposit.
    */
   chestEmptySlots: z.number().int().nonnegative().max(256).optional(),
+  /**
+   * False when vanilla would refuse to open the remembered chest, for example
+   * because a solid block covers its lid or a cat is sitting on it. Omitted
+   * when the chest chunk is not loaded, so absence is not mistaken for a
+   * usable container.
+   */
+  chestOpenable: z.boolean().optional(),
   bed: z.object({
     x: z.number().finite(),
     y: z.number().finite(),
@@ -296,6 +305,18 @@ export const worldSnapshotSchema = z.object({
     z: z.number().finite(),
   }).optional(),
   furnacePlaced: z.boolean().optional(),
+  /** Ticks since the remembered furnace was placed, when known. */
+  furnaceAgeTicks: z.number().int().nonnegative().optional(),
+  /**
+   * Ore or finished output left inside the remembered furnace. A failed
+   * smelt otherwise looks like missing metal and sends the body mining again.
+   */
+  furnaceContents: z.object({
+    input: z.string().max(120).optional(),
+    inputCount: z.number().int().nonnegative().optional(),
+    output: z.string().max(120).optional(),
+    outputCount: z.number().int().nonnegative().optional(),
+  }).optional(),
   /** Last crafting table this body placed, so a later craft can walk back. */
   craftingTable: z.object({
     x: z.number().finite(),
@@ -369,6 +390,16 @@ export const reflexEventSchema = z.object({
   detail: z.string().min(1).max(240),
   /** Player health after the observation, so the console can show severity. */
   health: z.number().nonnegative().optional(),
+  /**
+   * True only when the body needs the orchestrator to stop the current
+   * command. A hostile at the edge of bow range is still worth reporting for
+   * situational awareness, but cancelling a walk every four seconds made the
+   * planner restart the same route forever. Older bodies omit this field;
+   * the coordinator treats an omitted value as urgent for compatibility.
+   */
+  urgent: z.boolean().optional(),
+  /** Distance to the reported threat, when the body can measure it. */
+  distance: z.number().nonnegative().optional(),
 });
 export type ReflexEvent = z.infer<typeof reflexEventSchema>;
 

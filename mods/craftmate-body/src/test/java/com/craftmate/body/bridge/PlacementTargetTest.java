@@ -19,6 +19,19 @@ class PlacementTargetTest {
 	)
 		implements PlacementTarget.Surface {}
 
+	private record PenalizedCandidate(String name, double distanceSqr, double penalty)
+		implements PlacementTarget.Surface {
+		@Override
+		public boolean destinationFree() {
+			return true;
+		}
+
+		@Override
+		public boolean opensMenu() {
+			return false;
+		}
+	}
+
 	@Test
 	void prefersAFreeDestinationThenDistance() {
 		Candidate occupied = new Candidate("occupied", 0.2, false, false);
@@ -45,6 +58,16 @@ class PlacementTargetTest {
 		Candidate table = new Candidate("crafting-table", 1.0, true, true);
 		Candidate stone = new Candidate("stone", 12.0, true, false);
 		assertEquals("stone", PlacementTarget.choose(List.of(table, stone)).name());
+	}
+
+	@Test
+	void prefersASideWallOverTheNextMineStep() {
+		PenalizedCandidate stairStep = new PenalizedCandidate("stair-step", 1.0, 100.0);
+		PenalizedCandidate sideWall = new PenalizedCandidate("side-wall", 9.0, 0.0);
+		assertEquals(
+			"side-wall",
+			PlacementTarget.choose(List.of(stairStep, sideWall)).name()
+		);
 	}
 
 	@Test

@@ -1,5 +1,5 @@
 import { nextTaskForStage } from "./tasks.ts";
-import { isNight } from "./facts.ts";
+import { isNight, isUnderground } from "./facts.ts";
 import type {
   BlockedTask,
   Recovery,
@@ -55,14 +55,16 @@ export function classifyFailure(
   ) {
     return "TIMEOUT";
   }
-  if (/no progress|stuck|no movement|卡住|没有进展|无进展/u.test(text)) {
-    return "NO_PROGRESS";
-  }
   if (
     /crafting_table|\btable\b|furnace|chest|bed|station|工作台|熔炉|箱子|床/u.test(text) &&
-    /unreach|route|walk|reach|too far|寻路|接近|走不到|不可达/u.test(text)
+    /unreach|route|walk|reach|approach|too far|no progress|stuck|寻路|接近|走不到|不可达|没有进展/u.test(
+      text,
+    )
   ) {
     return "STATION_UNREACHABLE";
+  }
+  if (/no progress|stuck|no movement|卡住|没有进展|无进展/u.test(text)) {
+    return "NO_PROGRESS";
   }
   if (
     /not found|no .* nearby|no .* within|not visible|no longer visible|no visible|找不到|看不见|附近没有|未发现/u.test(
@@ -212,6 +214,32 @@ export function recover(input: RecoveryInput): Recovery {
     facts: recoverableFacts,
     newId: () => crypto.randomUUID(),
   });
+  /*
+   * The way out of a mine is not an optional detour that a previous failure
+   * can blacklist. Once the station is gone and the body is still underground,
+   * the climb-to-surface plan is the only path that can restore the table and
+   * the pickaxe. The old avoid set contained that exact goto from an earlier
+   * attempt, so every replan returned null and the goal parked as blocked
+   * forever. Reissue the escape; the body's position changes as it climbs and
+   * the runtime's failure backoff still caps the retry rate.
+   */
+  if (
+    failureClass === "STATION_UNREACHABLE" &&
+    /crafting_table|\btable\b|工作台/iu.test(stationText) &&
+    isUnderground(input.facts) &&
+    alternative !== null &&
+    "skill" in alternative &&
+    alternative.kind === "navigate" &&
+    alternative.skill.name === "goto" &&
+    alternative.skill.args["mode"] === "recover"
+  ) {
+    return {
+      task: alternative,
+      reason: "工作台不可达且身处地下：先沿已有矿道返回地表",
+      avoid,
+      blocked: [],
+    };
+  }
   if (
     alternative !== null &&
     "skill" in alternative &&

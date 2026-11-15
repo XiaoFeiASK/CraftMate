@@ -378,6 +378,7 @@ function toGoalId(stage: string | undefined): GoalId {
     "food",
     "shelter",
     "iron",
+    "diamond-gear",
     "nether",
     "eyes",
     "stronghold",

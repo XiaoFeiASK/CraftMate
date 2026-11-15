@@ -749,6 +749,128 @@ describe("bridge control ownership", () => {
     assert.equal(first.coordinator.health().running, 0);
   });
 
+  test("a non-urgent threat report does not cancel ordinary work", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    first.coordinator.issue(sessionsCommand("r-walk"));
+    sessions.advance(50);
+    assert.equal(first.coordinator.health().running, 1);
+
+    first.coordinator.handle({
+      v: 1,
+      type: "event",
+      seq: 1,
+      tick: 1,
+      name: "reflex",
+      data: {
+        kind: "threat",
+        detail: "僵尸离你 7 格",
+        distance: 7,
+        urgent: false,
+      },
+    });
+
+    // A mob at the edge of its search range is information. The old code
+    // cancelled every walk here and reissued the same route four seconds
+    // later, so the body never reached the mine.
+    assert.equal(first.coordinator.health().running, 1);
+    assert.equal(first.coordinator.health().incidents.length, 1);
+  });
+
+  test("an urgent threat report still cancels ordinary work", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    first.coordinator.issue(sessionsCommand("r-walk"));
+    sessions.advance(50);
+
+    first.coordinator.handle({
+      v: 1,
+      type: "event",
+      seq: 1,
+      tick: 1,
+      name: "reflex",
+      data: {
+        kind: "threat",
+        detail: "僵尸离你 3 格",
+        distance: 3,
+        urgent: true,
+      },
+    });
+
+    assert.equal(first.coordinator.health().running, 0);
+    const attempt = sessions.actions.snapshot()[0];
+    assert.equal(attempt?.result?.detail, "safety: 僵尸离你 3 格");
+  });
+
+  test("a fall reflex does not cancel the recovery climb that answers it", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    first.coordinator.issue({
+      ...sessionsCommand("r-climb"),
+      op: "goto",
+      args: {
+        target: { x: 40, y: 90, z: 10 },
+        mode: "recover",
+        acceptPartial: false,
+      },
+    });
+    sessions.advance(50);
+
+    first.coordinator.handle({
+      v: 1,
+      type: "event",
+      seq: 1,
+      tick: 1,
+      name: "reflex",
+      data: { kind: "falling", detail: "正在从高处下落", urgent: true },
+    });
+
+    // The climb is the escape. The body still pauses and releases keys for
+    // the dangerous ticks, but the command must survive so the next safe
+    // tick continues from the same staircase instead of restarting it.
+    assert.equal(first.coordinator.health().running, 1);
+
+    first.coordinator.handle({
+      v: 1,
+      type: "event",
+      seq: 2,
+      tick: 2,
+      name: "reflex",
+      data: { kind: "lava", detail: "站在岩浆里" },
+    });
+    assert.equal(first.coordinator.health().running, 0);
+  });
+
+  test("a low-health report does not cancel the retreat it triggered", () => {
+    const control = new ControlAuthority();
+    const sessions = createSessions(control);
+    const first = sessions.open();
+    first.coordinator.issue({
+      ...sessionsCommand("r-retreat"),
+      op: "goto",
+      args: {
+        target: { x: 60, y: 64, z: 40 },
+        mode: "walk",
+        emergency: true,
+      },
+    });
+    sessions.advance(50);
+
+    first.coordinator.handle({
+      v: 1,
+      type: "event",
+      seq: 1,
+      tick: 1,
+      name: "reflex",
+      data: { kind: "low_health", detail: "血量只剩 5 点", urgent: true },
+    });
+
+    assert.equal(first.coordinator.health().running, 1);
+  });
+
   test("a body cannot use reflex events to cancel an operator's work", () => {
     const control = new ControlAuthority();
     const sessions = createSessions(control);

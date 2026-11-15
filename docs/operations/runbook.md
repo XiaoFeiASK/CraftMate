@@ -181,8 +181,8 @@ SQLite，用于本机审计。若需要外部录制，使用身体侧 `4324` 并
 ### 5.4 自主目标模式
 
 「设置 → 目标模式」开启后，Agent 按身体事实持续推进阶段，不需要每条评论或每次
-手工指令。当前实现是确定性 `SurvivalGoalPlanner`，不会调用模型；模型额度不变
-并不表示目标运行时停摆。
+手工指令。当前实现是确定性 `MissionGoalPlanner` + `SurvivalGoalPlanner`，不会
+调用模型；目标模式不产生模型费用，额度不变是预期行为。
 
 排查时先看：
 
@@ -198,7 +198,8 @@ tail -f "$HOME/MC/craftmate-1.20.1/logs/latest.log"
 - `progress_json.nextTask` 为空且 `retryAt` 在未来：运行时在退避或等终态。
 - `consecutiveFailures` 持续增长：看 `decision_log` 的最后结果和地形日志。
 
-完整闭环、阶段和模型账本见[自主生存闭环](autonomy.md)。
+当前实现由 `MissionGoalPlanner` 生成任务链，`SurvivalGoalPlanner` 编译阶段任务，
+`GoalRuntime` 负责单任务在途和终态恢复。完整闭环见[自主生存闭环](autonomy.md)。
 
 ## 6. 验证
 
@@ -227,7 +228,6 @@ cd mods/craftmate-body
 - `model_cost` 记录成功模型调用的价格与 token 用量；零价格调用也保留 token 证据。
 - 原始评论 24 小时后置空，保留哈希和结构化指标。
 - 日志不写弹幕原文、prompt 或模型输出。
-- `db/README.md` 已合并到[数据模型](../reference/data-model.md)。
 
 ## 8. Bridge 快速路径
 
@@ -251,7 +251,7 @@ cd mods/craftmate-body
 | Ingress `upstream=false` | 未连上 Orchestrator | 检查 4321 和 ingress token |
 | Bridge 未连接 | 游戏未启动、Mod 未安装或 token 不匹配 | 检查 Fabric 日志、版本和 bridge token |
 | 有目标但角色只随机看/走 | 身体处于 `idle action=...`，没有 Agent 任务 | 检查 `retryAt`、失败退避和 Bridge 终态，不要误判为随机寻路 |
-| 模型额度长期不变 | 只有一个确定性候选、未配置模型，或供应商请求失败 | 查 `model_cost`、候选数量和 Stage C / 供应商错误 |
+| 模型额度长期不变 | 目标模式不调用模型；观众 Stage C 未触发或供应商失败 | 查 `model_cost`、Stage C 决策和供应商错误 |
 | 供应商返回 502 | 上游模型服务不可用或模型名不支持 | 保留失败记录，切换模型/端点后再触发一次 Stage C；无成功请求不产生费用 |
 
 ## 10. 停止

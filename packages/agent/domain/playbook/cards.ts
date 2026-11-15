@@ -7,6 +7,7 @@ import {
   isUnderground,
   pickaxeTier,
   pickaxeUses,
+  usedInventorySlots,
   worldFactsFromSnapshot,
 } from "../survival/facts.ts";
 import {
@@ -37,6 +38,7 @@ const HOSTILE =
   /zombie|husk|drowned|skeleton|stray|creeper|spider|witch|pillager|vindicator|evoker|ravager|enderman|slime|magma_cube|blaze|ghast|wither|piglin|hoglin|phantom/iu;
 const WOOD_ITEMS = /(^|:)[a-z_]+_(log|wood|stem|hyphae)$/u;
 const IRON_ORE = /(^|:)iron_ore$/u;
+const VALUABLE_ORE = /(^|:)(iron|diamond)_ore$/u;
 const BED_ITEMS = /(^|:)[a-z_]+_bed$/u;
 const BUILDING_BLOCKS =
   /(^|:)(cobblestone|cobbled_deepslate|stone|deepslate|dirt|gravel|sand|sandstone|andesite|diorite|granite|tuff)$/u;
@@ -108,10 +110,6 @@ function foodCount(facts: WorldFacts): number {
   );
 }
 
-function usedSlots(facts: WorldFacts): number {
-  return facts.inventory.filter((slot) => slot.count > 0).length;
-}
-
 function logCount(facts: WorldFacts): number {
   return facts.inventory.reduce(
     (total, slot) => total + (WOOD_ITEMS.test(slot.item) ? slot.count : 0),
@@ -141,7 +139,10 @@ function hasWeapon(facts: WorldFacts): boolean {
 }
 
 function isFull(facts: WorldFacts, strategy: GoalStrategy): boolean {
-  return usedSlots(facts) >= Math.max(1, 36 - strategy.miningEmptySlots);
+  return (
+    usedInventorySlots(facts) >=
+    Math.max(1, 36 - strategy.miningEmptySlots)
+  );
 }
 
 function isHurt(facts: WorldFacts, strategy: GoalStrategy): boolean {
@@ -492,6 +493,28 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
       if (!threat && !isHurt(context.facts, strategy)) {
         return cardEvaluation(safetyRetreatCard, "blocked", "当前没有近身威胁且血量安全");
       }
+      /*
+       * Walking to an empty camp is not recovery. The live run at 1.77 health
+       * cycled home -> hunt -> home every fifteen seconds because the camp had
+       * neither a bed nor a meal: each retreat "completed", the food card sent
+       * the body back out, and the unlocked retreat card immediately won
+       * again. Without something at home that restores health, staying out
+       * and finding food is the safer plan.
+       */
+      if (
+        !threat &&
+        isHurt(context.facts, strategy) &&
+        homeAnchor(context.facts) !== null &&
+        !atSafeAnchor(context.facts) &&
+        !hasBedAccess(context.facts) &&
+        foodCount(context.facts) === 0
+      ) {
+        return cardEvaluation(
+          safetyRetreatCard,
+          "blocked",
+          "营地没有食物也没有床，来回休整不能回血；先就近找食物",
+        );
+      }
       if (!threat && isHurt(context.facts, strategy) && homeAnchor(context.facts) === null) {
         /*
          * Low health is a permanent state until the body eats, and without a
@@ -769,7 +792,7 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
     risk: "high",
     critical: true,
     minDwellMs: 0,
-    expectedEvidence: ["离开封闭坑或竖井", "重新获得安全可行走路线"],
+    expectedEvidence: ["离开封闭坑、竖井或低洼台地", "重新获得安全可行走路线"],
     recovery: ["recovery.reobserve", "mine.surface"],
     stopConditions: ["身体回到开放空间", "恢复预算用尽"],
     evaluate: (context) => {
@@ -787,6 +810,20 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
         /E_STUCK/u.test(context.lastFailure) &&
         context.facts.enclosed === true;
       const boxedIn = boxedInByTerrain(context);
+      /*
+       * A river bank or a two-block terrace is not "enclosed": the sky is
+       * open, shaftWalls is zero, and yet every walk fails because vanilla
+       * cannot step up two blocks. The live run stood at the waterline for
+       * minutes while `walk` blacklisted every heading. An explicit stair
+       * dig is the Minecraft-correct exit and does not place blocks.
+       */
+      const surfaceLedge =
+        context.consecutiveFailures >= 3 &&
+        context.lastFailure !== null &&
+        /E_UNREACHABLE/u.test(context.lastFailure) &&
+        hasUsablePickaxe(context.facts, 2) &&
+        context.facts.inWater !== true &&
+        !isUnderground(context.facts);
       // A body that stays below the surface through six consecutive planning
       // failures is not making progress on the current task. Give the escape
       // card a chance even when the latest failure was a timeout from some
@@ -810,6 +847,7 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
         !enclosedFailure &&
         !stuckInShaft &&
         !boxedIn &&
+        !surfaceLedge &&
         !continuingRecovery &&
         !persistentStuck
       ) {
@@ -854,18 +892,33 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
         z: Math.round((position.z + Math.sin(radians) * 8) * 10) / 10,
       };
       const mode = enclosedFailure || stuckInShaft ? "recover" : "dig";
-      const skillTarget = mode === "recover" ? target : digTarget;
+      const stairTarget = {
+        x: position.x,
+        y: position.y + 3,
+        z: position.z,
+      };
+      const skillTarget =
+        mode === "recover"
+          ? target
+          : surfaceLedge && !boxedIn
+            ? stairTarget
+            : digTarget;
       return cardEvaluation(
         recoveryEscapeCard,
         "available",
         mode === "recover"
           ? "普通行走已确认卡死；只在当前封闭空间启动恢复"
-          : "连续寻路失败且没有位移；只挖开出口，不搭柱也不搭桥",
+          : surfaceLedge && !boxedIn
+            ? "露天低洼台地没有可行走出口；只挖台阶上升，不搭柱也不搭桥"
+            : "连续寻路失败且没有位移；只挖开出口，不搭柱也不搭桥",
         {
           id: `task:${context.newId()}`,
           stage: context.stage,
           kind: "navigate",
-          title: "从封闭空间恢复并回到地表",
+          title:
+            surfaceLedge && !boxedIn
+              ? "挖台阶脱离低洼地形"
+              : "从封闭空间恢复并回到地表",
           critical: true,
           skill: {
             name: "goto",
@@ -912,7 +965,13 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
         );
       }
       const animals = (context.facts.entities ?? []).some(
-        (entity) => entity.distance <= 24 && /sheep|cow|pig|chicken|rabbit|fish|salmon|cod/i.test(entity.type),
+        /*
+         * Match the survival planner's 40-block hunt window. A cow at thirty
+         * blocks is a real meal, but the narrower card window hid it and sent
+         * the body to a 0.5% apple roll instead. The body walks to the target
+         * itself, so distance is not a reason to pretend the animal is absent.
+         */
+        (entity) => entity.distance <= 40 && /sheep|cow|pig|chicken|rabbit|fish|salmon|cod/i.test(entity.type),
       );
       if (
         !hungryForStrategy(context.facts, strategy) &&
@@ -966,7 +1025,7 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
   const foodForageCard: PlaybookCard = {
     ...makeCard({} as never),
     id: "food.forage",
-    title: "补食物：捡掉落或找苹果",
+    title: "补食物：捡掉落或狩猎",
     group: "food",
     stage: "food",
     priority: 68,
@@ -999,19 +1058,11 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
         );
       }
       /*
-       * Oak leaves drop apples at 0.5%, so a full canopy sweep is a poor use
-       * of daylight when hunger is still workable. The live run broke more
-       * than a hundred leaves at food 10 while two raw iron waited for a
-       * furnace. Forage is the emergency fallback, not the reserve builder:
-       * at 12–16 the body should eat if it can, otherwise keep progressing
-       * and come back when hunger actually reaches the urgent line.
-       */
-      /*
-       * A hurt body with nothing edible cannot wait for hunger to fall to 8.
-       * At food 14 and health 6 the live planner reported every card blocked
-       * and stood at camp until it died. Foraging is the only food source
-       * that exists next to that camp, so a missing reserve plus a health
-       * emergency is itself an urgent reason to look for apples.
+       * Apples are a 0.5% leaf drop, so a canopy sweep is not a meal plan.
+       * This card now covers the human alternatives: pick up a visible drop
+       * or walk to new terrain where a passive animal can be hunted. A hurt
+       * body with nothing edible still gets an urgent search instead of
+       * standing at camp until it dies.
        */
       if (
         (context.facts.food ?? 20) > 8 &&
@@ -1036,11 +1087,9 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
         "food",
         (task) =>
           task.stage === "food" &&
-          (task.skill.name === "mine_block" ||
-            task.skill.name === "collect_items" ||
-            task.skill.name === "chop_tree" ||
+          (task.skill.name === "collect_items" ||
             task.skill.name === "goto") &&
-          /苹果|树叶|橡树|掉落|食物|捡起|猎取|动物|接近地表|返回地面/u.test(
+          /掉落|食物|捡起|猎取|动物|寻找|探索|接近地表|返回地面/u.test(
             task.title,
           ),
         false,
@@ -1126,7 +1175,10 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
     recovery: ["recovery.unload", "home.store"],
     stopConditions: ["背包不再拥挤", "箱子已满"],
     evaluate: (context) => {
-      if (!isFull(context.facts, strategy) && usedSlots(context.facts) < 20) {
+      if (
+        !isFull(context.facts, strategy) &&
+        usedInventorySlots(context.facts) < 20
+      ) {
         return cardEvaluation(homeStoreCard, "blocked", "当前没有整理背包的必要");
       }
       return fromStage(
@@ -1141,9 +1193,9 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
   const mineOreCard: PlaybookCard = {
     ...makeCard({} as never),
     id: "mine.ore",
-    title: "眼前有铁矿就先挖",
+    title: "眼前有铁矿或钻石就先挖",
     group: "mine",
-    stage: "iron",
+    stage: "any",
     priority: 55,
     risk: "medium",
     critical: false,
@@ -1152,21 +1204,28 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
     recovery: ["mine.surface", "craft.smelt"],
     stopConditions: ["眼前铁矿挖完", "背包接近满"],
     evaluate: (context) => {
+      if (context.stage !== "iron" && context.stage !== "diamond-gear") {
+        return cardEvaluation(
+          mineOreCard,
+          "blocked",
+          "当前阶段没有必须立即处理的裸露矿石",
+        );
+      }
       const ore = (context.facts.nearbyBlocks ?? []).find(
-        (block) => IRON_ORE.test(block.id) && (block.distance ?? 99) <= 24,
+        (block) => VALUABLE_ORE.test(block.id) && (block.distance ?? 99) <= 24,
       );
       if (ore === undefined) {
-        return cardEvaluation(mineOreCard, "blocked", "视野内没有可及铁矿");
+        return cardEvaluation(mineOreCard, "blocked", "视野内没有可及铁矿或钻石");
       }
       return fromStage(
         mineOreCard,
         context,
-        "iron",
+        context.stage,
         (task) =>
           task.skill.name === "mine_block" &&
-          IRON_ORE.test(String(task.skill.args["block"] ?? "")),
+          VALUABLE_ORE.test(String(task.skill.args["block"] ?? "")),
         false,
-        { scopes: ["stage"], blockedReason: "视野内没有可采铁矿" },
+        { scopes: ["stage"], blockedReason: "视野内没有可采铁矿或钻石" },
       );
     },
   };
@@ -1260,7 +1319,10 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
        * start a descent; the existing mining-return task still climbs out at
        * hunger 10 before the reserve is spent.
        */
-      const foodReady = food >= strategy.miningFood || hunger >= 17;
+      // Eight is the same safety line the survival planner uses: four hunger
+      // shards still allow one bounded mining leg before the return task
+      // climbs out to eat. Seventeen made every ore trip stop at the surface.
+      const foodReady = food >= strategy.miningFood || hunger >= 8;
       const exits =
         context.facts.mineEntrance !== null &&
         context.facts.mineEntrance !== undefined
@@ -1274,7 +1336,8 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
         hasUsablePickaxe(context.facts, 2) &&
         foodReady &&
         buildingBlockCount(context.facts) >= strategy.miningBlocks &&
-        usedSlots(context.facts) <= 36 - strategy.miningEmptySlots &&
+        usedInventorySlots(context.facts) <=
+          36 - strategy.miningEmptySlots &&
         exits > 0;
       if (!ready) {
         return cardEvaluation(
@@ -1283,10 +1346,11 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
           !hasUsablePickaxe(context.facts, 2)
             ? "需要石镐或更好的镐"
             : !foodReady
-              ? `食物不足（需要 ${strategy.miningFood} 份或饥饿值 ≥ 17）`
+              ? `食物不足（需要 ${strategy.miningFood} 份或饥饿值 ≥ 8）`
               : buildingBlockCount(context.facts) < strategy.miningBlocks
                 ? `方块不足（需要 ${strategy.miningBlocks} 个）`
-              : usedSlots(context.facts) > 36 - strategy.miningEmptySlots
+              : usedInventorySlots(context.facts) >
+                  36 - strategy.miningEmptySlots
                 ? "背包空间不足"
                 : "还没有记录安全出口",
         );
@@ -1355,7 +1419,7 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
         context.stage,
         (task) =>
           task.skill.name === "craft" &&
-          /镐|剑|工具|斧|铲/u.test(task.title),
+          /镐|剑|工具|斧|铲|盔甲|头盔|胸甲|护腿|靴/u.test(task.title),
         false,
         {
           scopes: ["full", "stage"],
@@ -1381,8 +1445,12 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
       if (context.facts.sleeping === true) {
         return cardEvaluation(nightWorkCard, "done", "已经入睡");
       }
-      if (isNight(context.facts) !== true) {
-        return cardEvaluation(nightWorkCard, "blocked", "还没到夜间工作时段");
+      if (!pastNightReturn(context.facts, strategy)) {
+        return cardEvaluation(
+          nightWorkCard,
+          "blocked",
+          "还没到傍晚工作时段",
+        );
       }
       if (hasBedAccess(context.facts)) {
         return cardEvaluation(nightWorkCard, "blocked", "有床可睡，先回家睡觉");
@@ -1390,7 +1458,12 @@ export function playbookCards(strategy: GoalStrategy): readonly PlaybookCard[] {
       if ((context.facts.health ?? 20) < 10) {
         return cardEvaluation(nightWorkCard, "blocked", "血量过低，先恢复");
       }
-      const task = nightWorkTask(context.stage, context.facts, context.newId);
+      const task = nightWorkTask(
+        context.stage,
+        context.facts,
+        context.newId,
+        { notBefore: strategy.nightReturnAt },
+      );
       if (task === null) {
         return cardEvaluation(nightWorkCard, "done", "当前没有夜间工作");
       }

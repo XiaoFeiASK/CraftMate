@@ -4,6 +4,39 @@ const SENTENCE_END = /[。！？!?；;…]/;
 const SOFT_BREAK = /[，,、：:]/;
 
 /**
+ * A human speaker does not run sentences together at synthesis speed. Each
+ * unit is synthesized separately, so without a beat the queue plays them
+ * back to back and the result sounds clipped even when every sample is
+ * correct. Derive the gap from the punctuation the speaker actually wrote.
+ */
+export function sentencePauseMs(text: string): number {
+  const trimmed = text.trimEnd();
+  const last = trimmed.at(-1);
+  switch (last) {
+    case "…":
+      return 420;
+    case "；":
+    case ";":
+      return 360;
+    case "。":
+      return 320;
+    case "！":
+    case "!":
+    case "？":
+    case "?":
+      return 260;
+    case "，":
+    case ",":
+    case "、":
+    case "：":
+    case ":":
+      return 170;
+    default:
+      return 220;
+  }
+}
+
+/**
  * Splits spoken text into short, TTS-friendly units. Punctuation stays with
  * the sentence that owns it so the subtitle reads naturally, and no unit ever
  * exceeds the configured limit.

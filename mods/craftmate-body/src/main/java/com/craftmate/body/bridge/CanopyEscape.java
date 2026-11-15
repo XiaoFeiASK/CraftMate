@@ -59,16 +59,29 @@ final class CanopyEscape {
 	 * A tree house, a wool platform or a placed block can sit on top of the
 	 * same leaf crown. The support is not a leaf or a log, so the normal
 	 * canopy test misses it, yet every horizontal route is still foliage.
-	 * Only a raised, unnatural platform counts: ordinary grass under a tree
-	 * must stay a normal tunneling problem.
+	 * A natural support also qualifies when it is an isolated pedestal with
+	 * no same-layer walkable neighbour; ordinary grass beside a tree keeps
+	 * its normal routes and stays a tunneling problem.
+	 *
+	 * <p>A block placed by this body's own pillar escape is not a platform.
+	 * The escape builds a 1x1 column through the foliage, so its top block
+	 * looks exactly like an isolated platform. Peeling it dropped the body
+	 * one block and immediately re-triggered the same test, which produced a
+	 * live loop that mined its own scaffolding out from under itself.
 	 */
 	static boolean standingOnRaisedCanopyPlatform(
 		boolean onGround,
 		boolean atSurface,
 		int leafNeighbours,
-		boolean naturalGround
+		boolean naturalGround,
+		boolean isolated,
+		boolean ownPillar
 	) {
-		return onGround && atSurface && leafNeighbours >= 2 && !naturalGround;
+		return !ownPillar
+			&& onGround
+			&& atSurface
+			&& leafNeighbours >= 2
+			&& (!naturalGround || isolated);
 	}
 
 	/**
@@ -92,6 +105,50 @@ final class CanopyEscape {
 	 */
 	static boolean shouldWalkToLanding(boolean onLastLayer, int dropBlocks) {
 		return onLastLayer && dropBlocks > SAFE_DROP;
+	}
+
+	/**
+	 * `blocksMotion()` is false for leaves, so the generic body-space probe
+	 * calls a leaf cell walkable even though its collision box stops the
+	 * body. Choosing such a step froze the live body against a birch crown:
+	 * every tick steered into the same leaf and the goto timed out without
+	 * moving a block. A canopy walk may only enter truly open cells.
+	 */
+	static boolean walkableCanopyCell(
+		boolean bodySpace,
+		boolean feetLeaves,
+		boolean headLeaves,
+		boolean feetLogs,
+		boolean headLogs
+	) {
+		return bodySpace && !feetLeaves && !headLeaves && !feetLogs && !headLogs;
+	}
+
+	/**
+	 * Vanilla resolves a diagonal move one axis at a time. If either
+	 * orthogonal cell is closed, both axes cancel and the body stands still
+	 * even though the diagonal destination itself is open.
+	 */
+	static boolean diagonalCanopyStepClear(
+		boolean diagonal,
+		boolean firstOrthogonalClear,
+		boolean secondOrthogonalClear
+	) {
+		return !diagonal || (firstOrthogonalClear && secondOrthogonalClear);
+	}
+
+	/**
+	 * A peeled or felled tree can leave the body on a one-block trunk top
+	 * with no leaves left and no standable neighbour. The walk grid then has
+	 * no route or safe ledge, and every goto failed from the same perch. This
+	 * is still a canopy descent, not normal terrain.
+	 */
+	static boolean standingOnBareTreeTop(
+		boolean onGround,
+		boolean logSupport,
+		boolean isolated
+	) {
+		return onGround && logSupport && isolated;
 	}
 
 	/** True once a canopy escape has spent its whole bounded budget. */

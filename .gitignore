@@ -16,6 +16,7 @@ data/
 apps/desktop/src-tauri/gen/
 apps/desktop-shell/src-tauri/gen/
 .tmp-db
+.tmp-*
 
 # local game/log output
 logs/

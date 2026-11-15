@@ -5,3 +5,4 @@ export * from "./commitment/index.ts";
 export * from "./knowledge/index.ts";
 export * from "./survival/index.ts";
 export * from "./playbook/index.ts";
+export * from "./strategy/index.ts";

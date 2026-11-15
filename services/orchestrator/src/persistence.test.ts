@@ -3,7 +3,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createPersistentShow } from "./persistence.ts";
+import {
+  createPersistentShow,
+  routeBlacklistQueryFor,
+} from "./persistence.ts";
 
 const temporaryDatabase = (): string =>
   join(mkdtempSync(join(tmpdir(), "craftmate-persistence-")), "show.db");
@@ -190,4 +193,15 @@ test("goal mode is off by default and survives an explicit opt-in", () => {
   } finally {
     second.close();
   }
+});
+
+test("route refusals use the canonical snapshot dimension", () => {
+  assert.deepEqual(routeBlacklistQueryFor({ dimension: "overworld" }), {
+    dimension: "minecraft:overworld",
+  });
+  assert.deepEqual(
+    routeBlacklistQueryFor({ dimension: "minecraft:overworld" }),
+    { dimension: "minecraft:overworld" },
+  );
+  assert.deepEqual(routeBlacklistQueryFor({}), {});
 });

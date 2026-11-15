@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import type { BridgeHealth, SkillCall } from "@craftmate/contracts";
 import type { Clock } from "./ports/clock.ts";
 import {
+  applyFailureRecovery,
   completionEvidenceProblem,
   GoalRuntime,
   MemoryGoalRuntimeStore,
@@ -11,7 +12,7 @@ import {
   type GoalPlanner,
   type GoalRuntimeContext,
 } from "./goal-runtime.ts";
-import type { TaskFailure } from "../domain/index.ts";
+import type { SurvivalPlan, Task, TaskFailure, WorldFacts } from "../domain/index.ts";
 
 function testClock(): { readonly clock: Clock; advance(ms: number): void } {
   let now = 1_000;
@@ -143,6 +144,34 @@ describe("goal runtime", () => {
     const second = value.beginStep(context());
     assert.ok(second);
     assert.notEqual(second.decision.id, first.decision.id);
+  });
+
+  test("a settled world change waits for a fresh observation", () => {
+    const { clock, advance } = testClock();
+    const value = new GoalRuntime({
+      store: new MemoryGoalRuntimeStore(),
+      planner: planner(),
+      clock,
+      settlementObservationMs: 350,
+    });
+    value.restore();
+    value.setGoal({ title: "击败末影龙", description: "完整生存链" });
+    const first = value.beginStep(context());
+    assert.ok(first);
+    assert.equal(
+      value.settle(first.decision.id, {
+        status: "completed",
+        at: clock.now(),
+        changes: [{ kind: "block_broken", detail: "minecraft:oak_log" }],
+      }),
+      true,
+    );
+    // The pre-action heartbeat is still the newest observation in memory.
+    assert.equal(value.beginStep(context()), null);
+    advance(349);
+    assert.equal(value.beginStep(context()), null);
+    advance(1);
+    assert.ok(value.beginStep(context()));
   });
 
   test("body progress keeps a long-running task alive past the timeout", () => {
@@ -289,6 +318,22 @@ describe("goal runtime", () => {
       context({
         bridge: health({
           incidents: [{ kind: "threat", detail: "骷髅离你 6 格", at: 1_000 }],
+        }),
+      }),
+    );
+    assert.ok(next);
+    assert.equal(next.decision.skill?.name, "chop_tree");
+    assert.notEqual(value.currentProgress?.status, "paused");
+  });
+
+  test("critical health does not pause the planner that must save the body", () => {
+    const { value } = runtime();
+    const next = value.beginStep(
+      context({
+        bridge: health({
+          incidents: [
+            { kind: "low_health", detail: "血量只剩 3 点", at: 1_000 },
+          ],
         }),
       }),
     );
@@ -562,6 +607,58 @@ describe("goal runtime", () => {
     assert.notEqual(plan.nextTask, null);
   });
 
+  test("the diamond equipment goal continues after the full iron set", () => {
+    const plan = new SurvivalGoalPlanner().plan({
+      goal: { ...goal(), title: "铁全套与钻石装备" },
+      progress: progress(),
+      world: {
+        inWorld: true,
+        inventory: [
+          { section: "hotbar", slot: 0, item: "minecraft:iron_pickaxe", count: 1 },
+          { section: "hotbar", slot: 1, item: "minecraft:iron_sword", count: 1 },
+          { section: "armor", slot: 39, item: "minecraft:iron_helmet", count: 1 },
+          { section: "armor", slot: 38, item: "minecraft:iron_chestplate", count: 1 },
+          { section: "armor", slot: 37, item: "minecraft:iron_leggings", count: 1 },
+          { section: "armor", slot: 36, item: "minecraft:iron_boots", count: 1 },
+          { section: "main", slot: 9, item: "minecraft:cobblestone", count: 8 },
+          { section: "main", slot: 10, item: "minecraft:torch", count: 8 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:furnace" },
+          { id: "minecraft:chest" },
+          { id: "minecraft:white_bed" },
+        ],
+        craftingTablePlaced: true,
+        position: { x: 0, y: 70, z: 0 },
+        surfaceY: 70,
+        timeOfDay: 1_000,
+        health: 20,
+        food: 20,
+        mine: {
+          entrance: { x: 0, y: 70, z: 0 },
+          direction: "east" as const,
+          stair: {
+            stand: { x: 0, y: 70, z: 0 },
+            depth: 0,
+            pending: { id: "minecraft:stone", x: 1, y: 70, z: 0 },
+          },
+          branch: {
+            stand: { x: 0, y: 70, z: 0 },
+            distance: 0,
+            pending: { id: "minecraft:stone", x: 1, y: 70, z: 0 },
+          },
+        },
+      },
+      health: health({ skills: ["mine_block", "craft", "goto", "place_block"] }),
+      proposals: [],
+      lastFailure: null,
+      consecutiveFailures: 0,
+    });
+    assert.equal(plan.stage.id, "diamond-gear");
+    assert.match(plan.nextTask?.text ?? "", /钻石/u);
+  });
+
   test("survival planner reports a real blocked reason instead of inventing a task", () => {
     const plan = new SurvivalGoalPlanner().plan({
       goal: {
@@ -735,7 +832,91 @@ describe("goal runtime", () => {
     assert.match(plan.nextTask?.reason ?? "", /重新观察后重试/);
   });
 
-  test("a craft stuck approaching its station changes area instead of retrying", () => {
+  test("a walk that just failed for lack of a route escalates to recovery movement", () => {
+    const task: Task = {
+      id: "task:food-navigate",
+      stage: "food",
+      kind: "navigate",
+      title: "寻找可猎取的动物（搜索 动物）",
+      skill: {
+        name: "goto",
+        args: {
+          target: { x: 130, y: 63, z: -60 },
+          candidates: [{ x: 130, y: 63, z: -60 }],
+          acceptPartial: true,
+          mode: "walk",
+        },
+        idempotencyKey: "walk-1",
+      },
+      preconditions: ["a safe bounded route exists"],
+      expectedEvidence: ["the body reaches a new observation area"],
+      verify: () => true,
+    };
+    const plan: SurvivalPlan = {
+      goal: {
+        id: "goal-1",
+        title: "击败末影龙",
+        target: "dragon",
+        version: 1,
+        lockedByOperator: true,
+      },
+      stage: "food",
+      stageTitle: "食物",
+      stages: [],
+      milestone: { id: "fed", title: "食物充足", status: "incomplete", condition: "food" },
+      task,
+      blocked: [],
+      missing: [],
+      verifiedProgress: 0,
+      completedMilestones: 0,
+      totalMilestones: 1,
+      recoveredFrom: null,
+      evaluatedAt: 1_000,
+    };
+    const facts: WorldFacts = {
+      inWorld: true,
+      position: { x: 146.99, y: 63, z: -33.59 },
+      surfaceY: -64,
+      canSeeSky: true,
+      food: 6,
+      health: 18,
+      inventory: [],
+      nearbyBlocks: [{ id: "minecraft:water" }],
+      foodAcquired: false,
+      foodConsumed: false,
+      timeOfDay: 1_000,
+      day: 1,
+      sleeping: false,
+    };
+    const failure: TaskFailure = {
+      taskId: "task:food-navigate",
+      stage: "food",
+      code: "E_UNREACHABLE",
+      detail: "no natural route within the walk budget",
+      attempts: 1,
+    };
+    const result = applyFailureRecovery(
+      plan,
+      {
+        goal: goal(),
+        progress: progress(),
+        world: null,
+        health: null,
+        proposals: [],
+        lastFailure: "E_UNREACHABLE: no natural route within the walk budget",
+        consecutiveFailures: 1,
+        failures: [failure],
+        lastFailureStrategy:
+          'food:navigate:goto:{"target":{"x":130,"y":63,"z":-60}}',
+      },
+      facts,
+    );
+    assert.ok(result.resolved !== null);
+    assert.equal(result.resolved.nextTask?.skill.name, "goto");
+    assert.equal(result.resolved.nextTask?.skill.args["mode"], "recover");
+  });
+
+  test("a craft stuck approaching its station rebuilds the table instead of retrying", () => {
     const strategy =
       "stone-tools:craft:craft:{\"count\":1,\"item\":\"minecraft:wooden_pickaxe\"}";
     const first: TaskFailure = {
@@ -764,15 +945,19 @@ describe("goal runtime", () => {
       failures: [first, second],
       lastFailureStrategy: strategy,
     });
-    assert.equal(plan.nextTask?.skill.name, "goto");
-    assert.match(plan.nextTask?.reason ?? "", /换一片区域|重新观察/u);
+    // The station approach made no progress, so rebuilding the table from the
+    // carried planks is a real fix. Replaying the same craft (or exploring
+    // eight blocks and returning to the same broken approach) is the loop
+    // this test guards against.
+    assert.equal(plan.nextTask?.skill.name, "craft");
+    assert.equal(plan.nextTask?.skill.args["item"], "minecraft:crafting_table");
   });
 
   test("a repeated unreachable food target sweeps beyond the hunt window", () => {
     const foodWorld = {
       inWorld: true,
       health: 20,
-      food: 8,
+      food: 7,
       inventory: [
         { section: "hotbar" as const, slot: 0, item: "minecraft:stone_pickaxe", count: 1 },
         { section: "hotbar" as const, slot: 1, item: "minecraft:cobblestone", count: 3 },
@@ -986,6 +1171,82 @@ describe("goal runtime", () => {
     });
     assert.equal(detour.nextTask?.skill.name, "goto");
     assert.match(detour.nextTask?.reason ?? "", /换一片区域|重新观察/u);
+  });
+
+  test("a craft that cannot reach its table climbs out instead of exploring rock", () => {
+    const entrance = { x: 142, y: 73, z: -56 };
+    const world = {
+      inWorld: true,
+      health: 20,
+      food: 20,
+      position: { x: 146.5, y: 48, z: -98.57 },
+      canSeeSky: false,
+      surfaceY: 75,
+      mineEntrance: entrance,
+      mine: {
+        entrance,
+        direction: "south" as const,
+        stair: {
+          stand: { x: 146, y: 48, z: -99 },
+          depth: 25,
+          pending: { id: "minecraft:stone", x: 146, y: 48, z: -100 },
+        },
+      },
+      craftingTable: { x: 142, y: 40, z: -91 },
+      craftingTablePlaced: true,
+      craftingTableReachable: false,
+      inventory: [
+        { section: "main" as const, slot: 0, item: "minecraft:wooden_pickaxe", count: 1, durability: 50 },
+        { section: "main" as const, slot: 1, item: "minecraft:cobblestone", count: 12 },
+        { section: "main" as const, slot: 2, item: "minecraft:stick", count: 7 },
+        { section: "main" as const, slot: 3, item: "minecraft:birch_planks", count: 2 },
+        { section: "main" as const, slot: 4, item: "minecraft:torch", count: 8 },
+        { section: "main" as const, slot: 5, item: "minecraft:cooked_beef", count: 2 },
+      ],
+      nearbyBlocks: [],
+    };
+    const firstPlan = new SurvivalGoalPlanner().plan({
+      goal: goal(),
+      progress: progress(),
+      world,
+      health: health({ skills: ["craft", "goto", "place_block"] }),
+      proposals: [],
+      lastFailure: null,
+      consecutiveFailures: 0,
+    });
+    assert.equal(firstPlan.stage.id, "stone-tools");
+    assert.equal(firstPlan.nextTask?.skill.name, "craft");
+    const strategy = firstPlan.strategyKey;
+    assert.ok(strategy);
+    const first: TaskFailure = {
+      taskId: `task:${strategy}`,
+      stage: "stone-tools",
+      code: "E_PRECONDITION",
+      detail: "no safe route to the crafting table",
+      attempts: 1,
+    };
+    const second: TaskFailure = { ...first, attempts: 2 };
+    const recovered = new SurvivalGoalPlanner().plan({
+      goal: goal(),
+      progress: progress(),
+      world,
+      health: health({ skills: ["craft", "goto", "place_block"] }),
+      proposals: [],
+      lastFailure: second.detail,
+      consecutiveFailures: 2,
+      failures: [first, second],
+      lastFailureStrategy: strategy,
+    });
+    assert.equal(recovered.nextTask?.skill.name, "goto");
+    assert.ok(
+      (recovered.nextTask?.skill.args["target"] as { y: number }).y > 48,
+    );
+    assert.deepEqual(
+      (recovered.nextTask?.skill.args["candidates"] as readonly unknown[]).at(-1),
+      entrance,
+    );
+    assert.equal(recovered.nextTask?.skill.args["mode"], "recover");
+    assert.doesNotMatch(recovered.nextTask?.reason ?? "", /换一片区域/u);
   });
 
   test("a task that failed once is retried after fresh observation", () => {

@@ -44,7 +44,15 @@ const goalChoiceSchema = z.object({
 });
 
 const playbookChoiceSchema = z.object({
-  cardId: z.string().min(1).max(80),
+  // "No choice this tick" is a legitimate answer: the model may return
+  // null, an empty id, or omit the field when it wants the deterministic
+  // executive to keep the current plan. Rejecting that as malformed raised
+  // an incident every refresh and filled the log with `too_small` noise.
+  cardId: z
+    .string()
+    .max(80)
+    .nullish()
+    .transform((value) => value ?? ""),
   reason: z.string().max(500).default(""),
   speech: z.string().max(500).default(""),
 });

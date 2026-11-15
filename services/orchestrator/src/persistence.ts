@@ -9,8 +9,8 @@ import {
 } from "@craftmate/agent";
 import {
   GoalRuntime,
+  MissionGoalPlanner,
   OpenAICompatibleProvider,
-  PlaybookGoalPlanner,
   Planner,
   SurvivalProposalEvaluator,
   type GoalPlanner,
@@ -88,6 +88,14 @@ export interface PersistentShow {
 }
 
 const DEFAULT_GOAL = "盖一间带床和箱子的海崖小屋";
+
+export function routeBlacklistQueryFor(facts: {
+  readonly dimension?: string | null;
+}): { readonly dimension?: string } {
+  return facts.dimension === undefined || facts.dimension === null
+    ? {}
+    : { dimension: canonicalDimension(facts.dimension) };
+}
 
 /**
  * Builds the show on top of SQLite. Any failure here is fatal on purpose: a
@@ -253,42 +261,26 @@ export function createPersistentShow(options: {
   reconcileCommitments();
   const goals = new GoalRuntime({
     store: goalStore,
-    planner: options.goalPlanner ?? new PlaybookGoalPlanner({
-      provider,
-      deadlineMs: runtime.model.timeoutMs,
-      overBudget: overModelBudget,
-      onUsage: recordModelUsage,
-      onIncident: recordModelIncident,
-      readStrategy: () => show.currentSettings().goalStrategy,
-      readMemory: (facts) => {
-        worldMemory.observeFacts(facts);
-        const dimension = facts.dimension;
-        const position = facts.position;
-        return worldMemory.recall({
-          ...(dimension === null || dimension === undefined ? {} : { dimension }),
-          ...(position === null || position === undefined ? {} : { position }),
-          limit: 8,
-        });
-      },
-      readRouteBlacklist: (facts) =>
-        routeBlacklist.active(
-          {
-            ...(facts.dimension === null || facts.dimension === undefined
-              ? {}
-              : { dimension: canonicalDimension(facts.dimension) }),
-            // A refusal belongs to the target, not to the body's current
-            // cell. Filtering by position hid a blacklisted mine entrance
-            // twenty blocks away, so every replan walked to the same blocked
-            // endpoint again. Load the active entries for this dimension and
-            // let task selection check each candidate.
-            limit: 256,
-          },
-          Date.now(),
-        ),
-      onDegraded: (detail) => {
-        console.warn(`orchestrator: goal planner degraded — ${detail}`);
-      },
-    }),
+    /*
+     * One deterministic mission spine. The old playbook/model ranking was a
+     * second planner: it re-ranked the survival DAG every step, fought the
+     * night card and the reclaim task, and produced the place/reclaim loop.
+     * Model calls remain available to the audience planner, not to the body's
+     * continuous survival execution.
+     */
+    planner:
+      options.goalPlanner ??
+      new MissionGoalPlanner({
+        readRouteBlacklist: (facts) =>
+          routeBlacklist.active(routeBlacklistQueryFor(facts)),
+      }),
+    /*
+     * The body heartbeats every 250 ms. A settled placement/mine/craft can
+     * change `nearbyBlocks` or the inventory, but the next plan would still
+     * read the pre-action snapshot and repeat the action. Wait one heartbeat
+     * plus a margin so the next decision is based on what the body now sees.
+     */
+    settlementObservationMs: 350,
     proposals: () => show.proposals(null, 20),
     recordDecision: (decision) => recordGoalDecision(decision),
     onUpdate: (progress) => show.setGoalProgress(progress),
@@ -347,12 +339,17 @@ export function createPersistentShow(options: {
             event.errorCode === "E_ENCLOSED" ||
             event.errorCode === "E_STUCK")
         ) {
-          const cardId = event.decision.playbook?.id ?? "";
+          const playbook = event.decision.playbook;
+          const targetLock = playbook?.targetLock ?? null;
+          const cardId = playbook?.id ?? "";
           const entity =
-            cardId === "food.hunt" || cardId === "combat.engage";
+            targetLock?.kind === "entity" ||
+            cardId === "food.hunt" ||
+            cardId === "combat.engage";
           const region =
-            cardId === "explore.surface" ||
-            cardId === "recovery.reobserve";
+            targetLock?.kind !== "entity" &&
+            (cardId === "explore.surface" ||
+              cardId === "recovery.reobserve");
           const kind = entity ? "entity" : region ? "region" : "point";
           const ttl = entity || region ? 5 * 60_000 : 10 * 60_000;
           /*
@@ -402,7 +399,10 @@ export function createPersistentShow(options: {
                   : region
                     ? 12
                     : 0.75,
-              targetRef: event.decision.playbook?.id ?? null,
+              targetRef:
+                entity && targetLock?.kind === "entity"
+                  ? targetLock.ref
+                  : playbook?.id ?? null,
               reasonCode: event.errorCode,
               reasonDetail: event.detail,
               source: "agent",

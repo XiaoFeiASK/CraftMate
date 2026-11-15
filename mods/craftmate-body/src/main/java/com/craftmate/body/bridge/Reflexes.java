@@ -40,6 +40,14 @@ final class Reflexes {
 	 */
 	private static final int THREAT_RESPONSE_TICKS = 20 * 2;
 	private static final int THREAT_RETRY_TICKS = 20 * 4;
+	/**
+	 * A hostile at the edge of its search range is information, not a reason
+	 * to abandon a route. Give the body one short sidestep and report again
+	 * only after eight seconds; the previous four-second cadence restarted
+	 * the same walk every time a mob hovered just outside melee range.
+	 */
+	private static final int NON_URGENT_THREAT_RESPONSE_TICKS = 20;
+	private static final int NON_URGENT_THREAT_RETRY_TICKS = 20 * 8;
 	private static final double THREAT_DISTANCE = 7.0;
 	/**
 	 * A creeper at nine blocks is not a fuse. The old through-wall range kept
@@ -51,6 +59,13 @@ final class Reflexes {
 	/** Only a genuinely adjacent mob keeps extending the reflex window. */
 	private static final double THREAT_PIN_DISTANCE = 4.0;
 	private static final double ARROW_DISTANCE = 10.0;
+	/**
+	 * An arrow "moving toward the player" used to trigger a reflex from ten
+	 * blocks away even when it would pass harmlessly overhead. Extrapolate
+	 * the flight path instead and only dodge a real collision course.
+	 */
+	private static final double ARROW_COLLISION_TICKS = 12.0;
+	private static final double ARROW_HIT_RADIUS = 1.25;
 	private static final double MELEE_DISTANCE = 3.25;
 	private static final float LOW_HEALTH = 6.0f;
 	/**
@@ -155,6 +170,13 @@ final class Reflexes {
 		}
 		Entity threat = emergencyAction ? null : nearestThreat(client, player);
 		AbstractArrow arrow = emergencyAction ? null : incomingArrow(client, player);
+		double threatDistance =
+			threat == null ? 0.0 : Math.sqrt(threat.distanceToSqr(player));
+		boolean urgentThreat = threatIsUrgent(
+			arrow != null,
+			threat instanceof Creeper,
+			threatDistance
+		);
 		// A mob within seven blocks is not a two-second event. Extending the
 		// response window while the same threat survives keeps the body
 		// strafing, closing, or retreating every tick; the old fixed window
@@ -169,20 +191,34 @@ final class Reflexes {
 			threatResponseUntil = Math.max(threatResponseUntil, ticks + 4);
 		}
 		if ((threat != null || arrow != null) && ticks >= nextThreatAt) {
-			threatResponseUntil = Math.max(threatResponseUntil, ticks + THREAT_RESPONSE_TICKS);
-			nextThreatAt = ticks + THREAT_RETRY_TICKS;
+			threatResponseUntil = Math.max(
+				threatResponseUntil,
+				ticks +
+					(urgentThreat
+						? THREAT_RESPONSE_TICKS
+						: NON_URGENT_THREAT_RESPONSE_TICKS)
+			);
+			nextThreatAt =
+				ticks +
+					(urgentThreat
+						? THREAT_RETRY_TICKS
+						: NON_URGENT_THREAT_RETRY_TICKS);
 			if (threat != null) {
-				double distance = Math.sqrt(threat.distanceToSqr(player));
 				report(
 					Kind.THREAT,
-					threat.getName().getString() + "离你 " + Math.round(distance) + " 格",
-					player
+					threat.getName().getString() + "离你 " + Math.round(threatDistance) + " 格",
+					player,
+					threatDistance,
+					urgentThreat
 				);
 			} else if (arrow != null) {
+				double arrowDistance = Math.sqrt(arrow.distanceToSqr(player));
 				report(
 					Kind.THREAT,
-					"箭矢朝你飞来，距离 " + Math.round(Math.sqrt(arrow.distanceToSqr(player))) + " 格",
-					player
+					"箭矢朝你飞来，距离 " + Math.round(arrowDistance) + " 格",
+					player,
+					arrowDistance,
+					true
 				);
 			}
 		}
@@ -390,17 +426,110 @@ final class Reflexes {
 					&& !arrow.onGround()
 					&& arrow.getOwner() != player
 					&& arrow.distanceToSqr(player) <= ARROW_DISTANCE * ARROW_DISTANCE
-					&& arrow.getDeltaMovement().dot(chest.subtract(arrow.position())) > 0
+					&& arrowOnCollisionCourse(
+						arrow.getX(),
+						arrow.getY(),
+						arrow.getZ(),
+						arrow.getDeltaMovement().x,
+						arrow.getDeltaMovement().y,
+						arrow.getDeltaMovement().z,
+						chest.x,
+						chest.y,
+						chest.z
+					)
 			)
-			.findFirst()
+			.min((left, right) -> Double.compare(left.distanceToSqr(player), right.distanceToSqr(player)))
 			.orElse(null);
 	}
 
+	/**
+	 * Closest-approach test for a projectile. The old check only asked whether
+	 * the arrow's velocity pointed roughly at the player, so an arrow eight
+	 * blocks away that would miss by several blocks still preempted every
+	 * task. This projects the arrow along its current per-tick delta and
+	 * requires the closest point to pass through the body.
+	 */
+	static boolean arrowOnCollisionCourse(
+		double arrowX,
+		double arrowY,
+		double arrowZ,
+		double velocityX,
+		double velocityY,
+		double velocityZ,
+		double chestX,
+		double chestY,
+		double chestZ
+	) {
+		double speedSquared =
+			velocityX * velocityX +
+				velocityY * velocityY +
+				velocityZ * velocityZ;
+		if (speedSquared < 1.0e-6) return false;
+		double towardX = chestX - arrowX;
+		double towardY = chestY - arrowY;
+		double towardZ = chestZ - arrowZ;
+		double ticksToClosest =
+			(towardX * velocityX + towardY * velocityY + towardZ * velocityZ) /
+				speedSquared;
+		// A negative time means the closest approach is behind the arrow; it
+		// has already passed (or is flying away from) the body.
+		if (ticksToClosest < 0.0 || ticksToClosest > ARROW_COLLISION_TICKS) {
+			return false;
+		}
+		double offsetX = arrowX + velocityX * ticksToClosest - chestX;
+		double offsetY = arrowY + velocityY * ticksToClosest - chestY;
+		double offsetZ = arrowZ + velocityZ * ticksToClosest - chestZ;
+		return (
+			offsetX * offsetX + offsetY * offsetY + offsetZ * offsetZ <=
+				ARROW_HIT_RADIUS * ARROW_HIT_RADIUS
+		);
+	}
+
+	/**
+	 * Only an immediate hit changes the plan. A mob in the five-to-seven-block
+	 * band still deserves a sidestep, but it must not cancel a route; a
+	 * creeper or an arrow already on a collision course must.
+	 */
+	static boolean threatIsUrgent(
+		boolean arrowOnCourse,
+		boolean creeper,
+		double threatDistance
+	) {
+		return (
+			arrowOnCourse ||
+				creeper ||
+				(threatDistance >= 0.0 && threatDistance <= THREAT_PIN_DISTANCE)
+		);
+	}
+
 	private void report(Kind kind, String detail, LocalPlayer player) {
+		report(kind, detail, player, 0.0, false);
+	}
+
+	private void report(
+		Kind kind,
+		String detail,
+		LocalPlayer player,
+		double distance,
+		boolean urgent
+	) {
 		int index = kind.ordinal();
-		if (ticks - lastReportedAt[index] < REPORT_COOLDOWN_TICKS) return;
+		// An urgent report must not be suppressed by a non-urgent observation
+		// of the same kind two seconds earlier: that is exactly the window in
+		// which a distant skeleton closes to melee range or looses an arrow.
+		if (!urgent && ticks - lastReportedAt[index] < REPORT_COOLDOWN_TICKS) {
+			return;
+		}
 		lastReportedAt[index] = ticks;
-		send.accept(BridgeMessages.reflex(kind.wire, detail, player.getHealth()));
+		send.accept(
+			BridgeMessages.reflex(
+				kind.wire,
+				detail,
+				player.getHealth(),
+				Math.max(0.0, distance),
+				urgent
+			)
+		);
 	}
 
 	private enum Kind {

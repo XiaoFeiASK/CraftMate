@@ -23,6 +23,15 @@ final class PlacementTarget {
 		default boolean opensMenu() {
 			return false;
 		}
+
+		/**
+		 * Soft ordering penalty. A face that is legal but sits in the path of
+		 * work the body is about to do (for example the next mine step) should
+		 * lose to a side wall at the same reach.
+		 */
+		default double penalty() {
+			return 0.0;
+		}
 	}
 
 	/**
@@ -39,6 +48,7 @@ final class PlacementTarget {
 			double score =
 				(candidate.destinationFree() ? 0.0 : 1_000_000.0)
 				+ (candidate.opensMenu() ? 1_000.0 : 0.0)
+				+ candidate.penalty()
 				+ distance;
 			if (score < bestScore) {
 				bestScore = score;

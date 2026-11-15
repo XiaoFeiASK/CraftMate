@@ -63,6 +63,17 @@ export function planSurvival(
         ) ?? active;
     }
   }
+  const forced =
+    context.forcedStage === undefined
+      ? undefined
+      : stages.find((entry) => entry.id === context.forcedStage);
+  if (
+    forced !== undefined &&
+    forced.index <= targetIndex &&
+    forced.status !== "complete"
+  ) {
+    active = forced;
+  }
   if (active === null) {
     active = stages.find((stage) => stage.index === targetIndex) ?? stages[0] ?? null;
   }

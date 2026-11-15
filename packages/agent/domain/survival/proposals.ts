@@ -71,6 +71,7 @@ const STAGE_KEYWORDS: Readonly<Record<string, readonly string[]>> = {
   food: ["食物", "吃", "饥饿", "面包", "肉", "food", "eat", "hungry"],
   shelter: ["房子", "庇护所", "床", "睡觉", "夜晚", "house", "shelter", "bed", "sleep"],
   iron: ["铁", "熔炉", "烧", "铁器", "iron", "furnace", "smelt"],
+  "diamond-gear": ["钻石", "钻石装备", "钻石套", "diamond", "diamond gear"],
   nether: ["下界", "黑曜石", "传送门", "烈焰", "nether", "obsidian", "portal", "blaze"],
   eyes: ["末影珍珠", "末影之眼", "烈焰粉", "ender", "pearl", "eye", "blaze"],
   stronghold: ["要塞", "定位", "stronghold", "locate"],
@@ -203,7 +204,7 @@ function alignmentFor(
 
 function stageForText(text: string): string | null {
   const lower = text.toLowerCase();
-  const order = ["wood-and-table", "stone-tools", "food", "shelter", "iron", "nether", "eyes", "stronghold", "dragon"];
+  const order = ["wood-and-table", "stone-tools", "food", "shelter", "iron", "diamond-gear", "nether", "eyes", "stronghold", "dragon"];
   for (const stage of order) {
     const words = STAGE_KEYWORDS[stage] ?? [];
     if (words.some((word) => lower.includes(word.toLowerCase()))) return stage;

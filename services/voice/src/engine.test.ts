@@ -76,6 +76,7 @@ function engineWith(
     clock: clock(),
     providers,
     sink,
+    pauseMs: () => 0,
     onEvent: (event) => events.push(event),
     ...extra,
   });
@@ -122,6 +123,31 @@ describe("voice queue", () => {
       .map((event) => (event.type === "speaking" ? event.utterance.text : ""));
     assert.equal(speaking[0], "第一句。");
     assert.equal(speaking[1], "操作员说话。");
+  });
+
+  test("leaves a natural beat between consecutive sentences", async () => {
+    const { engine } = engineWith([new SilentTtsProvider()], new MemoryAudioSink(), {
+      pauseMs: () => 60,
+    });
+    const started = Date.now();
+    engine.speak({ text: "第一句。第二句。", voice });
+    await engine.whenIdle();
+    assert.ok(
+      Date.now() - started >= 55,
+      "two sentences should not be stitched together without a gap",
+    );
+  });
+
+  test("a stop skips the remaining inter-sentence beat", async () => {
+    const { engine } = engineWith([new SilentTtsProvider()], new MemoryAudioSink(), {
+      pauseMs: () => 5_000,
+    });
+    engine.speak({ text: "第一句。第二句。", voice });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const stoppedAt = Date.now();
+    engine.stop();
+    await engine.whenIdle();
+    assert.ok(Date.now() - stoppedAt < 500, "stop must not wait out the sentence beat");
   });
 
   test("stop aborts the current segment and clears the queue", async () => {

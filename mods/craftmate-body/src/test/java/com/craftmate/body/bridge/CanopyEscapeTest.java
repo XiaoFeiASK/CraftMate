@@ -25,11 +25,23 @@ class CanopyEscapeTest {
 
 	@Test
 	void recognizesAPlacedPlatformInsideTheLeafCrown() {
-		assertTrue(CanopyEscape.standingOnRaisedCanopyPlatform(true, true, 4, false));
-		assertFalse(CanopyEscape.standingOnRaisedCanopyPlatform(true, false, 4, false));
-		assertFalse(CanopyEscape.standingOnRaisedCanopyPlatform(true, true, 1, false));
-		assertFalse(CanopyEscape.standingOnRaisedCanopyPlatform(true, true, 4, true));
-		assertFalse(CanopyEscape.standingOnRaisedCanopyPlatform(false, true, 4, false));
+		assertTrue(CanopyEscape.standingOnRaisedCanopyPlatform(true, true, 4, false, false, false));
+		assertFalse(CanopyEscape.standingOnRaisedCanopyPlatform(true, false, 4, false, false, false));
+		assertFalse(CanopyEscape.standingOnRaisedCanopyPlatform(true, true, 1, false, false, false));
+		assertFalse(CanopyEscape.standingOnRaisedCanopyPlatform(true, true, 4, true, false, false));
+		assertFalse(CanopyEscape.standingOnRaisedCanopyPlatform(false, true, 4, false, false, false));
+	}
+
+	@Test
+	void recognizesAnIsolatedNaturalPedestalInsideFoliage() {
+		assertTrue(CanopyEscape.standingOnRaisedCanopyPlatform(true, true, 2, true, true, false));
+		assertFalse(CanopyEscape.standingOnRaisedCanopyPlatform(true, true, 2, true, false, false));
+	}
+
+	@Test
+	void ignoresTheBodysOwnEscapePillarInsideFoliage() {
+		assertFalse(CanopyEscape.standingOnRaisedCanopyPlatform(true, true, 4, false, true, true));
+		assertFalse(CanopyEscape.standingOnRaisedCanopyPlatform(true, true, 2, true, true, true));
 	}
 
 	@Test
@@ -57,6 +69,32 @@ class CanopyEscapeTest {
 		assertTrue(CanopyEscape.shouldWalkToLanding(true, 6));
 		assertFalse(CanopyEscape.shouldWalkToLanding(true, 3));
 		assertFalse(CanopyEscape.shouldWalkToLanding(false, 6));
+	}
+
+	@Test
+	void canopyWalkRejectsLeafCellsThatStillCollide() {
+		assertTrue(CanopyEscape.walkableCanopyCell(true, false, false, false, false));
+		assertFalse(CanopyEscape.walkableCanopyCell(true, true, false, false, false));
+		assertFalse(CanopyEscape.walkableCanopyCell(true, false, true, false, false));
+		assertFalse(CanopyEscape.walkableCanopyCell(true, false, false, true, false));
+		assertFalse(CanopyEscape.walkableCanopyCell(true, false, false, false, true));
+		assertFalse(CanopyEscape.walkableCanopyCell(false, false, false, false, false));
+	}
+
+	@Test
+	void diagonalCanopyStepsNeedBothCornersOpen() {
+		assertTrue(CanopyEscape.diagonalCanopyStepClear(false, false, false));
+		assertTrue(CanopyEscape.diagonalCanopyStepClear(true, true, true));
+		assertFalse(CanopyEscape.diagonalCanopyStepClear(true, true, false));
+		assertFalse(CanopyEscape.diagonalCanopyStepClear(true, false, true));
+	}
+
+	@Test
+	void recognizesABareTrunkTopWithNoWayOff() {
+		assertTrue(CanopyEscape.standingOnBareTreeTop(true, true, true));
+		assertFalse(CanopyEscape.standingOnBareTreeTop(false, true, true));
+		assertFalse(CanopyEscape.standingOnBareTreeTop(true, false, true));
+		assertFalse(CanopyEscape.standingOnBareTreeTop(true, true, false));
 	}
 
 	@Test

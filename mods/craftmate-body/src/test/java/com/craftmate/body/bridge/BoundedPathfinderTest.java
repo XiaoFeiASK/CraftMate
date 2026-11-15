@@ -256,4 +256,38 @@ class BoundedPathfinderTest {
 		);
 	}
 
+	@Test
+	void keepsOneBlockStaircaseStepsInTheWalkPlan() {
+		// A mine staircase has a constant direction and sign, so the old
+		// compression collapsed several rises into one waypoint. The walker
+		// can jump only one block and then pressed into the same step forever.
+		List<BoundedPathfinder.Cell> path = List.of(
+			new BoundedPathfinder.Cell(0, 0, 0),
+			new BoundedPathfinder.Cell(1, 1, 0),
+			new BoundedPathfinder.Cell(2, 2, 0),
+			new BoundedPathfinder.Cell(3, 3, 0),
+			new BoundedPathfinder.Cell(4, 4, 0)
+		);
+		assertEquals(path, BoundedPathfinder.compress(path));
+	}
+
+	@Test
+	void stillCompressesALevelRunAfterAStaircase() {
+		List<BoundedPathfinder.Cell> path = List.of(
+			new BoundedPathfinder.Cell(0, 0, 0),
+			new BoundedPathfinder.Cell(1, 1, 0),
+			new BoundedPathfinder.Cell(2, 1, 0),
+			new BoundedPathfinder.Cell(3, 1, 0),
+			new BoundedPathfinder.Cell(4, 1, 0)
+		);
+		assertEquals(
+			List.of(
+				new BoundedPathfinder.Cell(0, 0, 0),
+				new BoundedPathfinder.Cell(1, 1, 0),
+				new BoundedPathfinder.Cell(4, 1, 0)
+			),
+			BoundedPathfinder.compress(path)
+		);
+	}
+
 }

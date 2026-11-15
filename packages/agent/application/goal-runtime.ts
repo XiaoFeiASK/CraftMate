@@ -28,6 +28,7 @@ import {
   worldFactsFromSnapshot,
   type GoalId,
   type SurvivalPlan,
+  type Task,
   type TaskFailure,
   type WorldFacts,
 } from "../domain/index.ts";
@@ -198,6 +199,13 @@ interface GoalRuntimeOptions {
   readonly circuitFailureThreshold?: number;
   readonly circuitWindowMs?: number;
   readonly circuitCooldownMs?: number;
+  /**
+   * A settled skill can change the world or inventory, but the planner still
+   * sees the heartbeat from before it ran. Hold the next plan briefly so a
+   * fresh observation arrives; otherwise a placement can be reissued against
+   * the stale nearby-block list and create a duplicate station.
+   */
+  readonly settlementObservationMs?: number;
   readonly onIncident?: (incident: {
     readonly code: string;
     readonly severity: "info" | "warn" | "error";
@@ -267,6 +275,7 @@ export class GoalRuntime {
   private readonly circuitFailureThreshold: number;
   private readonly circuitWindowMs: number;
   private readonly circuitCooldownMs: number;
+  private readonly settlementObservationMs: number;
   private readonly onIncident: GoalRuntimeOptions["onIncident"];
   private readonly onSettlement: GoalRuntimeOptions["onSettlement"];
   private expiryHandler: ((interruption: GoalInterruption) => void) | null = null;
@@ -290,6 +299,7 @@ export class GoalRuntime {
   private lastFailureStrategy: string | null = null;
   private consecutiveFailures = 0;
   private retryAt = 0;
+  private nextPlanAt = 0;
   private restoredInFlight: string | null = null;
   private failures: TaskFailure[] = [];
   private failureWindow: { readonly fingerprint: string; readonly at: number }[] = [];
@@ -317,6 +327,7 @@ export class GoalRuntime {
       options.circuitFailureThreshold ?? DEFAULT_CIRCUIT_THRESHOLD;
     this.circuitWindowMs = options.circuitWindowMs ?? DEFAULT_CIRCUIT_WINDOW_MS;
     this.circuitCooldownMs = options.circuitCooldownMs ?? DEFAULT_CIRCUIT_COOLDOWN_MS;
+    this.settlementObservationMs = options.settlementObservationMs ?? 0;
     this.onIncident = options.onIncident;
     this.onSettlement = options.onSettlement;
   }
@@ -613,6 +624,7 @@ export class GoalRuntime {
       return null;
     }
     if (this.clock.now() < this.retryAt) return null;
+    if (this.clock.now() < this.nextPlanAt) return null;
 
     const paused = pauseReason(context, this.clock.now());
     if (paused !== null) {
@@ -702,6 +714,16 @@ export class GoalRuntime {
       return null;
     }
     if (plan.nextTask === null) {
+      // An empty plan without a blocked reason used to persist silently, so
+      // the goal loop retried every tick while the console said nothing and
+      // the body idled. Surface the condition like every other standstill.
+      this.progress = {
+        ...this.progress,
+        status: "blocked",
+        nextTask: "",
+        lastFailure: "目标引擎返回了没有下一步任务的计划",
+        updatedAt: this.clock.now(),
+      };
       this.persist();
       return null;
     }
@@ -858,6 +880,12 @@ export class GoalRuntime {
     const current = this.inFlight;
     if (current === null || current.decision.id !== decisionId) return false;
     this.inFlight = null;
+    if (outcome.status !== "cancelled" && outcome.status !== "preempted") {
+      this.nextPlanAt = Math.max(
+        this.nextPlanAt,
+        this.clock.now() + this.settlementObservationMs,
+      );
+    }
     if (outcome.status === "completed") {
       const missingEvidence = completionEvidenceProblem(current.decision, outcome.changes ?? []);
       if (missingEvidence !== null) {
@@ -1109,8 +1137,7 @@ export class GoalRuntime {
           status === "cancelled" || status === "preempted" ? null : this.retryAt,
         targetLock:
           errorCode === "E_UNREACHABLE" ||
-          errorCode === "E_ENCLOSED" ||
-          errorCode === "E_STUCK"
+          errorCode === "E_ENCLOSED"
             ? null
             : this.progress.targetLock,
         playbook:
@@ -1263,6 +1290,7 @@ const GOAL_STAGE_ORDER = [
   "food",
   "shelter",
   "iron",
+  "diamond-gear",
   "nether",
   "eyes",
   "stronghold",
@@ -1303,94 +1331,48 @@ export class SurvivalGoalPlanner implements GoalPlanner {
     if (plan.task !== null) {
       plan = { ...plan, task: withStableTaskId(plan.task) };
     }
-    const history = input.failures ?? [];
-    const failure = history.at(-1);
-    if (
-      plan.task !== null &&
-      failure !== undefined &&
-      input.lastFailureStrategy !== null &&
-      input.lastFailureStrategy !== undefined
-    ) {
-      const normalizedCurrent = withStableTaskId(plan.task);
-      const currentKey = taskSignature(normalizedCurrent);
-      const failureKey = normalizedStrategy(input.lastFailureStrategy);
-      const failedCount = history.filter(
-        (entry) =>
-          entry.stage === failure.stage &&
-          normalizedTaskId(entry.taskId) === normalizedTaskId(currentKey),
-      ).length;
-      if (currentKey === failureKey && failedCount >= 2) {
-        const failureClass = classifyFailure(failure);
-        const movementFailure =
-          failureClass === "NO_PATH" ||
-          failureClass === "RESOURCE_NOT_FOUND" ||
-          failureClass === "STATION_UNREACHABLE" ||
-          failureClass === "NO_PROGRESS" ||
-          failureClass === "TIMEOUT";
-        if (
-          normalizedCurrent.kind === "combat" ||
-          normalizedCurrent.kind === "navigate" ||
-          (normalizedCurrent.kind === "gather" && movementFailure) ||
-          (normalizedCurrent.kind === "mine" && movementFailure) ||
-          (normalizedCurrent.kind === "craft" && movementFailure)
-        ) {
-          // Replaying the exact same movement third time is not "recovery",
-          // it is the loop an operator sees as "one command, then the body
-          // stands there". Move to a new area and re-observe instead; the
-          // detour is real movement, not an invented success.
-          // A food-stage animal that failed twice is usually still the
-          // nearest entity in the 40-block hunt window. Moving only 24–36
-          // blocks leaves it visible, so the next plan selects the same
-          // unreachable chicken and the loop restarts. Step outside that
-          // observation window before re-planning; other stages keep the
-          // cheaper local detour.
-          const foodRetry = plan.stage === "food";
-          const detour = explore(
-            facts,
-            plan.stage,
-            "换一片区域重新观察",
-            "目标",
-            1,
-            () => crypto.randomUUID(),
-            foodRetry ? 48 : 8,
-            foodRetry ? 60 : 16,
-            true,
-          );
-          return projectPlan(
-            plan,
-            facts,
-            withStableTaskId(detour),
-            null,
-            plan.blocked,
-            true,
-          );
-        }
-        // Non-movement failures (a craft menu, a placement) can genuinely
-        // recover from a fresh observation, so keep the retry.
-        return projectPlan(
-          plan,
-          facts,
-          normalizedCurrent,
-          null,
-          plan.blocked,
-          true,
-        );
-      }
-      if (currentKey === failureKey && failedCount === 1) {
-        return projectPlan(plan, facts, normalizedCurrent, null, plan.blocked, true);
-      }
-      const recovered = recover({
-        plan,
-        facts,
-        failure,
-        history: history.slice(0, -1),
-      });
-      if (recovered.task !== null) {
-        plan = { ...plan, task: withStableTaskId(recovered.task), blocked: [] };
-      } else if (currentKey === failureKey) {
-        return projectPlan(plan, facts, null, recovered.reason, recovered.blocked);
-      }
+    if (process.env["CRAFTMATE_DEBUG_FACTS"] === "1") {
+      console.log(
+        "[facts]",
+        JSON.stringify({
+          stage: plan.stage,
+          position: facts.position ?? null,
+          surfaceY: facts.surfaceY ?? null,
+          shaftTopY: facts.shaftTopY ?? null,
+          shaftDepth: facts.shaftDepth ?? null,
+          canSeeSky: facts.canSeeSky ?? null,
+          enclosed: facts.enclosed ?? null,
+          lightLevel: facts.lightLevel ?? null,
+          shaftWalls: facts.shaftWalls ?? null,
+          food: facts.food ?? null,
+          health: facts.health ?? null,
+          timeOfDay: facts.timeOfDay ?? null,
+          task: plan.task?.title ?? null,
+          taskSkill: plan.task?.skill.name ?? null,
+          inventory: facts.inventory.map(
+            (slot) => `${slot.item.replace(/^minecraft:/u, "")}:${slot.count}`,
+          ),
+          nearby: (facts.nearbyBlocks ?? []).slice(0, 12).map((block) => block.id),
+          table: facts.craftingTable ?? null,
+          furnace: facts.furnace ?? null,
+          chest: facts.chest ?? null,
+          chestOpenable: facts.chestOpenable ?? null,
+          shelter: facts.shelter ?? null,
+          shelterBuilt: facts.shelterBuilt ?? null,
+          mineEntrance: facts.mineEntrance ?? null,
+          mineStair: facts.mine?.stair ?? null,
+          stations: facts.stations ?? [],
+          milestone: plan.milestone,
+          blocked: plan.blocked,
+          entities: (facts.entities ?? []).slice(0, 8).map(
+            (entity) => `${entity.type}:${entity.distance}`,
+          ),
+        }),
+      );
     }
+    const recovery = applyFailureRecovery(plan, input, facts);
+    if (recovery.resolved !== null) return recovery.resolved;
+    plan = recovery.plan;
     if (plan.task === null) {
       return projectPlan(
         plan,
@@ -1404,7 +1386,208 @@ export class SurvivalGoalPlanner implements GoalPlanner {
   }
 }
 
-function projectPlan(
+/**
+ * Failure history must gate every planner path, including the mission spine
+ * that recompiles a later stage from facts. Returns an override plan when the
+ * same strategy has failed enough times to require a real change; otherwise
+ * it may hand back a recovery task that the caller should project normally.
+ */
+export function applyFailureRecovery(
+  plan: SurvivalPlan,
+  input: GoalPlanningInput,
+  facts: WorldFacts,
+): { readonly plan: SurvivalPlan; readonly resolved: GoalPlan | null } {
+  const history = input.failures ?? [];
+  const failure = history.at(-1);
+  if (
+    plan.task === null ||
+    failure === undefined ||
+    input.lastFailureStrategy === null ||
+    input.lastFailureStrategy === undefined
+  ) {
+    return { plan, resolved: null };
+  }
+  const normalizedCurrent = withStableTaskId(plan.task);
+  const currentKey = taskSignature(normalizedCurrent);
+  const failureKey = normalizedStrategy(input.lastFailureStrategy);
+  /*
+   * `explore` changes its destination every time it is replanned, so the exact
+   * strategy key never repeats and the same-strategy circuit below cannot fire.
+   * A body boxed into a ravine then reissued a plain walk every six seconds
+   * forever ("no natural route within the walk budget"), never moving. Once a
+   * walk has just failed for lack of a route, the next navigation attempt must
+   * escalate to recovery, which may step, bridge or staircase out.
+   */
+  const failureClass = classifyFailure(failure);
+  if (
+    (failureClass === "NO_PATH" ||
+      failureClass === "STATION_UNREACHABLE" ||
+      failureClass === "RESOURCE_NOT_FOUND" ||
+      failureClass === "NO_PROGRESS") &&
+    normalizedCurrent.skill.name === "goto" &&
+    normalizedCurrent.skill.args["mode"] === "walk"
+  ) {
+    const escalated: Task = {
+      ...normalizedCurrent,
+      skill: {
+        ...normalizedCurrent.skill,
+        args: { ...normalizedCurrent.skill.args, mode: "recover" },
+      },
+    };
+    return {
+      plan,
+      resolved: projectPlan(
+        plan,
+        facts,
+        withStableTaskId(escalated),
+        null,
+        plan.blocked,
+        true,
+      ),
+    };
+  }
+  const failedCount = history.filter(
+    (entry) =>
+      entry.stage === failure.stage &&
+      normalizedTaskId(entry.taskId) === normalizedTaskId(currentKey),
+  ).length;
+  if (currentKey === failureKey && failedCount >= 2) {
+    const movementFailure =
+      failureClass === "NO_PATH" ||
+      failureClass === "RESOURCE_NOT_FOUND" ||
+      failureClass === "STATION_UNREACHABLE" ||
+      failureClass === "NO_PROGRESS" ||
+      failureClass === "TIMEOUT";
+    /*
+     * A craft that cannot touch its station is not "go look somewhere else".
+     * The generic detour below walked eight to sixteen blocks through solid
+     * rock, failed with E_ENCLOSED, and returned to the same craft forever
+     * while the body stood at y=48 with an unreachable table at y=40. Let the
+     * domain recovery drop that station and plan the climb out; that path
+     * already knows the mine staircase and the tool rescue.
+     */
+    if (movementFailure && normalizedCurrent.kind === "craft") {
+      const recovered = recover({
+        plan,
+        facts,
+        failure,
+        history: history.slice(0, -1),
+      });
+      if (recovered.task !== null) {
+        return {
+          plan,
+          resolved: projectPlan(
+            plan,
+            facts,
+            withStableTaskId(recovered.task),
+            null,
+            plan.blocked,
+            true,
+          ),
+        };
+      }
+      return {
+        plan,
+        resolved: projectPlan(
+          plan,
+          facts,
+          null,
+          recovered.reason,
+          recovered.blocked,
+        ),
+      };
+    }
+    if (
+      normalizedCurrent.kind === "combat" ||
+      normalizedCurrent.kind === "navigate" ||
+      (normalizedCurrent.kind === "gather" && movementFailure) ||
+      (normalizedCurrent.kind === "mine" && movementFailure)
+    ) {
+      // Replaying the exact same movement third time is not "recovery",
+      // it is the loop an operator sees as "one command, then the body
+      // stands there". Move to a new area and re-observe instead; the
+      // detour is real movement, not an invented success.
+      // A food-stage animal that failed twice is usually still the
+      // nearest entity in the 40-block hunt window. Moving only 24–36
+      // blocks leaves it visible, so the next plan selects the same
+      // unreachable chicken and the loop restarts. Step outside that
+      // observation window before re-planning; other stages keep the
+      // cheaper local detour.
+      const foodRetry = plan.stage === "food";
+      const detour = explore(
+        facts,
+        plan.stage,
+        "换一片区域重新观察",
+        "目标",
+        1,
+        () => crypto.randomUUID(),
+        foodRetry ? 48 : 8,
+        foodRetry ? 60 : 16,
+        true,
+      );
+      return {
+        plan,
+        resolved: projectPlan(
+          plan,
+          facts,
+          withStableTaskId(detour),
+          null,
+          plan.blocked,
+          true,
+        ),
+      };
+    }
+    // Non-movement failures (a craft menu, a placement) can genuinely
+    // recover from a fresh observation, so keep the retry.
+    return {
+      plan,
+      resolved: projectPlan(
+        plan,
+        facts,
+        normalizedCurrent,
+        null,
+        plan.blocked,
+        true,
+      ),
+    };
+  }
+  if (currentKey === failureKey && failedCount === 1) {
+    return {
+      plan,
+      resolved: projectPlan(
+        plan,
+        facts,
+        normalizedCurrent,
+        null,
+        plan.blocked,
+        true,
+      ),
+    };
+  }
+  const recovered = recover({
+    plan,
+    facts,
+    failure,
+    history: history.slice(0, -1),
+  });
+  if (recovered.task !== null) {
+    plan = { ...plan, task: withStableTaskId(recovered.task), blocked: [] };
+  } else if (currentKey === failureKey) {
+    return {
+      plan,
+      resolved: projectPlan(
+        plan,
+        facts,
+        null,
+        recovered.reason,
+        recovered.blocked,
+      ),
+    };
+  }
+  return { plan, resolved: null };
+}
+
+export function projectPlan(
   plan: SurvivalPlan,
   facts: WorldFacts,
   task: SurvivalPlan["task"],
@@ -1531,7 +1714,8 @@ function targetForTitle(title: string): GoalId {
   if (/要塞|stronghold/u.test(title)) return "stronghold";
   if (/末影之眼|之眼|eyes/u.test(title)) return "eyes";
   if (/下界|烈焰|nether/u.test(title)) return "nether";
-  if (/铁|钻石|iron/u.test(title)) return "iron";
+  if (/钻石|diamond/u.test(title)) return "diamond-gear";
+  if (/铁|iron/u.test(title)) return "iron";
   if (/床|小屋|庇护所|shelter|house/u.test(title)) return "shelter";
   if (/食物|吃|food/u.test(title)) return "food";
   if (/石|镐|stone/u.test(title)) return "stone-tools";
@@ -1540,7 +1724,7 @@ function targetForTitle(title: string): GoalId {
   // report itself complete as soon as a table was placed; the only available
   // playbook card was then exploration, and the body wandered until the
   // acceptance clock ran out. Surface progression up to iron is the v1 scope.
-  if (/长期自主生存|长期生存|持续经营|自主经营/u.test(title)) return "iron";
+  if (/长期自主生存|长期生存|持续经营|自主经营/u.test(title)) return "diamond-gear";
   return "wood-and-table";
 }
 
@@ -1551,6 +1735,7 @@ function toGoalId(stage: string): GoalId {
     "food",
     "shelter",
     "iron",
+    "diamond-gear",
     "nether",
     "eyes",
     "stronghold",
@@ -1655,7 +1840,13 @@ function pauseReason(
       // A threat is handed back to the same planner that can choose attack
       // or retreat. Pausing here blocked immediateSafetyTask for the whole
       // hand-off window, so a body in bow range only walked and was shot.
-      incident.kind !== "threat",
+      incident.kind !== "threat" &&
+      // Low health and starvation are conditions, not momentary reflex
+      // takeovers. The planner must remain free to eat, fight or retreat;
+      // pausing here left a body at three health standing still until a
+      // skeleton finished it off.
+      incident.kind !== "low_health" &&
+      incident.kind !== "starving",
   );
   if (danger !== undefined) {
     return { status: "paused", reason: `安全反射触发：${danger.detail}` };

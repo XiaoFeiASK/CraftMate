@@ -27,6 +27,7 @@ export const skillNameSchema = z.enum([
   "say",
   "emote",
   "wait",
+  "run_job",
 ]);
 export type SkillName = z.infer<typeof skillNameSchema>;
 
@@ -38,6 +39,35 @@ const point = z.object({
   y: z.number().finite(),
   z: z.number().finite(),
 });
+
+/**
+ * One node in a body-owned job. The body executes these sequentially without
+ * returning to the idle planner between nodes, which removes the visible
+ * stop/start between related actions while keeping every node an ordinary
+ * skill with the same validation and evidence rules.
+ */
+export const jobNodeSchema = z.object({
+  skill: skillNameSchema,
+  args: z.record(z.unknown()),
+  /** Optional operator-facing label; the body falls back to the skill name. */
+  label: z.string().trim().min(1).max(80).optional(),
+});
+export type JobNode = z.infer<typeof jobNodeSchema>;
+
+/**
+ * A bounded macro plan. `jobId` is stable across a replan so the body can
+ * reject a resume against a different mission. `checkpointIndex` is advisory:
+ * the body still re-validates every node precondition before executing it.
+ */
+export const jobPlanSchema = z.object({
+  jobId: z.string().trim().min(1).max(120),
+  title: z.string().trim().min(1).max(120),
+  nodes: z.array(jobNodeSchema).min(1).max(32),
+  checkpointIndex: z.number().int().nonnegative().optional(),
+  /** A failed node aborts the job unless the caller explicitly opts out. */
+  stopOnFailure: z.boolean().default(true),
+});
+export type JobPlan = z.infer<typeof jobPlanSchema>;
 
 export const skillArgsSchema = z.discriminatedUnion("name", [
   z.object({
@@ -85,6 +115,12 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
        * matching block" work; a fixed cell never falls back to a broad scan.
        */
       at: point.optional(),
+      /**
+       * Blueprint excavation (a staircase or rescue tunnel) is complete once
+       * the named cell is air. Ordinary resource mining still waits for the
+       * drop; a staircase drop can fall into the pit it just opened.
+       */
+      requireDrop: z.boolean().optional(),
     }),
   }),
   z.object({ name: z.literal("chop_tree"), args: z.object({ count: z.number().int().min(1).max(16).default(1) }) }),
@@ -153,13 +189,28 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
   z.object({ name: z.literal("say"), args: z.object({ text: z.string().trim().min(1).max(280) }) }),
   z.object({ name: z.literal("emote"), args: z.object({ name: z.string().trim().min(1).max(40) }) }),
   z.object({ name: z.literal("wait"), args: z.object({ ticks: z.number().int().min(1).max(20 * 60) }) }),
+  z.object({
+    name: z.literal("run_job"),
+    args: jobPlanSchema,
+  }),
 ]);
 export type SkillArgs = z.infer<typeof skillArgsSchema>;
 
 /** Returns the parsed arguments or `null`; never throws at the call site. */
 export function parseSkillArgs(name: SkillName, args: unknown): SkillArgs | null {
   const parsed = skillArgsSchema.safeParse({ name, args });
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success) return null;
+  if (parsed.data.name !== "run_job") return parsed.data;
+  // The wire keeps nested args open so an older body can reject a newer
+  // skill itself. The producer still validates every child before dispatch;
+  // a job may not recursively contain another job.
+  for (const node of parsed.data.args.nodes) {
+    if (node.skill === "run_job") return null;
+    if (skillArgsSchema.safeParse({ name: node.skill, args: node.args }).success === false) {
+      return null;
+    }
+  }
+  return parsed.data;
 }
 
 /**
@@ -208,6 +259,11 @@ export const SKILL_CAPABILITY: Readonly<Record<SkillName, string>> = {
   say: "hud",
   emote: "hud",
   wait: "sensor",
+  /**
+   * A job is a body-owned sequencer, not a new game capability. The body
+   * re-checks each child skill against its own advertised catalogue.
+   */
+  run_job: "sensor",
 };
 
 /**
@@ -233,6 +289,7 @@ export const FABRIC_BODY_SKILLS = [
   "pillar_up",
   "smelt",
   "sleep",
+  "run_job",
 ] as const satisfies readonly SkillName[];
 
 export const FABRIC_BODY_CAPABILITIES = [

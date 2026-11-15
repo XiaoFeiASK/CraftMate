@@ -547,6 +547,42 @@ export class BodySession {
       if (parsed.data.kind === "threat" && answeringThreat) {
         continue;
       }
+      /*
+       * Not every hostile report is an emergency. A zombie crossing the
+       * edge of bow range used to preempt every walk, so the planner issued
+       * a new route, the next report cancelled it, and the body never made
+       * progress. The body now grades its reports; only an urgent one (melee
+       * reach, creeper, or an arrow on a collision course) may stop work.
+       * Older bodies omit `urgent`, which keeps their previous behaviour.
+       */
+      if (
+        parsed.data.kind === "threat" &&
+        parsed.data.urgent === false
+      ) {
+        continue;
+      }
+      /*
+       * A recovery climb or a retreat is itself the answer to the hazard the
+       * reflex just reported. Cancelling it restarts the same jump from the
+       * same cell; the body's reflex still pauses the state machine and
+       * releases keys for the dangerous ticks, so no extra safety is lost.
+       */
+      const answeringFall =
+        record.command.op === "pillar_up" ||
+        (record.command.op === "goto" &&
+          (record.command.args["mode"] === "recover" ||
+            record.command.args["mode"] === "dig"));
+      const answeringHazard =
+        answeringThreat ||
+        (parsed.data.kind === "falling" && answeringFall);
+      if (
+        answeringHazard &&
+        parsed.data.kind !== "lava" &&
+        parsed.data.kind !== "drowning" &&
+        parsed.data.kind !== "on_fire"
+      ) {
+        continue;
+      }
       const reachedBody = record.status === "running" || this.sentCommands.has(record.command.id);
       /*
        * A reflex is the body taking the wheel, not a failed strategy. The

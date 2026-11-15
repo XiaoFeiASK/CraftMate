@@ -260,6 +260,15 @@ public final class BoundedPathfinder {
 				Integer.signum(firstX) == Integer.signum(secondX)
 					&& Integer.signum(firstY) == Integer.signum(secondY)
 					&& Integer.signum(firstZ) == Integer.signum(secondZ)
+					/*
+					 * A staircase is not a straight walk. Compressing several
+					 * one-block rises into one waypoint makes the walker aim at
+					 * a cell three blocks above its head; it can only jump one
+					 * block, so it wedges against the first step and reports
+					 * E_STUCK. Keep enough points that every consecutive
+					 * waypoint is still a legal one-block step.
+					 */
+					&& Math.abs(next.y() - previous.y()) <= 1
 			) {
 				continue;
 			}

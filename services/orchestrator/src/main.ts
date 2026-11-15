@@ -5,7 +5,6 @@ import { loadOrCreateToken } from "@craftmate/local-auth";
 import { connectVoice } from "./transport/voice-link.ts";
 import { GoalSpeechGate } from "./transport/goal-speech.ts";
 import { createOps } from "./ops.ts";
-import { detectStateOpportunity } from "./state-monitor.ts";
 import { createBridgeUpgrade, SqliteActionPort } from "@craftmate/bridge";
 import { loadOrCreateBridgeToken } from "@craftmate/bridge";
 import { createIngressSupervisor } from "./ingress-supervisor.ts";
@@ -449,42 +448,6 @@ function goalContext() {
   };
 }
 
-const OPPORTUNITY_PREEMPT_COOLDOWN_MS = 8_000;
-let lastOpportunityPreemptAt = 0;
-
-/**
- * A long skill is a plan, not a commitment. The state monitor only interrupts
- * travel/mining when a higher-value fact appears: a lost tool, a visible ore,
- * or low health with a hostile nearby. Crafting, smelting and combat are not
- * preempted by the opportunity rules.
- */
-function preemptForStateOpportunity(now = Date.now()): boolean {
-  if (now - lastOpportunityPreemptAt < OPPORTUNITY_PREEMPT_COOLDOWN_MS) {
-    return false;
-  }
-  const stage = persistent.goals.currentProgress?.stage.id;
-  if (stage === undefined) return false;
-  const decisionId = persistent.goals.snapshot().currentDecisionId;
-  if (decisionId === null) return false;
-  const decision = persistent.show.recent().find((entry) => entry.id === decisionId);
-  if (decision === undefined) return false;
-  const opportunity = detectStateOpportunity({
-    stage,
-    decision,
-    world: bridge.health().world,
-    now,
-    lastPreemptAt: lastOpportunityPreemptAt,
-    cooldownMs: OPPORTUNITY_PREEMPT_COOLDOWN_MS,
-  });
-  if (opportunity === null) return false;
-  const interruption = persistent.goals.interrupt(opportunity.reason);
-  if (interruption === null) return false;
-  lastOpportunityPreemptAt = now;
-  interruptGoal(interruption, opportunity.detail);
-  publishGoalSnapshot();
-  return true;
-}
-
 /**
  * Issues one goal task. The command id comes from GoalRuntime so takeover can
  * cancel exactly the command it observed, not a later replacement.
@@ -810,7 +773,6 @@ const bridgePoll = setInterval(() => {
 // time; the runtime refuses while paused, busy, backing off, or unverified.
 const goalLoop = setInterval(() => {
   if (!persistent.goals.isEnabled) return;
-  if (preemptForStateOpportunity()) return;
   void dispatchGoalStep();
 }, 250);
 

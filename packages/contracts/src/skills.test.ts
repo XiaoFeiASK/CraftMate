@@ -20,6 +20,23 @@ describe("skills", () => {
         args: { block: "minecraft:stone", count: 1, at: { x: 4, y: 32, z: -7 } },
       },
     );
+    assert.deepEqual(
+      parseSkillArgs("mine_block", {
+        block: "minecraft:dirt",
+        count: 1,
+        at: { x: 4, y: 32, z: -7 },
+        requireDrop: false,
+      }),
+      {
+        name: "mine_block",
+        args: {
+          block: "minecraft:dirt",
+          count: 1,
+          at: { x: 4, y: 32, z: -7 },
+          requireDrop: false,
+        },
+      },
+    );
     assert.deepEqual(parseSkillArgs("chop_tree", {}), { name: "chop_tree", args: { count: 1 } });
     assert.equal(parseSkillArgs("chop_tree", { count: 17 }), null);
     assert.deepEqual(parseSkillArgs("collect_items", {}), {
@@ -99,12 +116,55 @@ describe("skills", () => {
       }),
       null,
     );
+    const job = parseSkillArgs("run_job", {
+      jobId: "iron-finish",
+      title: "完成铁套",
+      nodes: [
+        {
+          skill: "smelt",
+          args: {
+            input: "minecraft:raw_iron",
+            output: "minecraft:iron_ingot",
+            count: 3,
+          },
+        },
+        { skill: "craft", args: { item: "minecraft:iron_pickaxe", count: 1 } },
+      ],
+    });
+    if (job?.name !== "run_job") throw new Error("run_job was not parsed");
+    assert.equal(job.args.nodes.length, 2);
+    assert.equal(job.args.stopOnFailure, true);
+    assert.equal(
+      parseSkillArgs("run_job", {
+        jobId: "bad",
+        title: "非法节点",
+        nodes: [{ skill: "mine_block", args: { block: "minecraft:stone", count: 0 } }],
+      }),
+      null,
+    );
+    assert.equal(
+      parseSkillArgs("run_job", {
+        jobId: "nested",
+        title: "嵌套任务",
+        nodes: [
+          {
+            skill: "run_job",
+            args: {
+              jobId: "child",
+              title: "child",
+              nodes: [{ skill: "wait", args: { ticks: 1 } }],
+            },
+          },
+        ],
+      }),
+      null,
+    );
   });
 });
 
 describe("fabric body capability catalogue", () => {
   test("executable skills map to advertised capabilities", () => {
-    assert.equal(FABRIC_BODY_SKILLS.length, 17);
+    assert.equal(FABRIC_BODY_SKILLS.length, 18);
     assert.ok((FABRIC_BODY_SKILLS as readonly SkillName[]).includes("sleep"));
     assert.ok((FABRIC_BODY_SKILLS as readonly SkillName[]).includes("smelt"));
     const capabilities: readonly BridgeCapability[] = FABRIC_BODY_CAPABILITIES;
@@ -116,6 +176,7 @@ describe("fabric body capability catalogue", () => {
   test("contract catalogue is not mistaken for current body capabilities", () => {
     const implemented = new Set([
       "goto", "look_at", "mine_block", "chop_tree", "collect_items", "craft", "deposit", "say", "wait", "attack", "equip", "eat", "use_block", "place_block", "pillar_up", "smelt", "sleep",
+      "run_job",
     ]);
     for (const skill of skillNameSchema.options) {
       assert.equal((FABRIC_BODY_SKILLS as readonly SkillName[]).includes(skill), implemented.has(skill));

@@ -14,7 +14,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Loads every top-level bridge class during mod initialization.
+ * Loads every bridge class, including nested task classes, during mod
+ * initialization.
  *
  * <p>Fabric loads classes lazily. Replacing the mod jar while the client is
  * still running used to surface a missing {@code ToolSelection} only when a
@@ -72,7 +73,7 @@ public final class BridgeSelfCheck {
 		try (Stream<Path> files = Files.list(bridge)) {
 			files.filter(Files::isRegularFile)
 				.map((file) -> file.getFileName().toString())
-				.filter((name) -> name.endsWith(".class") && !name.contains("$"))
+				.filter((name) -> name.endsWith(".class"))
 				.forEach((name) -> names.add(
 					"com.craftmate.body.bridge." + name.substring(0, name.length() - 6)
 				));
@@ -91,7 +92,6 @@ public final class BridgeSelfCheck {
 					entry.isDirectory()
 						|| !name.startsWith(BRIDGE_PACKAGE)
 						|| !name.endsWith(".class")
-						|| name.contains("$")
 				) {
 					continue;
 				}

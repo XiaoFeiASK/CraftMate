@@ -55,6 +55,7 @@ function blacklist(overrides: Partial<{
   z: number;
   radius: number;
   expiresAt: number | null;
+  targetRef: string | null;
 }> = {}) {
   return {
     id: "blacklist-1",
@@ -157,6 +158,24 @@ describe("navigation facts", () => {
       routeBlacklist: [blacklist({ kind: "entity" })],
       now: 1_000,
     });
+    assert.deepEqual(facts.entities?.map((entity) => entity.type), ["minecraft:cow"]);
+  });
+
+  test("an entity refusal follows the animal after it moves", () => {
+    const facts = worldFactsFromSnapshot(
+      snapshot([cow, { ...pig, x: 36, z: -14 }]),
+      {
+        routeBlacklist: [
+          blacklist({
+            kind: "entity",
+            x: 10,
+            z: 0,
+            targetRef: "minecraft:pig:Pig",
+          }),
+        ],
+        now: 1_000,
+      },
+    );
     assert.deepEqual(facts.entities?.map((entity) => entity.type), ["minecraft:cow"]);
   });
 

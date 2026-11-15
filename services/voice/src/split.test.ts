@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { MAX_UTTERANCE_CHARS } from "@craftmate/contracts";
-import { splitUtterance } from "./split.ts";
+import { sentencePauseMs, splitUtterance } from "./split.ts";
 
 describe("utterance splitting", () => {
   test("keeps punctuation and never exceeds the limit", () => {
@@ -27,5 +27,12 @@ describe("utterance splitting", () => {
   test("empty and whitespace-only text produces nothing", () => {
     assert.deepEqual(splitUtterance(""), []);
     assert.deepEqual(splitUtterance("   \n "), []);
+  });
+
+  test("sentence pauses follow the punctuation a speaker wrote", () => {
+    assert.ok(sentencePauseMs("那我走啦。") > sentencePauseMs("那我就去啦，"));
+    assert.ok(sentencePauseMs("真的吗？") > sentencePauseMs("真的吗，"));
+    assert.ok(sentencePauseMs("等等……") > sentencePauseMs("等等。"));
+    assert.ok(sentencePauseMs("没有标点") > 0);
   });
 });

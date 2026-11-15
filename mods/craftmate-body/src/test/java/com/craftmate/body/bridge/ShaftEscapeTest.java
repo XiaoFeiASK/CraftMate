@@ -60,6 +60,45 @@ class ShaftEscapeTest {
 	}
 
 	@Test
+	void theStartCellIsNotTheGoalWhenTheTargetIsOneLevelUp() {
+		assertFalse(ShaftEscape.startCellReachesGoal(49, 50));
+		assertTrue(ShaftEscape.startCellReachesGoal(50, 50));
+		assertFalse(ShaftEscape.startCellReachesGoal(51, 50));
+	}
+
+	@Test
+	void aRouteThatDescendsIsNotProgressTowardAChestTwoBlocksAbove() {
+		assertFalse(ShaftEscape.routeAdvancesTowardTarget(false, 73.0, 75.0, 77.0));
+		assertFalse(ShaftEscape.routeAdvancesTowardTarget(false, 75.0, 75.0, 77.0));
+		assertTrue(ShaftEscape.routeAdvancesTowardTarget(false, 76.0, 75.0, 77.0));
+	}
+
+	@Test
+	void onlyTheCampLevelMayChooseANewMineEntrance() {
+		assertTrue(ShaftEscape.nearHomeLevel(75, 77));
+		assertTrue(ShaftEscape.nearHomeLevel(66, 77));
+		assertFalse(ShaftEscape.nearHomeLevel(59, 77));
+		assertFalse(ShaftEscape.nearHomeLevel(55, 77));
+		// The camp's own terraces may sit up to four blocks below the home
+		// anchor; that is not a roof entrance and must keep the mine.
+		assertTrue(ShaftEscape.atHomeWalkingLevel(73, 77));
+		assertTrue(ShaftEscape.atHomeWalkingLevel(81, 77));
+		assertFalse(ShaftEscape.atHomeWalkingLevel(70, 77));
+		assertFalse(ShaftEscape.atHomeWalkingLevel(84, 77));
+	}
+
+	@Test
+	void aRememberedEntranceMustStayInsideTheCampSite() {
+		assertTrue(ShaftEscape.entranceWithinHomeSite(131, 74, -58, 135, 77, -61, 10));
+		assertFalse(ShaftEscape.entranceWithinHomeSite(147, 61, -56, 135, 77, -61, 10));
+		assertFalse(ShaftEscape.entranceWithinHomeSite(135, 66, -61, 135, 77, -61, 10));
+		// The square search window used to reach this corner; persistence
+		// rejected it as 13.5 blocks from home and the site search repeated
+		// the same rejected entrance forever.
+		assertFalse(ShaftEscape.entranceWithinHomeSite(148, 75, -70, 138, 79, -61, 10));
+	}
+
+	@Test
 	void exactTargetsDoNotAcceptAWholeBlockBelowTheFloor() {
 		assertTrue(ShaftEscape.arrivalHeight(false) < 1.0);
 		assertTrue(ShaftEscape.arrivalHeight(true) > ShaftEscape.arrivalHeight(false));
@@ -76,6 +115,14 @@ class ShaftEscapeTest {
 	void aCeilingOrFourWallsMakePillaringLegitimate() {
 		assertTrue(ShaftEscape.shouldStartPillar(true, 0));
 		assertTrue(ShaftEscape.shouldStartPillar(false, 4));
+	}
+
+	@Test
+	void explicitTargetClimbAllowsAnOpenPitButOpportunisticPillarDoesNot() {
+		assertTrue(ShaftEscape.shouldStartTargetClimb(true, false, 0));
+		assertTrue(ShaftEscape.shouldStartTargetClimb(false, true, 0));
+		assertTrue(ShaftEscape.shouldStartTargetClimb(false, false, 4));
+		assertFalse(ShaftEscape.shouldStartTargetClimb(false, false, 3));
 	}
 
 	@Test
@@ -105,6 +152,14 @@ class ShaftEscapeTest {
 			)
 		);
 		assertFalse(ShaftEscape.ledgeAttemptExhausted(1, -1));
+	}
+
+	@Test
+	void aLowerMineEntranceIsNotMistakenForARoofEntrance() {
+		assertFalse(ShaftEscape.entranceAboveWalkingLevel(74, 77));
+		assertFalse(ShaftEscape.entranceAboveWalkingLevel(77, 77));
+		assertFalse(ShaftEscape.entranceAboveWalkingLevel(79, 77));
+		assertTrue(ShaftEscape.entranceAboveWalkingLevel(80, 77));
 	}
 
 	@Test
@@ -157,5 +212,22 @@ class ShaftEscapeTest {
 		assertFalse(ShaftEscape.continuesPillarRetreat(true, false, 108, 107, true));
 		assertFalse(ShaftEscape.continuesPillarRetreat(true, true, 108, 106, true));
 		assertFalse(ShaftEscape.continuesPillarRetreat(true, true, 108, 107, false));
+	}
+
+	@Test
+	void anAlreadyDugEntranceSurvivesTheCandidateProbe() {
+		assertTrue(ShaftEscape.keepRememberedEntrance("descent_blocked"));
+		assertFalse(ShaftEscape.keepRememberedEntrance("buried"));
+		assertFalse(ShaftEscape.keepRememberedEntrance(null));
+	}
+
+	@Test
+	void aWalledShaftCanOnlyDescendOntoASolidFloor() {
+		assertTrue(ShaftEscape.canDescendShaft(4, true, true, true));
+		assertTrue(ShaftEscape.canDescendShaft(3, true, true, true));
+		assertFalse(ShaftEscape.canDescendShaft(2, true, true, true));
+		assertFalse(ShaftEscape.canDescendShaft(4, false, true, true));
+		assertFalse(ShaftEscape.canDescendShaft(4, true, false, true));
+		assertFalse(ShaftEscape.canDescendShaft(4, true, true, false));
 	}
 }

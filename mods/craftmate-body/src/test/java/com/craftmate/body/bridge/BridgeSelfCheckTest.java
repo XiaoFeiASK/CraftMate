@@ -8,11 +8,16 @@ import org.junit.jupiter.api.Test;
 
 class BridgeSelfCheckTest {
 	@Test
-	void everyTopLevelBridgeClassLoads() {
+	void everyBridgeClassLoadsIncludingNestedTasks() {
 		List<String> names = BridgeSelfCheck.classNames();
 		assertTrue(names.size() > 30, "expected the full bridge package, got " + names.size());
 		assertTrue(names.contains("com.craftmate.body.bridge.ToolSelection"));
-		assertTrue(names.stream().noneMatch((name) -> name.contains("$")));
+		assertTrue(
+			names.contains(
+				"com.craftmate.body.bridge.GameActions$PlaceTask$SurfaceCandidate"
+			),
+			"nested placement candidates must be verified at startup"
+		);
 		List<String> missing = BridgeSelfCheck.verify();
 		assertTrue(missing.isEmpty(), "missing bridge classes: " + missing);
 	}

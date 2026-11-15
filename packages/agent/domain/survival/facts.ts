@@ -30,6 +30,7 @@ export interface SnapshotView {
   readonly dragonDefeated?: boolean | null;
   readonly craftingTableCrafted?: boolean | null;
   readonly craftingTablePlaced?: boolean | null;
+  readonly craftingTableAgeTicks?: number | null;
   readonly chestCrafted?: boolean | null;
   readonly chestPlaced?: boolean | null;
   readonly bedPlaced?: boolean | null;
@@ -72,9 +73,17 @@ export interface SnapshotView {
   } | null;
   readonly chest?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly chestEmptySlots?: number | null;
+  readonly chestOpenable?: boolean | null;
   readonly bed?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly furnace?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly furnacePlaced?: boolean | null;
+  readonly furnaceAgeTicks?: number | null;
+  readonly furnaceContents?: {
+    readonly input?: string | null;
+    readonly inputCount?: number | null;
+    readonly output?: string | null;
+    readonly outputCount?: number | null;
+  } | null;
   readonly craftingTableNearby?: boolean | null;
   readonly craftingTableReachable?: boolean | null;
   readonly craftingTable?: { readonly x: number; readonly y: number; readonly z: number } | null;
@@ -182,12 +191,22 @@ export function worldFactsFromSnapshot(
         entity.x === undefined ||
         entity.y === undefined ||
         entity.z === undefined ||
-        !routeBlacklist.some((entry) =>
-          routeBlacklistCovers(entry, {
-            x: entity.x!,
-            y: entity.y!,
-            z: entity.z!,
-          }, now),
+        !routeBlacklist.some(
+          (entry) =>
+            // Animals move while the walker retries. Keep the refusal tied to
+            // the observed entity reference so a wandering pig cannot dodge
+            // an earlier E_UNREACHABLE by stepping outside the point radius.
+            (entry.kind === "entity" &&
+              entry.targetRef === `${entity.type}:${entity.name}`) ||
+            routeBlacklistCovers(
+              entry,
+              {
+                x: entity.x!,
+                y: entity.y!,
+                z: entity.z!,
+              },
+              now,
+            ),
         ),
     );
   }
@@ -224,6 +243,49 @@ export function worldFactsFromSnapshot(
           y: snapshot.reachableBlock.y,
           z: snapshot.reachableBlock.z,
         };
+  const furnaceContents =
+    snapshot.furnaceContents === undefined || snapshot.furnaceContents === null
+      ? snapshot.furnaceContents
+      : {
+          ...(snapshot.furnaceContents.input === undefined ||
+          snapshot.furnaceContents.input === null
+            ? {}
+            : { input: normalizeItem(snapshot.furnaceContents.input) }),
+          ...(snapshot.furnaceContents.inputCount === undefined ||
+          snapshot.furnaceContents.inputCount === null
+            ? {}
+            : { inputCount: snapshot.furnaceContents.inputCount }),
+          ...(snapshot.furnaceContents.output === undefined ||
+          snapshot.furnaceContents.output === null
+            ? {}
+            : { output: normalizeItem(snapshot.furnaceContents.output) }),
+          ...(snapshot.furnaceContents.outputCount === undefined ||
+          snapshot.furnaceContents.outputCount === null
+            ? {}
+            : { outputCount: snapshot.furnaceContents.outputCount }),
+        };
+  const dimension = dimensionOf(snapshot.world);
+  /*
+   * The client occasionally reports the overworld heightmap floor (-64) as
+   * the surface while the body is in a real staircase. That made every
+   * `isUnderground` answer false, so a 17-deep mine was treated as surface
+   * and the body shuttled home to deposit one dirt stack after every block.
+   * `shaftTopY` is the surrounding WORLD_SURFACE column and is already sane.
+   */
+  const bodyY = snapshot.position?.y;
+  const surfaceY =
+    snapshot.surfaceY === undefined || snapshot.surfaceY === null
+      ? snapshot.surfaceY
+      : dimension === "overworld" &&
+          bodyY !== undefined &&
+          bodyY !== null &&
+          snapshot.canSeeSky !== true &&
+          snapshot.surfaceY <= bodyY + 1 &&
+          snapshot.shaftTopY !== undefined &&
+          snapshot.shaftTopY !== null &&
+          snapshot.shaftTopY > snapshot.surfaceY
+        ? snapshot.shaftTopY
+        : snapshot.surfaceY;
   const facts: WorldFacts = {
     inWorld: snapshot.inWorld === true,
     inventory,
@@ -232,7 +294,7 @@ export function worldFactsFromSnapshot(
     ...(routeBlacklist.length === 0 ? {} : { routeBlacklist }),
     targetLock,
     now,
-    dimension: dimensionOf(snapshot.world),
+    dimension,
     ...(stations.length === 0 ? {} : { stations }),
   };
   return withOptionals(facts, {
@@ -247,6 +309,7 @@ export function worldFactsFromSnapshot(
     dragonDefeated: snapshot.dragonDefeated,
     craftingTableCrafted: snapshot.craftingTableCrafted,
     craftingTablePlaced: snapshot.craftingTablePlaced,
+    craftingTableAgeTicks: snapshot.craftingTableAgeTicks,
     chestCrafted: snapshot.chestCrafted,
     chestPlaced: snapshot.chestPlaced,
     bedPlaced: snapshot.bedPlaced,
@@ -258,9 +321,12 @@ export function worldFactsFromSnapshot(
     mine: snapshot.mine,
     chest: snapshot.chest,
     chestEmptySlots: snapshot.chestEmptySlots,
+    chestOpenable: snapshot.chestOpenable,
     bed: snapshot.bed,
     furnace: snapshot.furnace,
     furnacePlaced: snapshot.furnacePlaced,
+    furnaceAgeTicks: snapshot.furnaceAgeTicks,
+    furnaceContents,
     craftingTableNearby: snapshot.craftingTableNearby,
     craftingTableReachable: snapshot.craftingTableReachable,
     craftingTable: snapshot.craftingTable,
@@ -270,7 +336,7 @@ export function worldFactsFromSnapshot(
     sleptThroughNight: snapshot.sleptThroughNight,
     screenOpen: snapshot.screenOpen,
     onGround: snapshot.onGround,
-    surfaceY: snapshot.surfaceY,
+    surfaceY,
     canSeeSky: snapshot.canSeeSky,
     inWater: snapshot.inWater,
     floor: snapshot.floor === undefined || snapshot.floor === null ? snapshot.floor : normalizeItem(snapshot.floor),
@@ -302,6 +368,28 @@ export function inventoryCount(facts: WorldFacts, item: string): number {
 
 export function inventoryItems(facts: WorldFacts): readonly string[] {
   return [...new Set(facts.inventory.map((slot) => slot.item))].sort();
+}
+
+/**
+ * Number of inventory stacks currently occupied by at least one item.
+ * Empty stacks are not reported by the bridge, so counting entries is
+ * equivalent to counting used slots.
+ */
+export function usedInventorySlots(facts: WorldFacts): number {
+  return facts.inventory.filter((slot) => slot.count > 0).length;
+}
+
+/**
+ * A full inventory is "no room for the reserve the next trip needs", not
+ * "all 36 stacks contain something". Mining and offloading both use this
+ * helper so the planner cannot call a 29/36 pack full in one card and
+ * "still has space" in another.
+ */
+export function hasInventoryCapacity(
+  facts: WorldFacts,
+  emptySlots = 4,
+): boolean {
+  return usedInventorySlots(facts) < 36 - Math.max(0, emptySlots);
 }
 
 /** Items whose id matches any of the supplied tags, resolved from inventory. */
@@ -654,6 +742,7 @@ function withOptionals(
     readonly dragonDefeated?: boolean | null | undefined;
     readonly craftingTableCrafted?: boolean | null | undefined;
     readonly craftingTablePlaced?: boolean | null | undefined;
+    readonly craftingTableAgeTicks?: number | null | undefined;
     readonly chestCrafted?: boolean | null | undefined;
     readonly chestPlaced?: boolean | null | undefined;
     readonly bedPlaced?: boolean | null | undefined;
@@ -665,9 +754,12 @@ function withOptionals(
     readonly mine?: WorldFacts["mine"] | undefined;
     readonly chest?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
     readonly chestEmptySlots?: number | null | undefined;
+    readonly chestOpenable?: boolean | null | undefined;
     readonly bed?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
     readonly furnace?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
     readonly furnacePlaced?: boolean | null | undefined;
+    readonly furnaceAgeTicks?: number | null | undefined;
+    readonly furnaceContents?: WorldFacts["furnaceContents"] | undefined;
     readonly craftingTableNearby?: boolean | null | undefined;
     readonly craftingTableReachable?: boolean | null | undefined;
     readonly craftingTable?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
@@ -704,6 +796,7 @@ function withOptionals(
     ...(optional.dragonDefeated === undefined ? {} : { dragonDefeated: optional.dragonDefeated }),
     ...(optional.craftingTableCrafted === undefined ? {} : { craftingTableCrafted: optional.craftingTableCrafted }),
     ...(optional.craftingTablePlaced === undefined ? {} : { craftingTablePlaced: optional.craftingTablePlaced }),
+    ...(optional.craftingTableAgeTicks === undefined ? {} : { craftingTableAgeTicks: optional.craftingTableAgeTicks }),
     ...(optional.chestCrafted === undefined ? {} : { chestCrafted: optional.chestCrafted }),
     ...(optional.chestPlaced === undefined ? {} : { chestPlaced: optional.chestPlaced }),
     ...(optional.bedPlaced === undefined ? {} : { bedPlaced: optional.bedPlaced }),
@@ -715,9 +808,12 @@ function withOptionals(
     ...(optional.mine === undefined ? {} : { mine: optional.mine }),
     ...(optional.chest === undefined ? {} : { chest: optional.chest }),
     ...(optional.chestEmptySlots === undefined ? {} : { chestEmptySlots: optional.chestEmptySlots }),
+    ...(optional.chestOpenable === undefined ? {} : { chestOpenable: optional.chestOpenable }),
     ...(optional.bed === undefined ? {} : { bed: optional.bed }),
     ...(optional.furnace === undefined ? {} : { furnace: optional.furnace }),
     ...(optional.furnacePlaced === undefined ? {} : { furnacePlaced: optional.furnacePlaced }),
+    ...(optional.furnaceAgeTicks === undefined ? {} : { furnaceAgeTicks: optional.furnaceAgeTicks }),
+    ...(optional.furnaceContents === undefined ? {} : { furnaceContents: optional.furnaceContents }),
     ...(optional.craftingTableNearby === undefined ? {} : { craftingTableNearby: optional.craftingTableNearby }),
     ...(optional.craftingTableReachable === undefined ? {} : { craftingTableReachable: optional.craftingTableReachable }),
     ...(optional.craftingTable === undefined ? {} : { craftingTable: optional.craftingTable }),

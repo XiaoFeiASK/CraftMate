@@ -2,6 +2,8 @@ package com.craftmate.body.bridge;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
@@ -69,6 +71,56 @@ final class BlockInteraction {
 		Direction best = nearestExposedFace(level, eye, target);
 		if (best != null) return hit(target, best);
 		return hit(eye, target);
+	}
+
+	/**
+	 * Prefer an exposed face whose click point is actually visible from the
+	 * eye. Adjacency alone is not enough: a chest embedded in a wall can have
+	 * its bottom face open while the chest itself hides that face from the
+	 * player. Clicking the hidden face sends a use packet the server accepts,
+	 * but the body then stands there reporting that no container screen ever
+	 * opened.
+	 */
+	static BlockHitResult visibleExposedHit(
+		Level level,
+		Entity viewer,
+		Vec3 eye,
+		BlockPos target
+	) {
+		Direction visible = null;
+		double bestDistance = Double.POSITIVE_INFINITY;
+		for (Direction direction : Direction.values()) {
+			BlockPos neighbour = target.relative(direction);
+			if (!openForInteraction(level.getBlockState(neighbour))) continue;
+			Vec3 point = facePoint(target, direction);
+			BlockHitResult clip = level.clip(new ClipContext(
+				eye,
+				point,
+				ClipContext.Block.VISUAL,
+				ClipContext.Fluid.NONE,
+				viewer
+			));
+			/*
+			 * The ray must enter the target block through this exact face.
+			 * A miss means the sampled point is not on the block's surface at
+			 * all (the old bottom-face point of an embedded chest sat inside
+			 * the wall next to it), so it cannot be a visible face.
+			 */
+			if (
+				clip.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK ||
+				!clip.getBlockPos().equals(target) ||
+				clip.getDirection() != direction
+			) {
+				continue;
+			}
+			double distance = eye.distanceToSqr(point);
+			if (distance < bestDistance) {
+				bestDistance = distance;
+				visible = direction;
+			}
+		}
+		if (visible != null) return hit(target, visible);
+		return nearestExposedHit(level, eye, target);
 	}
 
 	static Direction nearestExposedFace(Level level, Vec3 eye, BlockPos target) {

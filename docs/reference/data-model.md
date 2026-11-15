@@ -43,7 +43,7 @@
 | `0012_model_usage` | 模型 token 用量，零价格调用也留证据 |
 | `0013_memory_outcomes` | 记忆的成功/失败次数、失败条件与适用版本 |
 
-当前校验器报告 32 个对象、29 个索引；新增迁移后以 `npm run db:check` 输出为准。
+当前校验器报告 35 个对象、34 个索引；新增迁移后以 `npm run db:check` 输出为准。
 
 ### 2.1 `agent_event`
 

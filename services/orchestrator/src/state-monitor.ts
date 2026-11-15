@@ -38,6 +38,7 @@ const STAGE_ORDER = [
   "food",
   "shelter",
   "iron",
+  "diamond-gear",
   "nether",
   "eyes",
   "stronghold",
@@ -115,7 +116,7 @@ function toolRecoveryOpportunity(
   stageIndex: number,
   isNavigation: boolean,
 ): StateOpportunity | null {
-  if (stageIndex > STAGE_ORDER.indexOf("iron")) return null;
+  if (stageIndex > STAGE_ORDER.indexOf("diamond-gear")) return null;
   if (hasUsablePickaxe(facts)) return null;
   const isResourceWork =
     decision.skill?.name === "mine_block" || decision.skill?.name === "chop_tree";

@@ -6,7 +6,7 @@ import type {
 } from "@craftmate/contracts";
 import type { ToolTier } from "../knowledge/src/index.ts";
 
-export type GoalId = "wood-and-table" | "stone-tools" | "food" | "shelter" | "iron" | "nether" | "eyes" | "stronghold" | "dragon";
+export type GoalId = "wood-and-table" | "stone-tools" | "food" | "shelter" | "iron" | "diamond-gear" | "nether" | "eyes" | "stronghold" | "dragon";
 
 export const STAGE_ORDER: readonly GoalId[] = [
   "wood-and-table",
@@ -14,6 +14,7 @@ export const STAGE_ORDER: readonly GoalId[] = [
   "food",
   "shelter",
   "iron",
+  "diamond-gear",
   "nether",
   "eyes",
   "stronghold",
@@ -98,6 +99,8 @@ export interface WorldFacts {
   readonly craftingTableCrafted?: boolean | null;
   /** True once this body session placed a crafting table in the world. */
   readonly craftingTablePlaced?: boolean | null;
+  /** Ticks since the remembered crafting table was placed. */
+  readonly craftingTableAgeTicks?: number | null;
   /** True once this body session crafted a chest. */
   readonly chestCrafted?: boolean | null;
   /** True once this body session placed its camp chest. */
@@ -154,12 +157,26 @@ export interface WorldFacts {
   readonly chest?: { readonly x: number; readonly y: number; readonly z: number } | null;
   /** Empty slots in the remembered camp chest; omitted when unobserved. */
   readonly chestEmptySlots?: number | null;
+  /**
+   * False when the remembered chest cannot open because its lid is covered or
+   * occupied. Omitted when the body has not observed the chest.
+   */
+  readonly chestOpenable?: boolean | null;
   /** Camp bed position, when the body still remembers it. */
   readonly bed?: { readonly x: number; readonly y: number; readonly z: number } | null;
   /** Last furnace this body placed, so a later smelt can walk back to it. */
   readonly furnace?: { readonly x: number; readonly y: number; readonly z: number } | null;
   /** True once this body session placed a furnace in the world. */
   readonly furnacePlaced?: boolean | null;
+  /** Ticks since the remembered furnace was placed. */
+  readonly furnaceAgeTicks?: number | null;
+  /** Ore or finished output still inside the remembered furnace. */
+  readonly furnaceContents?: {
+    readonly input?: string | null;
+    readonly inputCount?: number | null;
+    readonly output?: string | null;
+    readonly outputCount?: number | null;
+  } | null;
   /** True while a crafting table is within the body's observation radius. */
   readonly craftingTableNearby?: boolean | null;
   /** True only when the body can actually open the nearby table. */
@@ -403,6 +420,13 @@ export interface SurvivalContext {
   readonly clock?: { now(): number; newId(): string };
   /** Skills advertised by the connected body. Undefined means "not checked". */
   readonly availableSkills?: readonly string[];
+  /**
+   * The mission spine already chose this stage from later evidence. The DAG
+   * still supplies milestones and task builders, but an earlier unverified
+   * bookkeeping milestone must not pull a body with an iron pickaxe back into
+   * the food loop.
+   */
+  readonly forcedStage?: GoalId;
 }
 
 export interface ToolRequirementSummary {

@@ -25,6 +25,19 @@ final class ShaftEscape {
 	}
 
 	/**
+	 * An explicit target above the body is a vertical goal, not opportunistic
+	 * sky pillaring. The caller still has to prove the body can recover the
+	 * pillar material and that a canopy escape was not required.
+	 */
+	static boolean shouldStartTargetClimb(
+		boolean targetAbove,
+		boolean ceilingSolid,
+		int horizontalWalls
+	) {
+		return targetAbove || shouldStartPillar(ceilingSolid, horizontalWalls);
+	}
+
+	/**
 	 * Leaves and logs block movement but are not shelter. Treating a canopy
 	 * as a roof turned a surface tree into an "enclosed" state and allowed
 	 * the body to pillar into open sky.
@@ -53,6 +66,82 @@ final class ShaftEscape {
 				&& ticksSinceAttempt >= 0
 				&& ticksSinceAttempt < LEDGE_REPEAT_WINDOW_TICKS
 		);
+	}
+
+	/**
+	 * A mine entrance on a roof or chest platform is above the walking floor
+	 * and cannot be entered. An entrance below the body is ordinary downhill
+	 * terrain; treating it as invalid made the search pick the same lower cell
+	 * again on the next tick, forever.
+	 */
+	static boolean entranceAboveWalkingLevel(int entranceY, int bodyY) {
+		return entranceY > bodyY + 2;
+	}
+
+	/**
+	 * Entrance selection is a camp decision, not a body-position decision.
+	 * A body deep in its own stair still counts as "near home" in 3D, so the
+	 * old relocation/search anchored on it and moved the mine to the bottom
+	 * of the shaft. Only the home's own walking level may choose a site.
+	 */
+	static boolean nearHomeLevel(int bodyY, int homeY) {
+		return Math.abs(bodyY - homeY) <= 12;
+	}
+
+	/**
+	 * A persisted entrance has a stair the body already dug. The candidate
+	 * site probe expects a pristine descending line, so it reports
+	 * `descent_blocked` for the body's own tunnel and would erase a perfectly
+	 * usable route. Keep the entrance for that probe; the real next step is
+	 * planned from the stair blueprint.
+	 */
+	static boolean keepRememberedEntrance(String problem) {
+		return "descent_blocked".equals(problem);
+	}
+
+	/**
+	 * A one-cell vertical shaft the body dug upward has no walk route down.
+	 * Breaking the support is safe only when the body is actually walled in
+	 * and the block below that support is solid, so each drop is one block.
+	 */
+	static boolean canDescendShaft(
+		int solidWalls,
+		boolean harvestableSupport,
+		boolean solidLanding,
+		boolean clearHead
+	) {
+		return solidWalls >= 3 && harvestableSupport && solidLanding && clearHead;
+	}
+
+	/**
+	 * The height check exists to reject an entrance remembered on a chest
+	 * platform or hut roof. A body walking a lower terrace of the same camp,
+	 * or climbing back up its own stair after a food trip, is not evidence
+	 * of that: the camp's own site search already allows ground within four
+	 * blocks of the home. Rejecting the entrance there reset its direction
+	 * and abandoned the open staircase.
+	 */
+	static boolean atHomeWalkingLevel(int bodyY, int homeY) {
+		return Math.abs(bodyY - homeY) <= 4;
+	}
+
+	/**
+	 * A remembered entrance must stay inside the camp's mine site. The
+	 * selection search never looks farther than its radius; an entrance
+	 * outside that ring was chosen from an underground body position or a
+	 * stale camp and must be rebuilt near the real home.
+	 */
+	static boolean entranceWithinHomeSite(
+		int entranceX,
+		int entranceY,
+		int entranceZ,
+		int homeX,
+		int homeY,
+		int homeZ,
+		int radius
+	) {
+		return Math.abs(entranceY - homeY) <= 6
+			&& Math.hypot(entranceX - homeX, entranceZ - homeZ) <= radius;
 	}
 
 	/** Two consecutive tunnels in one direction are enough evidence. */
@@ -160,6 +249,11 @@ final class ShaftEscape {
 	 * found a short route back to its old cave floor and followed it, only to
 	 * start the same climb again. A partial route is useful for a vertical
 	 * target only when its destination is actually higher than the body.
+	 *
+	 * <p>The tolerance is one block, not two and a half: a body two blocks
+	 * below a chest accepted a descending leg as progress, walked down,
+	 * replanned back up, and ping-ponged until every goto timed out. A jump
+	 * clears a single block; anything higher needs the escape to build.
 	 */
 	static boolean routeAdvancesTowardTarget(
 		boolean complete,
@@ -168,8 +262,20 @@ final class ShaftEscape {
 		double targetY
 	) {
 		if (complete) return true;
-		if (targetY - playerY <= 2.5) return true;
+		if (targetY - playerY <= 1.0) return true;
 		return destinationY >= playerY + 1.0;
+	}
+
+	/**
+	 * The goal window accepts cells within one block of the request in every
+	 * axis. When the request is one level above the body, the body's own cell
+	 * therefore counted as "near" the goal and the pathfinder returned a
+	 * one-cell route that completed without moving. The next snapshot saw the
+	 * same position and issued the identical stair command forever. A start
+	 * cell can only be the goal when the requested level is its own level.
+	 */
+	static boolean startCellReachesGoal(int startY, int goalY) {
+		return startY == goalY;
 	}
 
 	/**

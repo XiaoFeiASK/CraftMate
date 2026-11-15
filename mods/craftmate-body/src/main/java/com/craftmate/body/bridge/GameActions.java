@@ -59,6 +59,8 @@ import net.minecraft.world.inventory.AbstractFurnaceMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.inventory.RecipeBookMenu;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
@@ -69,11 +71,13 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.ChestBlock;
 import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
+import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.BlockHitResult;
@@ -89,7 +93,7 @@ import org.lwjgl.glfw.GLFW;
 public final class GameActions {
 	private static final List<String> SKILLS = List.of(
 		"goto", "look_at", "mine_block", "chop_tree", "collect_items", "craft", "deposit", "say", "wait", "attack",
-		"equip", "eat", "use_block", "place_block", "pillar_up", "smelt", "sleep"
+		"equip", "eat", "use_block", "place_block", "pillar_up", "smelt", "sleep", "run_job"
 	);
 	private static final List<String> CAPABILITIES = List.of(
 		"sensor", "move", "mine", "container", "attack", "use", "build", "camera", "hud"
@@ -101,6 +105,12 @@ public final class GameActions {
 	 * selected leaves as the next "ore" cell and produced a useless tunnel.
 	 */
 	private static final int MIN_BRANCH_DEPTH = 4;
+	/**
+	 * Escape mining only needs the cell to become air, so a tool-less body may
+	 * punch through ordinary stone. Cap the hardness so obsidian and other
+	 * hand-proof blocks still fail fast instead of trapping the escape loop.
+	 */
+	private static final float ESCAPE_HAND_MINE_MAX_HARDNESS = 5.0f;
 	private static final Direction[] MINE_HORIZONTAL = {
 		Direction.NORTH,
 		Direction.EAST,
@@ -162,6 +172,13 @@ public final class GameActions {
 	private static final int ENTITY_SEARCH_RADIUS = 48;
 	private static final int COLLECT_SEARCH_RADIUS = 16;
 	private static final int COLLECT_STALL_TICKS = 20 * 4;
+	/**
+	 * A broken block's drop lands on its own column or the one next to it.
+	 * Searching twelve blocks around the block let the pickup step walk six
+	 * blocks back down the tunnel to chase an older, unreachable drop and
+	 * fail the step with "pickup was not confirmed" on every iteration.
+	 */
+	private static final double PICKUP_BLOCK_RADIUS = 4.0;
 	private static final int CONTAINER_SEARCH_RADIUS = 16;
 	/**
 	 * A body can walk away from the station it built, and a client restart
@@ -192,6 +209,20 @@ public final class GameActions {
 	private static final int PATH_STEP_UP = 1;
 	private static final int PATH_STEP_DOWN = 1;
 	private static final Map<String, Task> TASKS = new ConcurrentHashMap<>();
+	/**
+	 * A job-owned child reports its terminal result to the sequencer instead
+	 * of the bridge. The job is the one authoritative command on the wire;
+	 * exposing every child would make the orchestrator race the sequencer.
+	 */
+	private static final Map<String, Consumer<NodeResult>> NODE_OBSERVERS = new ConcurrentHashMap<>();
+	private static final int JOB_CHECKPOINT_LIMIT = 16;
+	private static final Map<String, JobCheckpoint> JOB_CHECKPOINTS =
+		new java.util.LinkedHashMap<>(16, 0.75f, true) {
+			@Override
+			protected boolean removeEldestEntry(Map.Entry<String, JobCheckpoint> eldest) {
+				return size() > JOB_CHECKPOINT_LIMIT;
+			}
+		};
 	private static int clientTick;
 	private static int staleMenuSince = -1;
 	private static Reflexes reflexes;
@@ -206,6 +237,8 @@ public final class GameActions {
 	 * after the respawn; the planner observes the new body and chooses again.
 	 */
 	private static boolean deathPreempted;
+	/** Increments on death so a checkpoint from the previous life cannot resume. */
+	private static int lifeEpoch;
 	/**
 	 * Per-session evidence that this body actually slept through a night.
 	 * A daytime snapshot alone is not proof: the world may have started in
@@ -243,10 +276,28 @@ public final class GameActions {
 	/** Surface entrance of the reusable main mine staircase. */
 	private static volatile BlockPos mineEntrance;
 	private static volatile Direction mineDirection;
+	/**
+	 * A heading that dead-ended below the surface. Changing direction in place
+	 * breaks the straight-line blueprint: the next snapshot rebuilds from the
+	 * entrance and reports a shallow step while the body is still deep. Mark
+	 * it instead; once the body is back at the entrance, try the other
+	 * headings there and keep the shaft model consistent.
+	 */
+	private static Direction mineBlockedHeading;
+	/** Consecutive deep snapshots without a stair step; avoids one-tick races. */
+	private static int mineHeadingFailures;
 	/** Bounded entrance search runs at most twice a second, not every tick. */
 	private static int nextMineEntranceSearchTick = Integer.MIN_VALUE;
-	/** A remembered surface entrance that cannot produce a first step is stale. */
+	/**
+	 * The freshly chosen entrance must not be rejected again for being above
+	 * a body standing in a lower dip. The site search and the height check
+	 * otherwise fight each other every tick and rebuild the same entrance.
+	 */
+	private static int mineEntranceChosenTick = Integer.MIN_VALUE;
+	/** Consecutive snapshots without a next stair cell; diagnostics only. */
 	private static int minePlanFailures;
+	private static long mineRestartLogAt;
+	private static String stairProblem = "none";
 	/** Latest visible-wood survey. The render thread owns the mutable cache. */
 	private static List<VisibleWood> visibleWood = List.of();
 	private static int visibleWoodScanTick = Integer.MIN_VALUE;
@@ -327,6 +378,8 @@ public final class GameActions {
 	 * that the table no longer exists.
 	 */
 	private static volatile BlockPos placedCraftingTable;
+	/** Client tick of the latest placement; -1 means age is unknown. */
+	private static volatile int placedCraftingTableTick = -1;
 	/** The first chest and bed placed this session; they anchor the camp. */
 	private static volatile BlockPos placedChest;
 	private static volatile BlockPos placedBed;
@@ -340,6 +393,7 @@ public final class GameActions {
 	private static volatile int observedChestEmptySlots = -1;
 	/** Last furnace this body placed; a smelt can walk back to it. */
 	private static volatile BlockPos placedFurnace;
+	private static volatile int placedFurnaceTick = -1;
 	/**
 	 * The last block placed by the cave-pillar escape. Persist it across a
 	 * client restart so a controller retry cannot strand the body on top of
@@ -583,12 +637,15 @@ public final class GameActions {
 		observedChest = null;
 		observedChestEmptySlots = -1;
 		placedFurnace = null;
+		placedFurnaceTick = -1;
 		placedCraftingTable = null;
+		placedCraftingTableTick = -1;
 		placedShelter = null;
 		plannedHutSite = null;
 		plannedHutFoundation = List.of();
 		mineEntrance = null;
 		mineDirection = null;
+		mineBlockedHeading = null;
 		lastEscapePillar = null;
 		escapePillarColumn = List.of();
 		chestCrafted = false;
@@ -659,6 +716,36 @@ public final class GameActions {
 	}
 
 	/** Builds a bounded semantic observation; no client GUI objects escape. */
+	/**
+	 * The no-leaves heightmap occasionally reports the world floor (-64) for
+	 * a loaded overworld chunk. Every caller then believes the body is at
+	 * surface level: mines are recorded underground, branch cuts skip their
+	 * depth guard, and the planner keeps returning home from a deep stair.
+	 * WORLD_SURFACE is populated in the same chunks, so use it to recover the
+	 * surface and walk down through leaves to the first real ground.
+	 */
+	private static int surfaceHeight(ClientLevel level, BlockPos pos) {
+		int motion = level.getHeight(
+			Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
+			pos.getX(),
+			pos.getZ()
+		);
+		if (motion > level.getMinBuildHeight()) return motion;
+		int world = level.getHeight(
+			Heightmap.Types.WORLD_SURFACE,
+			pos.getX(),
+			pos.getZ()
+		);
+		if (world <= level.getMinBuildHeight()) {
+			return Math.max(pos.getY(), level.getMinBuildHeight());
+		}
+		for (int y = world - 1; y > level.getMinBuildHeight() && y >= world - 24; y--) {
+			BlockState state = level.getBlockState(new BlockPos(pos.getX(), y, pos.getZ()));
+			if (!state.isAir() && !state.is(BlockTags.LEAVES)) return y + 1;
+		}
+		return world;
+	}
+
 	static JsonObject snapshot(Minecraft client) {
 		JsonObject world = new JsonObject();
 		LocalPlayer player = client.player;
@@ -713,11 +800,23 @@ public final class GameActions {
 		world.addProperty("dragonDefeated", dragonDefeated);
 		world.addProperty("craftingTableCrafted", craftingTableCrafted);
 		world.addProperty("craftingTablePlaced", craftingTablePlaced);
+		if (placedCraftingTableTick >= 0) {
+			world.addProperty(
+				"craftingTableAgeTicks",
+				Math.max(0, clientTick - placedCraftingTableTick)
+			);
+		}
 		world.addProperty("chestCrafted", chestCrafted);
 		world.addProperty("chestPlaced", chestPlaced);
 		world.addProperty("bedPlaced", bedPlaced);
 		world.addProperty("shelterBuilt", shelterBuilt);
 		world.addProperty("furnacePlaced", placedFurnace != null);
+		if (placedFurnaceTick >= 0) {
+			world.addProperty(
+				"furnaceAgeTicks",
+				Math.max(0, clientTick - placedFurnaceTick)
+			);
+		}
 		if (
 			(placedChest == null || placedBed == null || placedCraftingTable == null) &&
 			tick(client) >= nextHomeRecoveryTick
@@ -779,6 +878,9 @@ public final class GameActions {
 			chest.addProperty("y", placedChest.getY());
 			chest.addProperty("z", placedChest.getZ());
 			world.add("chest", chest);
+			if (client.level.hasChunkAt(placedChest)) {
+				world.addProperty("chestOpenable", chestOpenable(client, placedChest));
+			}
 			if (
 				observedChest != null &&
 				observedChestEmptySlots >= 0 &&
@@ -824,6 +926,7 @@ public final class GameActions {
 			)
 		) {
 			placedFurnace = null;
+			placedFurnaceTick = -1;
 			saveHomeMemory();
 		}
 		if (placedFurnace == null && tick(client) >= nextFurnaceRecoveryTick) {
@@ -831,6 +934,7 @@ public final class GameActions {
 			BlockPos recovered = nearbyBlockPosition(client, player, Blocks.FURNACE, STATION_RECOVERY_RADIUS);
 			if (recovered != null) {
 				placedFurnace = recovered;
+				placedFurnaceTick = -1;
 				saveHomeMemory();
 			}
 		}
@@ -840,12 +944,48 @@ public final class GameActions {
 			furnace.addProperty("y", placedFurnace.getY());
 			furnace.addProperty("z", placedFurnace.getZ());
 			world.add("furnace", furnace);
+			/*
+			 * A smelt that failed after loading its input leaves the ore (or
+			 * the finished ingots) in the furnace. Without publishing those
+			 * slots the planner sees an empty backpack, decides it needs more
+			 * iron, and mines another batch while three smelted ingots sit in
+			 * the block beside it.
+			 */
+			BlockEntity entity = client.level.hasChunkAt(placedFurnace)
+				? client.level.getBlockEntity(placedFurnace)
+				: null;
+			if (entity instanceof AbstractFurnaceBlockEntity smelter) {
+				ItemStack input = smelter.getItem(0);
+				ItemStack output = smelter.getItem(2);
+				if (!input.isEmpty() || !output.isEmpty()) {
+					JsonObject contents = new JsonObject();
+					if (!input.isEmpty()) {
+						contents.addProperty(
+							"input",
+							BuiltInRegistries.ITEM.getKey(input.getItem()).toString()
+						);
+						contents.addProperty("inputCount", input.getCount());
+					}
+					if (!output.isEmpty()) {
+						contents.addProperty(
+							"output",
+							BuiltInRegistries.ITEM.getKey(output.getItem()).toString()
+						);
+						contents.addProperty("outputCount", output.getCount());
+					}
+					world.add("furnaceContents", contents);
+				}
+			}
 		}
 		if (placedCraftingTable == null && tick(client) >= nextStationRecoveryTick) {
 			nextStationRecoveryTick = tick(client) + 20 * 5;
 			BlockPos recovered = nearbyBlockPosition(client, player, Blocks.CRAFTING_TABLE, STATION_RECOVERY_RADIUS);
-			if (recovered != null) {
+			// A field table carried into a mine is a tool, not a new home.
+			// Adopting it as `placedCraftingTable` made every later trip ask
+			// to "return home" to a hole in the ground.
+			if (recovered != null && !outsideEstablishedHome(recovered)) {
 				placedCraftingTable = recovered;
+				placedCraftingTableTick = -1;
 				craftingTablePlaced = true;
 				saveHomeMemory();
 			}
@@ -858,6 +998,7 @@ public final class GameActions {
 			// The remembered block was broken or replaced. Keep the fact that
 			// this run built a table, but do not claim a station that is gone.
 			placedCraftingTable = null;
+			placedCraftingTableTick = -1;
 			saveHomeMemory();
 		}
 		boolean craftingTableNearby =
@@ -869,20 +1010,51 @@ public final class GameActions {
 			"craftingTableNearby",
 			craftingTableNearby
 		);
-		BlockPos reachableTable = placedCraftingTable != null
+		BlockPos rememberedTable = placedCraftingTable != null
 			&& client.level.getBlockState(placedCraftingTable).is(Blocks.CRAFTING_TABLE)
 			? placedCraftingTable
-			: nearbyBlockPosition(client, player, Blocks.CRAFTING_TABLE, STATION_RECOVERY_RADIUS);
+			: null;
+		BlockPos observedTable = nearbyBlockPosition(
+			client,
+			player,
+			Blocks.CRAFTING_TABLE,
+			STATION_RECOVERY_RADIUS
+		);
+		/*
+		 * The remembered table can be a field station the body left deep in a
+		 * mine. After climbing out, a different table beside the camp was
+		 * visible in the snapshot, but this flag was still computed against
+		 * the unreachable y=40 block: the planner then issued a surface goto
+		 * to the old mine coordinate and repeated "no safe route" forever.
+		 * Prefer whichever table the body can actually use now.
+		 */
+		BlockPos reachableTable = null;
+		if (
+			rememberedTable != null &&
+			stationReachable(player, rememberedTable)
+		) {
+			reachableTable = rememberedTable;
+		} else if (
+			observedTable != null &&
+			stationReachable(player, observedTable)
+		) {
+			reachableTable = observedTable;
+		}
 		world.addProperty(
 			"craftingTableReachable",
 			reachableTable != null
-				&& stationReachable(player, reachableTable)
 		);
-		if (placedCraftingTable != null) {
+		BlockPos publishedTable =
+			reachableTable != null
+				? reachableTable
+				: observedTable != null
+					? observedTable
+					: rememberedTable;
+		if (publishedTable != null) {
 			JsonObject table = new JsonObject();
-			table.addProperty("x", placedCraftingTable.getX());
-			table.addProperty("y", placedCraftingTable.getY());
-			table.addProperty("z", placedCraftingTable.getZ());
+			table.addProperty("x", publishedTable.getX());
+			table.addProperty("y", publishedTable.getY());
+			table.addProperty("z", publishedTable.getZ());
 			world.add("craftingTable", table);
 		}
 		world.addProperty("onGround", player.onGround());
@@ -891,7 +1063,14 @@ public final class GameActions {
 		BlockPos bodyPos = player.blockPosition();
 		world.addProperty(
 			"surfaceY",
-			client.level.getHeight(Heightmap.Types.WORLD_SURFACE, bodyPos.getX(), bodyPos.getZ())
+			/*
+			 * Leaves are not ground. WORLD_SURFACE put the surface six blocks
+			 * above a body standing under a tree, so the planner called it
+			 * "underground" and spent every escape jump trying to pillar
+			 * through the canopy. The no-leaves heightmap still counts a
+			 * trunk, which is the correct floor reference.
+			 */
+			surfaceHeight(client.level, bodyPos)
 		);
 		world.addProperty("canSeeSky", client.level.canSeeSky(bodyPos));
 		world.addProperty(
@@ -1187,39 +1366,352 @@ public final class GameActions {
 	) {
 		BlockPos entrance = ensureMineEntrance(client, player);
 		if (entrance == null || mineDirection == null) return;
+		if (mineBlockedHeading == mineDirection) {
+			Direction[] turnedDirection = new Direction[1];
+			JsonObject turned = chooseTurnedStair(
+				client,
+				entrance,
+				mineDirection,
+				turnedDirection
+			);
+			if (turned != null && turnedDirection[0] != null) {
+				mineDirection = turnedDirection[0];
+				mineBlockedHeading = null;
+				saveHomeMemory();
+				CraftMateBodyClient.LOGGER.info(
+					"mine heading changed at entrance after blocked shaft direction={} entrance={} player={}",
+					mineDirection,
+					entrance,
+					player.blockPosition()
+				);
+			}
+		}
 		int dx = mineDirection.getStepX();
 		int dz = mineDirection.getStepZ();
 		int depth = entrance.getY() - player.blockPosition().getY();
 		JsonObject mine = new JsonObject();
 		mine.add("entrance", position(entrance));
-		mine.addProperty("direction", mineDirection.getName());
 		BlockPos stairStand = entrance;
+		boolean onStairLine = false;
+		BlockPos expected = null;
 		if (depth >= 0) {
-			BlockPos expected = entrance.offset(dx * depth, -depth, dz * depth);
-			if (nearColumn(player, expected)) stairStand = expected;
+			expected = entrance.offset(dx * depth, -depth, dz * depth);
+			if (nearColumn(player, expected)) {
+				stairStand = expected;
+				onStairLine = true;
+			}
 		}
-		JsonObject stair = stairBlueprint(client, entrance, stairStand, dx, dz);
-		if (stair != null) {
-			minePlanFailures = 0;
-			mine.add("stair", stair);
-		} else if (player.blockPosition().getY() >= entrance.getY() - 3) {
-			minePlanFailures++;
-			if (minePlanFailures > 100) {
+		JsonObject stair = stairBlueprint(client, entrance, stairStand, dx, dz, 64);
+		int plannedDepth =
+			stair == null || !stair.has("depth") ? -1 : stair.get("depth").getAsInt();
+		if (
+			expected != null &&
+			depth >= 4 &&
+			/*
+			 * Only re-anchor at the body when the entrance-relative line is
+			 * genuinely broken above it. Re-anchoring every time the body was
+			 * within six blocks of the ideal line accumulated a cell of
+			 * lateral drift per step, turning an eighty-step staircase into a
+			 * shaft seventy blocks from its entrance; every later plan then
+			 * flipped between the drifted and remembered shafts.
+			 */
+			plannedDepth + 4 < depth &&
+			player.blockPosition().distSqr(entrance) <= 128.0 * 128.0
+		) {
+			/*
+			 * A body descending its own stair regularly stands on the edge of
+			 * a step, or drops into the next cell before the block update
+			 * lands. Rebuilding the blueprint from the entrance then reported
+			 * the first solid cell at depth six while the body was thirty
+			 * blocks down, and every goto to that shallow stand failed with
+			 * "no useful route". Continue from the body's own cell instead;
+			 * the entrance is still the depth reference and the branch base.
+			 *
+			 * The old guard also required the body to be within 64 blocks of
+			 * the entrance. A real 40-step staircase drifts more than that,
+			 * so the live body flipped back to a depth-eight blueprint and
+			 * climbed twelve blocks for no reason. Measure against the
+			 * entrance-relative line for this depth instead, with a wide
+			 * corridor so a shaft that turns is still recognised.
+			 */
+			double lineX = player.getX() - (expected.getX() + 0.5);
+			double lineZ = player.getZ() - (expected.getZ() + 0.5);
+			/*
+			 * A body on a step edge drifts a block or two from the ideal
+			 * line. Thirty-two blocks also covered the camp, so standing at
+			 * the chest twenty blocks west of the entrance rebuilt the stair
+			 * blueprint around the body with a dirt "next step" at camp. The
+			 * planner then had a mine whose stand was the camp floor. Keep
+			 * the drift allowance local to the actual shaft.
+			 */
+			/*
+			 * The body can end up well off the remembered line after a
+			 * blocked heading turns into a side tunnel. Keeping the shallow
+			 * entrance-relative stair then made every later plan branch
+			 * sideways at the same depth: the body never descended to the
+			 * iron layer again. A body deep below the entrance with a stair
+			 * blueprint that only reaches a fraction of its depth is on a
+			 * different shaft; re-anchor the next staircase to the cell it
+			 * actually stands in. The surface/camp case is excluded by the
+			 * depth and sky checks, so this cannot rebuild a "stair" on the
+			 * hut floor.
+			 */
+			/*
+			 * Four blocks is enough separation once the sky check and the
+			 * stale-blueprint test both hold. The old twelve-block gate left
+			 * a body ten blocks down a broken shaft branching sideways at the
+			 * same height forever, because the remembered stair still claimed
+			 * depth zero. The camp case is already excluded: standing on the
+			 * hut floor sees the sky.
+			 */
+			boolean deepBelowEntrance =
+				!client.level.canSeeSky(player.blockPosition()) &&
+				player.blockPosition().getY() < entrance.getY() - 4;
+			boolean staleStair = plannedDepth + 6 < depth;
+			if (
+				Math.hypot(lineX, lineZ) <= 6.0 ||
+				(deepBelowEntrance && staleStair)
+			) {
+				JsonObject bodyStair = stairBlueprint(
+					client,
+					entrance,
+					player.blockPosition(),
+					dx,
+					dz,
+					64
+				);
+				if (bodyStair != null) stair = bodyStair;
+			}
+		}
+		int currentDepth =
+			stair == null || !stair.has("depth") ? -1 : stair.get("depth").getAsInt();
+		if (
+			currentDepth < MIN_BRANCH_DEPTH &&
+			player.blockPosition().distSqr(entrance) <= 9.0
+		) {
+			/*
+			 * A persisted heading can point at a shallow, never-started row
+			 * while an older shaft in another direction is still open to the
+			 * ore layer. Prefer the open shaft at the entrance so a restart
+			 * or a blocked turn does not cut a parallel mine from scratch.
+			 */
+			Direction[] preferred = new Direction[1];
+			JsonObject open = chooseTurnedStair(
+				client,
+				entrance,
+				mineDirection,
+				preferred
+			);
+			int openDepth =
+				open == null || !open.has("depth") ? -1 : open.get("depth").getAsInt();
+			if (open != null && preferred[0] != null && openDepth >= MIN_BRANCH_DEPTH) {
+				mineDirection = preferred[0];
+				mineBlockedHeading = null;
+				dx = mineDirection.getStepX();
+				dz = mineDirection.getStepZ();
+				stair = open;
+				saveHomeMemory();
 				CraftMateBodyClient.LOGGER.info(
-					"mine entrance stale entrance={} player={}",
+					"mine heading resumed open shaft direction={} entrance={} player={}",
+					mineDirection,
 					entrance,
 					player.blockPosition()
 				);
-				mineEntrance = null;
-				mineDirection = null;
-				minePlanFailures = 0;
-				nextMineEntranceSearchTick = 0;
+			}
+		}
+		if (
+			stair == null &&
+			onStairLine &&
+			player.blockPosition().getY() < entrance.getY() - 1
+		) {
+			/*
+			 * A rescue tunnel can break one of the old landing floors. Keeping
+			 * the entrance at the surface then makes the whole mine look
+			 * unplannable while the body is standing deep inside it. Continue
+			 * the descent from the current cell instead of waiting for a
+			 * surface hole to repair itself.
+			 */
+			stair = stairBlueprint(
+				client,
+				entrance,
+				player.blockPosition(),
+				dx,
+				dz,
+				64
+			);
+			if (stair != null) {
+				long now = System.currentTimeMillis();
+				if (now - mineRestartLogAt > 5_000L) {
+					mineRestartLogAt = now;
+					CraftMateBodyClient.LOGGER.info(
+						"mine stair restarted from player entrance={} direction={} player={}",
+						entrance,
+						mineDirection,
+						player.blockPosition()
+					);
+				}
+			}
+		}
+		if (
+			stair == null &&
+			onStairLine &&
+			player.blockPosition().getY() < entrance.getY() - 1
+		) {
+			/*
+			 * Water, a ravine or a broken floor can end this heading. Do not
+			 * rotate here: the stair is a straight entrance-relative line,
+			 * and changing it deep underground makes the next snapshot plan
+			 * from the surface (depth four while the body is at depth
+			 * thirty). Remember the blocked heading; the surface retry below
+			 * chooses a new one after the planner climbs out.
+			 */
+			mineHeadingFailures++;
+			if (mineHeadingFailures >= 3 && mineBlockedHeading != mineDirection) {
+				mineBlockedHeading = mineDirection;
+				CraftMateBodyClient.LOGGER.info(
+					"mine heading blocked direction={} entrance={} player={} problem={}",
+					mineDirection,
+					entrance,
+					player.blockPosition(),
+					stairProblem
+				);
+			}
+		} else {
+			mineHeadingFailures = 0;
+		}
+		if (
+			stair == null &&
+			minePlanFailures >= 40 &&
+			player.blockPosition().distSqr(entrance) <= 9.0
+		) {
+			/*
+			 * A heading chosen from deep in the stair can be invalid at the
+			 * surface, for example when its first cells are open but a leaf
+			 * crown blocks the next layer. Standing on the entrance, try the
+			 * remaining headings before declaring the shaft unusable.
+			 */
+			Direction[] turnedDirection = new Direction[1];
+			JsonObject turned = chooseTurnedStair(
+				client,
+				entrance,
+				mineDirection,
+				turnedDirection
+			);
+			if (turned != null && turnedDirection[0] != null) {
+				mineDirection = turnedDirection[0];
+				mineBlockedHeading = null;
+				dx = mineDirection.getStepX();
+				dz = mineDirection.getStepZ();
+				stair = turned;
 				saveHomeMemory();
+				CraftMateBodyClient.LOGGER.info(
+					"mine stair turned at entrance to {} entrance={} player={}",
+					mineDirection,
+					entrance,
+					player.blockPosition()
+				);
+			}
+		}
+		mine.addProperty("direction", mineDirection.getName());
+		if (stair != null) {
+			minePlanFailures = 0;
+			mine.add("stair", stair);
+		} else {
+			/*
+			 * A missing step is usually temporary: the body is mid-step, a
+			 * block update has not arrived, or the next landing is hidden by
+			 * the cell being broken. Dropping the entrance here made the body
+			 * pick a new direction every few seconds and re-dig the same
+			 * three blocks. Keep the remembered entrance; mineEntranceProblem
+			 * still relocates it when the surface geometry is genuinely gone.
+			 */
+			minePlanFailures++;
+			if (minePlanFailures == 100) {
+				CraftMateBodyClient.LOGGER.info(
+					"mine stair waiting entrance={} direction={} player={} problem={}",
+					entrance,
+					mineDirection,
+					player.blockPosition(),
+					stairProblem
+				);
 			}
 		}
 		JsonObject branch = branchBlueprint(client, entrance, player, dx, dz);
 		if (branch != null) mine.add("branch", branch);
-		if (mine.has("stair") || mine.has("branch")) world.add("mine", mine);
+		// Keep the entrance and direction visible to the planner even while
+		// the next cell is temporarily unplannable. Hiding the whole mine made
+		// `mine` disappear from facts and the planner fall back to exploration.
+		world.add("mine", mine);
+	}
+
+	/**
+	 * Prefer an alternate heading that continues a staircase which is already
+	 * open, instead of the first heading whose surface cell happens to be
+	 * breakable. Turning from a blocked east shaft onto a fresh western row
+	 * at the entrance started a parallel mine every time, then the planner
+	 * ping-ponged between the old deep shaft and the new shallow one.
+	 */
+	private static JsonObject chooseTurnedStair(
+		Minecraft client,
+		BlockPos entrance,
+		Direction current,
+		Direction[] chosen
+	) {
+		JsonObject fallback = null;
+		Direction fallbackDirection = null;
+		for (Direction alternate : MINE_HORIZONTAL) {
+			if (alternate == current) continue;
+			JsonObject candidate = stairBlueprint(
+				client,
+				entrance,
+				entrance,
+				alternate.getStepX(),
+				alternate.getStepZ(),
+				64
+			);
+			if (candidate == null) continue;
+			int depth = candidate.has("depth") ? candidate.get("depth").getAsInt() : 0;
+			if (depth >= MIN_BRANCH_DEPTH) {
+				chosen[0] = alternate;
+				return candidate;
+			}
+			if (fallback == null) {
+				fallback = candidate;
+				fallbackDirection = alternate;
+			}
+		}
+		chosen[0] = fallbackDirection;
+		return fallback;
+	}
+
+	/**
+	 * Front columns of the next few staircase steps. A one-wide shaft makes
+	 * every adjacent face "in the corridor", so penalising the whole corridor
+	 * would reject every placement; the useful check is the cells the stair is
+	 * actually about to cut. This is where a field furnace placed one step
+	 * ahead was mined seconds later and then placed again, producing the live
+	 * place/reclaim loop.
+	 */
+	private static boolean nearUpcomingStairStep(
+		Minecraft client,
+		LocalPlayer player,
+		BlockPos destination
+	) {
+		if (mineEntrance == null || mineDirection == null) return false;
+		BlockPos feet = player.blockPosition();
+		if (feet.getY() > surfaceHeight(client.level, feet) - 8) return false;
+		int depth = Math.max(0, mineEntrance.getY() - feet.getY());
+		int dx = mineDirection.getStepX();
+		int dz = mineDirection.getStepZ();
+		for (int step = 0; step <= 10; step++) {
+			int level = depth + step;
+			BlockPos stand = mineEntrance.offset(dx * level, -level, dz * level);
+			BlockPos front = stand.offset(dx, 0, dz);
+			for (int dy = -2; dy <= 2; dy++) {
+				if (front.above(dy).equals(destination)) return true;
+			}
+		}
+		return false;
 	}
 
 	private static JsonObject stairBlueprint(
@@ -1227,10 +1719,19 @@ public final class GameActions {
 		BlockPos entrance,
 		BlockPos stand,
 		int dx,
-		int dz
+		int dz,
+		int maxAdvance
 	) {
 		BlockPos current = stand;
-		for (int advance = 0; advance < 2; advance++) {
+		/*
+		 * From the surface entrance the first steps are already air once the
+		 * body is a few blocks down. Looking only two cells ahead therefore
+		 * returned "no plan" at depth three even though the staircase was
+		 * healthy, and the old fallback relocated the entrance. Walk the
+		 * open portion of the remembered staircase before planning the first
+		 * solid step.
+		 */
+		for (int advance = 0; advance < Math.min(64, maxAdvance); advance++) {
 			BlockPos front = current.offset(dx, 0, dz);
 			BlockState landingFloor = client.level.getBlockState(front.below(2));
 			if (
@@ -1238,25 +1739,123 @@ public final class GameActions {
 				!landingFloor.getFluidState().isEmpty() ||
 				landingFloor.is(BlockTags.LEAVES)
 			) {
-				return null;
+				/*
+				 * A natural cave under the next landing used to abort the
+				 * whole staircase. A player simply drops one extra block when
+				 * the floor below the landing is open and the cell two below
+				 * has solid support. Clear the same body/head cells and let
+				 * the next snapshot plan from the deeper landing.
+				 */
+				BlockPos deepLanding = front.below(2);
+				if (!PlaceTask.canStandAt(client, deepLanding)) {
+					stairProblem =
+						"landing floor at " + front.below(2) + " is " + landingFloor;
+					/*
+					 * The staircase is fully open up to this face and the next
+					 * landing is water or a void. The shaft is still a usable
+					 * route down to `current`; discarding the whole blueprint
+					 * made the planner treat a healthy 47-step stair as a
+					 * blocked mine. Publish the deepest open stand so the body
+					 * can walk down and branch there. The site-selection probe
+					 * (maxAdvance 2) must still reject a pristine cave mouth,
+					 * so only real planning calls get this fallback.
+					 */
+					/*
+					 * The planning call may start on the body's own cell.
+					 * Returning null there used to leave the shallow
+					 * entrance-relative blueprint in the snapshot while the
+					 * body stood thirty blocks below it, so every plan walked
+					 * back up the stair and the next snapshot sent it down
+					 * again. Publish the current cell as the deepest open
+					 * stand instead; the planner then cuts a side branch at
+					 * the depth the body actually reached.
+					 */
+					if (maxAdvance >= 8) {
+						return openStairEnd(current, entrance);
+					}
+					return null;
+				}
+				boolean deepBodySolid = !client.level.getBlockState(front).isAir();
+				boolean deepHeadSolid = !client.level.getBlockState(front.above()).isAir();
+				if (deepBodySolid || deepHeadSolid) {
+					BlockPos pending = firstBreakable(client, front, front.above());
+					if (
+						pending == null ||
+						!safeMineCell(client, front) ||
+						!safeMineCell(client, front.above())
+					) {
+						stairProblem = "unsafe deep landing at " + deepLanding;
+						return null;
+					}
+					stairProblem = "deep landing at " + deepLanding;
+					JsonObject step = mineStep(client, current, pending);
+					step.addProperty("depth", Math.max(0, entrance.getY() - current.getY()));
+					return step;
+				}
+				stairProblem = "advance deep landing at " + deepLanding;
+				current = deepLanding;
+				continue;
 			}
-			BlockPos pending = firstBreakable(client, front, front.above(), front.below());
-			if (pending == null) return null;
-			if (pending == front || pending == front.above() || pending == front.below()) {
+			boolean bodySolid = !client.level.getBlockState(front).isAir();
+			boolean headSolid = !client.level.getBlockState(front.above()).isAir();
+			boolean landingSolid = !client.level.getBlockState(front.below()).isAir();
+			int target = MineStair.nextTarget(bodySolid, headSolid, landingSolid);
+			if (target != MineStair.ADVANCE) {
+				BlockPos pending = target == MineStair.BODY
+					? front
+					: target == MineStair.HEAD
+						? front.above()
+						: front.below();
 				if (!safeMineCell(client, front)
 					|| !safeMineCell(client, front.above())
 					|| !safeMineCell(client, front.below())) {
+					stairProblem =
+						"unsafe mine cells front=" +
+						client.level.getBlockState(front) +
+						" head=" +
+						client.level.getBlockState(front.above()) +
+						" landing=" +
+						client.level.getBlockState(front.below());
 					return null;
 				}
+				stairProblem = "ok at " + front;
 				JsonObject step = mineStep(client, current, pending);
 				step.addProperty("depth", Math.max(0, entrance.getY() - current.getY()));
 				return step;
 			}
+			/*
+			 * front, its headroom and the landing cell are already air. The
+			 * old code returned null here because `firstBreakable` can only
+			 * return one of those three cells; the advance branch below was
+			 * unreachable. The body therefore cleared the same horizontal
+			 * column forever, never stepped down, and relocated the entrance
+			 * every hundred ticks. Move the planning cursor to the landing so
+			 * the next iteration describes the following stair step.
+			 */
 			BlockPos next = front.below();
-			if (!PlaceTask.canStandAt(client, next)) return null;
+			if (!PlaceTask.canStandAt(client, next)) {
+				stairProblem = "cannot stand at next " + next;
+				return null;
+			}
 			current = next;
 		}
+		stairProblem = "no solid step within " + Math.min(64, maxAdvance);
+		if (maxAdvance >= 8 && !current.equals(stand)) {
+			return openStairEnd(current, entrance);
+		}
 		return null;
+	}
+
+	/**
+	 * An open staircase with no block left to mine until its far end. The
+	 * planner can still navigate to the deepest stand; `pending` is omitted
+	 * because there is no safe cell to cut from here.
+	 */
+	private static JsonObject openStairEnd(BlockPos stand, BlockPos entrance) {
+		JsonObject step = new JsonObject();
+		step.add("stand", position(stand));
+		step.addProperty("depth", Math.max(0, entrance.getY() - stand.getY()));
+		return step;
 	}
 
 	private static JsonObject branchBlueprint(
@@ -1268,15 +1867,102 @@ public final class GameActions {
 	) {
 		int depth = entrance.getY() - player.blockPosition().getY();
 		if (depth < MIN_BRANCH_DEPTH) return null;
+		// A surveyed ore behind the tunnel wall is a real reason to turn. A
+		// blind branch along the entrance axis ran parallel to the same iron
+		// seam for dozens of blocks. Follow the ore first; the main heading
+		// remains the fallback when the ore column cannot be tunnelled.
+		int[] oreHeading = oreHeading(player);
+		if (oreHeading != null) {
+			JsonObject ore = branchBlueprintFor(
+				client,
+				entrance,
+				player,
+				depth,
+				oreHeading[0],
+				oreHeading[1]
+			);
+			if (ore != null) return ore;
+		}
+		JsonObject primary = branchBlueprintFor(
+			client,
+			entrance,
+			player,
+			depth,
+			dx,
+			dz
+		);
+		if (primary != null) return primary;
+		/*
+		 * A stair can end over a ravine or water while solid ore is still one
+		 * block to the side. Returning no branch there made the planner climb
+		 * the whole shaft, resume the same blocked heading at the surface, and
+		 * repeat. A player turns a short side tunnel at the depth reached.
+		 */
+		for (int[] heading : MineStair.fallbackHeadings(dx, dz)) {
+			JsonObject branch = branchBlueprintFor(
+				client,
+				entrance,
+				player,
+				depth,
+				heading[0],
+				heading[1]
+			);
+			if (branch != null) return branch;
+		}
+		return null;
+	}
+
+	/**
+	 * Heading for the nearest progress ore at the branch's own floor level.
+	 * Ores one or two blocks below are ignored: a horizontal branch would walk
+	 * over them without ever exposing a face and keep re-choosing the same
+	 * unreachable direction.
+	 */
+	private static int[] oreHeading(LocalPlayer player) {
+		BlockPos origin = player.blockPosition();
+		OreTarget best = null;
+		double bestDistance = Double.POSITIVE_INFINITY;
+		for (OreTarget ore : localOres) {
+			if (!isProgressOre(ore.id())) continue;
+			int dy = ore.y() - origin.getY();
+			if (dy < 0 || dy > 1) continue;
+			double horizontal = Math.hypot(ore.x() + 0.5 - player.getX(), ore.z() + 0.5 - player.getZ());
+			if (horizontal < 0.75 || horizontal > 8.0) continue;
+			if (horizontal < bestDistance) {
+				bestDistance = horizontal;
+				best = ore;
+			}
+		}
+		if (best == null) return null;
+		return OreHeading.toward(player.getX(), player.getZ(), best.x(), best.z());
+	}
+
+	/** Ores worth turning a branch for; copper is common and not progression. */
+	private static boolean isProgressOre(String id) {
+		return id.endsWith("iron_ore") || id.endsWith("diamond_ore");
+	}
+
+	private static JsonObject branchBlueprintFor(
+		Minecraft client,
+		BlockPos entrance,
+		LocalPlayer player,
+		int depth,
+		int dx,
+		int dz
+	) {
 		BlockPos center = entrance.offset(dx * depth, -depth, dz * depth);
 		if (!PlaceTask.canStandAt(client, center) && !center.equals(player.blockPosition())) {
-			return null;
+			/*
+			 * A staircase that drifted off the ideal entrance-relative line
+			 * (step edges, a rescue reconnect, or a shaft restarted from the
+			 * body) still reaches the target layer. Reporting no branch there
+			 * made the planner climb out, walk back down the same open stair,
+			 * and repeat: the live y=15/y=17 ping-pong. A branch belongs under
+			 * the body at the depth it actually reached.
+			 */
+			center = player.blockPosition().immutable();
 		}
-		int surface = client.level.getHeight(
-			Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-			center.getX(),
-			center.getZ()
-		);
+		int surface = surfaceHeight(client.level, center);
 		if (center.getY() >= surface - 2) return null;
 		double along =
 			(player.getX() - (center.getX() + 0.5)) * dx +
@@ -1374,6 +2060,128 @@ public final class GameActions {
 		Minecraft client,
 		LocalPlayer player
 	) {
+		BlockPos currentHome = placedChest != null ? placedChest : placedBed;
+		boolean atHomeLevel =
+			nearEstablishedHome(player.blockPosition(), 24)
+				&& (
+					currentHome == null ||
+					ShaftEscape.nearHomeLevel(
+						player.blockPosition().getY(),
+						currentHome.getY()
+					)
+				);
+		/*
+		 * The established home can sit on a chest platform a dozen blocks
+		 * above the walkable ground the body reached. A 3D radius then never
+		 * considers the body "home" even though it is twenty blocks away
+		 * horizontally, so no mine site is ever selected: the planner walks
+		 * toward the chest, the route stops below the platform, and the next
+		 * plan tries again. Choosing a site only needs the body in the camp's
+		 * horizontal neighbourhood and roughly its height band.
+		 */
+		boolean atMineSite =
+			currentHome == null
+				? atHomeLevel
+				: Math.hypot(
+						player.getX() - (currentHome.getX() + 0.5),
+						player.getZ() - (currentHome.getZ() + 0.5)
+					) <= 24.0
+					&& Math.abs(player.blockPosition().getY() - currentHome.getY()) <= 16;
+		if (mineEntrance != null) {
+			/*
+			 * A death or a long scouting leg can leave the body at a new
+			 * established chest hundreds of blocks from the old mine. The
+			 * persisted entrance is still valid geometry, but it is no longer
+			 * this camp's entrance. Keeping it made every descent start with
+			 * an impossible long walk and blacklisted the new base instead.
+			 */
+			if (
+				atHomeLevel &&
+				currentHome != null &&
+				mineEntrance.distSqr(currentHome) > 64.0 * 64.0
+			) {
+				CraftMateBodyClient.LOGGER.info(
+					"mine entrance relocating entrance={} home={} player={}",
+					mineEntrance,
+					currentHome,
+					player.blockPosition()
+				);
+				mineEntrance = null;
+				mineDirection = null;
+				mineBlockedHeading = null;
+				minePlanFailures = 0;
+				nextMineEntranceSearchTick = 0;
+				saveHomeMemory();
+			}
+		}
+		if (
+			mineEntrance != null &&
+			currentHome != null &&
+			atHomeLevel &&
+			!ShaftEscape.entranceWithinHomeSite(
+				mineEntrance.getX(),
+				mineEntrance.getY(),
+				mineEntrance.getZ(),
+				currentHome.getX(),
+				currentHome.getY(),
+				currentHome.getZ(),
+				MINE_SITE_RADIUS
+			)
+		) {
+			/*
+			 * The site search can only choose cells within MINE_SITE_RADIUS
+			 * of its anchor. An entrance outside that ring was chosen while
+			 * the body stood somewhere else (often at the bottom of its own
+			 * stair) and is not a camp mine. Rebuild it at the real home
+			 * instead of sending every trip back to an unreachable terrace.
+			 */
+			CraftMateBodyClient.LOGGER.info(
+				"mine entrance relocating range entrance={} home={} player={}",
+				mineEntrance,
+				currentHome,
+				player.blockPosition()
+			);
+			mineEntrance = null;
+			mineDirection = null;
+			mineBlockedHeading = null;
+			minePlanFailures = 0;
+			nextMineEntranceSearchTick = 0;
+			saveHomeMemory();
+		}
+		if (mineEntrance != null) {
+			/*
+			 * A remembered entrance on top of a chest platform or hut roof is
+			 * valid blocks but not a mine the body can walk into. When the
+			 * body is back at camp on open ground, require the entrance to be
+			 * at that walking level before trusting it.
+			 */
+			if (
+				atHomeLevel &&
+				currentHome != null &&
+				ShaftEscape.atHomeWalkingLevel(
+					player.blockPosition().getY(),
+					currentHome.getY()
+				) &&
+				client.level.canSeeSky(player.blockPosition()) &&
+				tick(client) - mineEntranceChosenTick > 20 * 10 &&
+				ShaftEscape.entranceAboveWalkingLevel(
+					mineEntrance.getY(),
+					player.blockPosition().getY()
+				)
+			) {
+				CraftMateBodyClient.LOGGER.info(
+					"mine entrance relocating height entrance={} player={}",
+					mineEntrance,
+					player.blockPosition()
+				);
+				mineEntrance = null;
+				mineDirection = null;
+				mineBlockedHeading = null;
+				minePlanFailures = 0;
+				nextMineEntranceSearchTick = 0;
+				saveHomeMemory();
+			}
+		}
 		if (mineEntrance != null) {
 			if (mineDirection == null) {
 				mineDirection = horizontalFromYaw(player.getYRot());
@@ -1381,6 +2189,17 @@ public final class GameActions {
 			}
 			String problem = mineEntranceProblem(client, mineEntrance, mineDirection);
 			if (problem == null) {
+				return mineEntrance;
+			}
+			/*
+			 * Once the body is deep in its own stair, the first twelve cells
+			 * ahead are the tunnel it already dug. The candidate-site probe
+			 * expects a pristine descending line and reports
+			 * `descent_blocked` for a perfectly usable shaft, which then
+			 * erased the remembered entrance and left the planner with no
+			 * route to continue. Only validate that probe at the surface.
+			 */
+			if (ShaftEscape.keepRememberedEntrance(problem)) {
 				return mineEntrance;
 			}
 			// A remembered entrance can be buried by the finished hut, washed
@@ -1394,6 +2213,7 @@ public final class GameActions {
 			);
 			mineEntrance = null;
 			mineDirection = null;
+			mineBlockedHeading = null;
 			minePlanFailures = 0;
 			nextMineEntranceSearchTick = 0;
 			saveHomeMemory();
@@ -1401,13 +2221,8 @@ public final class GameActions {
 		int now = tick(client);
 		if (now < nextMineEntranceSearchTick) return null;
 		nextMineEntranceSearchTick = now + 40;
-		if (!nearEstablishedHome(player.blockPosition(), 24)) return null;
-		BlockPos anchor =
-			placedChest != null
-				? placedChest
-				: placedBed != null
-					? placedBed
-					: player.blockPosition();
+		if (!atHomeLevel && !atMineSite) return null;
+		BlockPos anchor = currentHome != null ? currentHome : player.blockPosition();
 		BlockPos best = null;
 		Direction bestDirection = null;
 		double bestScore = Double.POSITIVE_INFINITY;
@@ -1417,7 +2232,37 @@ public final class GameActions {
 				int z = anchor.getZ() + dz;
 				if (!client.level.hasChunkAt(new BlockPos(x, anchor.getY(), z))) continue;
 				int ground = PlaceTask.hutGroundY(client.level, x, z, anchor.getY());
-				if (Math.abs(ground - anchor.getY()) > 4) continue;
+				/*
+				 * The camp walking floor is often one shelf below the chest
+				 * platform. A four-block band skipped the bed terrace
+				 * entirely, so no mine site existed even though the body was
+				 * standing in the camp; six matches the persistence check and
+				 * lets the search find the open stair again.
+				 */
+				if (Math.abs(ground - anchor.getY()) > 6) continue;
+				/*
+				 * The square search window reaches (10, -9), a Euclidean
+				 * distance of 13.5, while persistence validates the entrance
+				 * against a circular radius of 10. The loop therefore chose
+				 * that same out-of-range cell, saved it, rejected it on the
+				 * next snapshot, and chose it again every forty ticks: no
+				 * mine entrance was ever published and the iron stage sat
+				 * blocked with no task. Apply the persistence rule while
+				 * selecting, not after.
+				 */
+				if (
+					!ShaftEscape.entranceWithinHomeSite(
+						x,
+						ground,
+						z,
+						anchor.getX(),
+						anchor.getY(),
+						anchor.getZ(),
+						MINE_SITE_RADIUS
+					)
+				) {
+					continue;
+				}
 				BlockPos candidate = new BlockPos(x, ground, z);
 				if (!PlaceTask.canStandAt(client, candidate)) continue;
 				if (insideHutFootprint(candidate)) continue;
@@ -1433,7 +2278,8 @@ public final class GameActions {
 							candidate,
 							candidate,
 							direction.getStepX(),
-							direction.getStepZ()
+							direction.getStepZ(),
+							2
 						) == null
 					) {
 						continue;
@@ -1453,6 +2299,7 @@ public final class GameActions {
 		if (best == null || bestDirection == null) return null;
 		mineEntrance = best.immutable();
 		mineDirection = bestDirection;
+		mineEntranceChosenTick = tick(client);
 		saveHomeMemory();
 		CraftMateBodyClient.LOGGER.info(
 			"mine entrance={} direction={} anchor={} player={}",
@@ -1512,7 +2359,13 @@ public final class GameActions {
 		BlockPos entrance,
 		Direction direction
 	) {
-		for (int step = 0; step < 4; step++) {
+		/*
+		 * Four steps were not enough: the live entrance was clear through
+		 * the first few cells and then hit an oak crown, so every stair plan
+		 * returned null while the site still looked valid. A player checks
+		 * enough of the heading to see the tree before committing.
+		 */
+		for (int step = 0; step < 12; step++) {
 			BlockPos feet = entrance.offset(
 				direction.getStepX() * step,
 				-step,
@@ -1649,6 +2502,17 @@ public final class GameActions {
 	 * immediate result can be emitted.
 	 */
 	static StartDecision start(Minecraft client, String id, String op, JsonObject args, Consumer<JsonObject> send) {
+		return start(client, id, op, args, send, true);
+	}
+
+	private static StartDecision start(
+		Minecraft client,
+		String id,
+		String op,
+		JsonObject args,
+		Consumer<JsonObject> send,
+		boolean announce
+	) {
 		if (TASKS.containsKey(id)) {
 			return StartDecision.rejected("E_BUSY", "duplicate task id");
 		}
@@ -1657,63 +2521,7 @@ public final class GameActions {
 		}
 		Task task;
 		try {
-			task = switch (op) {
-				case "wait" -> new WaitTask(id, integer(args, "ticks", 1));
-				case "say" -> new SayTask(id, required(args, "text"));
-				case "look_at" -> new LookTask(id, args);
-				case "goto" -> new GotoTask(id, args);
-				case "mine_block" -> new MineTask(id, args);
-				case "chop_tree" -> new MineTask(id, args, true);
-				case "collect_items" -> new CollectTask(
-					id,
-					optional(args, "item"),
-					integer(args, "count", 1)
-				);
-				case "craft" -> new CraftTask(
-					id,
-					required(args, "item"),
-					integer(args, "count", 1)
-				);
-				case "deposit" -> new DepositTask(
-					id,
-					optional(args, "item"),
-					optionalBlockPos(args, "container"),
-					integer(args, "maxStacks", Integer.MAX_VALUE)
-				);
-				case "attack" -> new AttackTask(
-					id,
-					required(args, "target"),
-					stringList(args, "targets"),
-					integer(args, "count", 1),
-					number(args, "radius", ATTACK_SEARCH_RADIUS),
-					args.has("lethal") && args.get("lethal").getAsBoolean(),
-					args.has("collect") && args.get("collect").getAsBoolean()
-				);
-				case "equip" -> new EquipTask(id, required(args, "item"));
-				case "eat" -> new EatTask(id, optional(args, "item"));
-				case "use_block" -> new UseBlockTask(id, optional(args, "block"));
-				case "place_block" -> new PlaceTask(
-					id,
-					required(args, "block"),
-					integer(args, "count", 1),
-					optionalBlockPos(args, "at"),
-					flag(args, "emergency")
-				);
-				case "smelt" -> new SmeltTask(
-					id,
-					required(args, "input"),
-					required(args, "output"),
-					integer(args, "count", 1),
-					optional(args, "fuel")
-				);
-				case "pillar_up" -> new PillarTask(
-					id,
-					optional(args, "block"),
-					integer(args, "height", 3)
-				);
-				case "sleep" -> new SleepTask(id);
-				default -> null;
-			};
+			task = createTask(id, op, args);
 		} catch (RuntimeException error) {
 			return StartDecision.rejected("E_PRECONDITION", "invalid args for " + op + ": " + message(error));
 		}
@@ -1729,13 +2537,74 @@ public final class GameActions {
 		// `place_block`/`mine_block` turned the in-game chat into a wall of
 		// text and hid the actual task changes. Keep status for coarse moves
 		// and stations; exact-cell work is already visible in the world.
-		if (!(args.has("at") && ("place_block".equals(op) || "mine_block".equals(op)))) {
+		if (announce && !(args.has("at") && ("place_block".equals(op) || "mine_block".equals(op)))) {
 			showStatus(
 				client,
 				SkillLabels.displayName(op) + " · " + id.substring(0, Math.min(8, id.length()))
 			);
 		}
 		return StartDecision.accept();
+	}
+
+	private static Task createTask(String id, String op, JsonObject args) {
+		return switch (op) {
+			case "wait" -> new WaitTask(id, integer(args, "ticks", 1));
+			case "say" -> new SayTask(id, required(args, "text"));
+			case "look_at" -> new LookTask(id, args);
+			case "goto" -> new GotoTask(id, args);
+			case "mine_block" -> new MineTask(id, args);
+			case "chop_tree" -> new MineTask(id, args, true);
+			case "collect_items" -> new CollectTask(
+				id,
+				optional(args, "item"),
+				integer(args, "count", 1)
+			);
+			case "craft" -> new CraftTask(
+				id,
+				required(args, "item"),
+				integer(args, "count", 1)
+			);
+			case "deposit" -> new DepositTask(
+				id,
+				optional(args, "item"),
+				optionalBlockPos(args, "container"),
+				integer(args, "maxStacks", Integer.MAX_VALUE)
+			);
+			case "attack" -> new AttackTask(
+				id,
+				required(args, "target"),
+				stringList(args, "targets"),
+				integer(args, "count", 1),
+				number(args, "radius", ATTACK_SEARCH_RADIUS),
+				args.has("lethal") && args.get("lethal").getAsBoolean(),
+				args.has("collect") && args.get("collect").getAsBoolean()
+			);
+			case "equip" -> new EquipTask(id, required(args, "item"));
+			case "eat" -> new EatTask(id, optional(args, "item"));
+			case "use_block" -> new UseBlockTask(id, optional(args, "block"));
+			case "place_block" -> new PlaceTask(
+				id,
+				required(args, "block"),
+				integer(args, "count", 1),
+				optionalBlockPos(args, "at"),
+				flag(args, "emergency")
+			);
+			case "smelt" -> new SmeltTask(
+				id,
+				required(args, "input"),
+				required(args, "output"),
+				integer(args, "count", 1),
+				optional(args, "fuel")
+			);
+			case "pillar_up" -> new PillarTask(
+				id,
+				optional(args, "block"),
+				integer(args, "height", 3)
+			);
+			case "sleep" -> new SleepTask(id);
+			case "run_job" -> new JobTask(id, args);
+			default -> null;
+		};
 	}
 
 	/**
@@ -1888,6 +2757,7 @@ public final class GameActions {
 	 * goal runtime must not open a strategy circuit or add backoff for it.
 	 */
 	private static void preemptTasksForDeath(Minecraft client) {
+		lifeEpoch++;
 		releaseMiningInput(client);
 		releaseWalkInput(client);
 		IdleWander.reset(client);
@@ -1977,10 +2847,7 @@ public final class GameActions {
 	}
 
 	private static void finish(String id, String status, String code, String detail) {
-		Task task = TASKS.remove(id);
-		if (task == null) return;
-		task.stop(Minecraft.getInstance());
-		if (task.send != null) task.send.accept(result(id, status, code, detail));
+		finish(id, status, code, detail, null);
 	}
 
 	private static void finish(
@@ -1989,6 +2856,11 @@ public final class GameActions {
 		Task task = TASKS.remove(id);
 		if (task == null) return;
 		task.stop(Minecraft.getInstance());
+		Consumer<NodeResult> observer = NODE_OBSERVERS.remove(id);
+		if (observer != null) {
+			observer.accept(new NodeResult(status, code, detail, data));
+			return;
+		}
 		if (task.send != null) task.send.accept(result(id, status, code, detail, data));
 	}
 
@@ -2129,6 +3001,293 @@ public final class GameActions {
 		 */
 		boolean keepScreen(Minecraft client) {
 			return false;
+		}
+	}
+
+	private record NodeResult(
+		String status,
+		String code,
+		String detail,
+		JsonObject data
+	) {
+	}
+
+	private record JobCheckpoint(
+		String world,
+		String inventory,
+		int index,
+		int completed
+	) {
+	}
+
+	/**
+	 * Runs a bounded plan as one body task. Children are ordinary tasks, so
+	 * all existing preconditions still apply; the difference is that the
+	 * sequencer owns the wire lifecycle and starts the next node in the same
+	 * client tick the previous one finishes. No idle/camera release happens
+	 * between nodes.
+	 */
+	private static final class JobTask extends Task {
+		private static final int MAX_SCREEN_WAIT_TICKS = 20 * 5;
+
+		private final String jobId;
+		private final String title;
+		private final JsonArray nodes;
+		private final boolean stopOnFailure;
+		private final JsonArray changes = new JsonArray();
+		private int index;
+		private int completed;
+		private int childSerial;
+		private String childId;
+		private boolean waiting;
+		private int screenWaitSince = -1;
+		private String lastNode;
+		private NodeResult pendingResult;
+
+		JobTask(String id, JsonObject args) {
+			super(id);
+			this.jobId = required(args, "jobId");
+			this.title = required(args, "title");
+			this.nodes = args.has("nodes") && args.get("nodes").isJsonArray()
+				? args.getAsJsonArray("nodes")
+				: new JsonArray();
+			this.stopOnFailure = !args.has("stopOnFailure")
+				|| args.get("stopOnFailure").getAsBoolean();
+			int checkpoint = args.has("checkpointIndex")
+				? Math.max(0, args.get("checkpointIndex").getAsInt())
+				: 0;
+			if (!args.has("checkpointIndex")) {
+				JobCheckpoint saved = JOB_CHECKPOINTS.get(jobId);
+				Minecraft client = Minecraft.getInstance();
+				if (
+					saved != null &&
+					saved.world().equals(worldIdentity(client)) &&
+					saved.inventory().equals(inventorySignature(client))
+				) {
+					checkpoint = saved.index();
+				}
+			}
+			this.index = Math.min(checkpoint, Math.max(0, nodes.size()));
+		}
+
+		@Override
+		boolean validate(Minecraft client) {
+			if (!super.validate(client)) return false;
+			if (nodes.size() == 0) {
+				validationError = "job has no executable nodes";
+				return false;
+			}
+			if (nodes.size() > 32) {
+				validationError = "job has too many nodes";
+				return false;
+			}
+			for (var element : nodes) {
+				if (!element.isJsonObject()) {
+					validationError = "job node is not an object";
+					return false;
+				}
+				JsonObject node = element.getAsJsonObject();
+				String skill = optional(node, "skill");
+				if (skill == null || skill.isBlank()) {
+					validationError = "job node is missing skill";
+					return false;
+				}
+				if ("run_job".equals(skill)) {
+					validationError = "nested jobs are not allowed";
+					return false;
+				}
+				if (node.has("args") && !node.get("args").isJsonObject()) {
+					validationError = "job node args must be an object";
+					return false;
+				}
+			}
+			return true;
+		}
+
+		@Override
+		void start(Minecraft client) {
+			CameraController.holdForJob();
+			send.accept(progress(id, "job", completed, nodes.size()));
+			startNext(client);
+		}
+
+		@Override
+		void tick(Minecraft client) {
+			if (pendingResult != null) {
+				NodeResult result = pendingResult;
+				pendingResult = null;
+				handleNodeResult(client, result);
+				return;
+			}
+			if (waiting) {
+				if (childId != null && TASKS.containsKey(childId)) return;
+				// The observer normally clears `waiting` in finish(). This is
+				// a defensive recovery for a child removed by a local stop.
+				waiting = false;
+			}
+			startNext(client);
+		}
+
+		private void startNext(Minecraft client) {
+			if (index >= nodes.size()) {
+				complete();
+				return;
+			}
+			if (blocksOnPlayerScreen(client)) {
+				if (screenWaitSince < 0) screenWaitSince = clientTick;
+				if (clientTick - screenWaitSince < MAX_SCREEN_WAIT_TICKS) return;
+				finish(
+					id,
+					"failed",
+					"E_BUSY",
+					"job could not close a child menu: " + title,
+					checkpointData("blocked")
+				);
+				return;
+			}
+			screenWaitSince = -1;
+			JsonObject node = nodes.get(index).getAsJsonObject();
+			String skill = required(node, "skill");
+			JsonObject args = node.has("args") && node.get("args").isJsonObject()
+				? node.getAsJsonObject("args")
+				: new JsonObject();
+			lastNode = node.has("label") ? optional(node, "label") : skill;
+			childId = id + ":node-" + (++childSerial);
+			waiting = true;
+			String observedChild = childId;
+			NODE_OBSERVERS.put(
+				observedChild,
+				result -> {
+					if (!observedChild.equals(childId)) return;
+					pendingResult = result;
+					waiting = false;
+					childId = null;
+				}
+			);
+			StartDecision started = GameActions.start(
+				client,
+				observedChild,
+				skill,
+				args,
+				ignored -> {
+				},
+				false
+			);
+			if (!started.accepted()) {
+				NODE_OBSERVERS.remove(observedChild);
+				waiting = false;
+				childId = null;
+				finish(
+					id,
+					"failed",
+					started.code(),
+					"job node " + (index + 1) + "/" + nodes.size()
+						+ " (" + skill + ") rejected: " + started.detail(),
+					checkpointData("rejected")
+				);
+				return;
+			}
+		}
+
+		private void handleNodeResult(Minecraft client, NodeResult result) {
+			mergeChanges(result.data());
+			if ("completed".equals(result.status())) {
+				completed++;
+				index++;
+				send.accept(progress(id, "job", completed, nodes.size()));
+				startNext(client);
+				return;
+			}
+			if (!stopOnFailure) {
+				index++;
+				startNext(client);
+				return;
+			}
+			finish(
+				id,
+				result.status(),
+				result.code(),
+				"job node " + (index + 1) + "/" + nodes.size()
+					+ " (" + lastNode + ") " + result.status()
+					+ (result.detail() == null ? "" : ": " + result.detail()),
+				checkpointData(result.status())
+			);
+		}
+
+		private void mergeChanges(JsonObject data) {
+			if (data == null || !data.has("changes") || !data.get("changes").isJsonArray()) {
+				return;
+			}
+			for (var change : data.getAsJsonArray("changes")) changes.add(change);
+		}
+
+		private void complete() {
+			JsonObject data = checkpointData("completed");
+			data.addProperty("summary", title + " · " + completed + "/" + nodes.size() + " 步完成");
+			data.add("changes", changes);
+			JsonObject progress = new JsonObject();
+			progress.addProperty("done", completed);
+			progress.addProperty("total", nodes.size());
+			progress.addProperty("unit", "steps");
+			data.add("progress", progress);
+			data.addProperty("resumable", true);
+			finish(id, "completed", null, null, data);
+		}
+
+		private JsonObject checkpointData(String status) {
+			JsonObject data = new JsonObject();
+			JsonObject job = new JsonObject();
+			job.addProperty("id", jobId);
+			job.addProperty("title", title);
+			job.addProperty("status", status);
+			job.addProperty("nodeIndex", index);
+			job.addProperty("completedNodes", completed);
+			job.addProperty("totalNodes", nodes.size());
+			job.addProperty("world", worldKey(Minecraft.getInstance()));
+			LocalPlayer player = Minecraft.getInstance().player;
+			if (player != null) {
+				JsonObject position = new JsonObject();
+				position.addProperty("x", round(player.getX()));
+				position.addProperty("y", round(player.getY()));
+				position.addProperty("z", round(player.getZ()));
+				job.add("position", position);
+			}
+			data.add("job", job);
+			data.add("checkpoint", job.deepCopy());
+			data.add("changes", changes);
+			if (index < nodes.size()) {
+				data.addProperty(
+					"remaining",
+					"job node " + (index + 1) + "/" + nodes.size()
+				);
+			}
+			return data;
+		}
+
+		@Override
+		void stop(Minecraft client) {
+			if (childId != null) {
+				NODE_OBSERVERS.remove(childId);
+				Task child = TASKS.remove(childId);
+				if (child != null) child.stop(client);
+				childId = null;
+			}
+			waiting = false;
+			pendingResult = null;
+			if (index > 0 && index < nodes.size()) {
+				JOB_CHECKPOINTS.put(
+					jobId,
+					new JobCheckpoint(
+						worldIdentity(client),
+						inventorySignature(client),
+						index,
+						completed
+					)
+				);
+			} else if (index >= nodes.size()) {
+				JOB_CHECKPOINTS.remove(jobId);
+			}
+			CameraController.releaseJobHold();
 		}
 	}
 
@@ -2295,6 +3454,15 @@ public final class GameActions {
 		private static final int STUCK_TICKS = 20 * 3;
 		private static final int MAX_REPLANS = 3;
 		private static final int REPLAN_COOLDOWN_TICKS = 10;
+		/**
+		 * Small back-and-forth jitter toward a blocked step must not reset the
+		 * stall timer. Require a real gain over the best distance reached on
+		 * this waypoint; otherwise a body wedged at a lip can oscillate a few
+		 * centimetres for a whole minute and never enter the unstick branch.
+		 */
+		private static final double STUCK_PROGRESS = 0.5;
+		/** A side-step detour must not become an unbounded unstick loop. */
+		private static final int MAX_SIDE_STEPS = 3;
 		private static final double ARRIVE_DISTANCE = 0.75;
 		private static final int QUICK_PATH_NODES = 3_000;
 		private static final double QUICK_PATH_RADIUS = 56.0;
@@ -2344,9 +3512,10 @@ public final class GameActions {
 		private boolean routeComplete;
 		private int lastProgressTick;
 		private int lastWaypointIndex;
-		private double lastWaypointDistance;
+		private double bestWaypointDistance;
 		private int stuckTicks;
 		private int replans;
+		private int sideSteps;
 		private int nextReplanAt;
 		private int exploreContinuations;
 		/**
@@ -2424,6 +3593,20 @@ public final class GameActions {
 		private int climbEquipAt = -1;
 		private int climbFallbacks;
 		/**
+		 * A player trapped in an open pit has no ceiling to tunnel through and
+		 * no one-block step to climb. Placing a block under the feet while
+		 * jumping is the normal way out. Only used when every other escape
+		 * has refused, and only with clear headroom and a solid floor.
+		 */
+		private boolean towerUp;
+		private int towerBaseY;
+		private int towerStartY;
+		private int towerPlaced;
+		private int towerJumpAt = -1;
+		private int towerStartedAt;
+		private boolean towerAwaiting;
+		private BlockPos towerTargetCell;
+		/**
 		 * A same-level or downhill target cannot be reached by staircasing
 		 * upward. When A* has no route, clear a two-block-high corridor toward
 		 * the target, walk in, and re-plan. This is the normal human move in a
@@ -2498,12 +3681,37 @@ public final class GameActions {
 		 * instead of replanning the same impossible route. The next tick's
 		 * route then has a real neighbour to walk through.
 		 */
-		private boolean digOut(Minecraft client) {
+		private boolean digOut(Minecraft client, Vec3 toward) {
 			LocalPlayer player = client.player;
 			if (!player.onGround()) return false;
 			BlockPos feet = player.blockPosition();
 			int walls = 0;
-			for (Direction direction : Direction.Plane.HORIZONTAL) {
+			/*
+			 * The old fixed north/east/south/west order mined the first
+			 * harvestable wall, which at the bottom of a northward staircase
+			 * is the cell *away* from the entrance. The body then cleared a
+			 * dead-end pocket while its route home stayed sealed. Probe the
+			 * direction that actually reduces the horizontal gap first.
+			 */
+			List<Direction> directions = new ArrayList<>(
+				List.of(
+					Direction.NORTH,
+					Direction.EAST,
+					Direction.SOUTH,
+					Direction.WEST
+				)
+			);
+			if (toward != null) {
+				directions.sort(
+					Comparator.comparingDouble(direction ->
+						-(
+							direction.getStepX() * (toward.x - player.getX()) +
+							direction.getStepZ() * (toward.z - player.getZ())
+						)
+					)
+				);
+			}
+			for (Direction direction : directions) {
 				if (
 					client.level.getBlockState(feet.relative(direction)).blocksMotion()
 						|| client.level.getBlockState(feet.above().relative(direction))
@@ -2536,6 +3744,23 @@ public final class GameActions {
 			if (!ShaftEscape.shouldDigOut(walls, harvestableWall)) {
 				return false;
 			}
+			/*
+			 * A canopy or a collapsed cell can put a solid block in the body's
+			 * own head or feet cell. The horizontal pass then aims at a
+			 * neighbouring leaf that the head cell occludes, and the same
+			 * cell never breaks. Clear the body's own cell first.
+			 */
+			for (BlockPos inside : new BlockPos[] { feet, feet.above() }) {
+				BlockState state = client.level.getBlockState(inside);
+				if (
+					state.blocksMotion() &&
+					!playerFacility(state) &&
+					canBreakEscapeCell(client, player, inside, state) &&
+					breakEscapeWall(client, player, inside)
+				) {
+					return true;
+				}
+			}
 			for (Direction direction : Direction.Plane.HORIZONTAL) {
 				BlockPos wall = feet.relative(direction);
 				BlockPos headWall = feet.above().relative(direction);
@@ -2556,6 +3781,56 @@ public final class GameActions {
 		}
 
 		/** Start destroying one escape cell with a valid tool for its material. */
+		/**
+		 * Leaves are thin, non-tool blocks and the generic nearest-face probe
+		 * can pick the bottom face while the eye is above the block. The
+		 * client then sends destroy packets to a face it cannot see, and a
+		 * canopy wall never breaks. Aim at the exposed face that points most
+		 * directly at the eye instead.
+		 */
+		private BlockHitResult escapeHit(
+			Minecraft client,
+			LocalPlayer player,
+			BlockPos wall
+		) {
+			BlockState state = client.level.getBlockState(wall);
+			if (!state.is(BlockTags.LEAVES)) {
+				return BlockInteraction.nearestExposedHit(
+					client.level,
+					player.getEyePosition(),
+					wall
+				);
+			}
+			Vec3 centre = Vec3.atCenterOf(wall);
+			Vec3 eye = player.getEyePosition();
+			Direction best = null;
+			double bestDot = Double.NEGATIVE_INFINITY;
+			for (Direction face : Direction.values()) {
+				if (client.level.getBlockState(wall.relative(face)).blocksMotion()) continue;
+				double dot =
+					face.getStepX() * (eye.x - centre.x) +
+					face.getStepY() * (eye.y - centre.y) +
+					face.getStepZ() * (eye.z - centre.z);
+				if (dot > bestDot) {
+					bestDot = dot;
+					best = face;
+				}
+			}
+			if (best == null) {
+				return BlockInteraction.nearestExposedHit(
+					client.level,
+					player.getEyePosition(),
+					wall
+				);
+			}
+			return new BlockHitResult(
+				centre.add(best.getStepX() * 0.5, best.getStepY() * 0.5, best.getStepZ() * 0.5),
+				best,
+				wall,
+				false
+			);
+		}
+
 		private boolean breakEscapeWall(
 			Minecraft client,
 			LocalPlayer player,
@@ -2568,6 +3843,7 @@ public final class GameActions {
 			if (state.getDestroySpeed(client.level, wall) < 0.0f) return false;
 			if (!BlockInteraction.hasExposedFace(client.level, wall)) return false;
 			int tool = bestToolSlot(player, state);
+			boolean handMine = false;
 			if (
 				ShaftEscape.needsToolEquip(
 					state.requiresCorrectToolForDrops(),
@@ -2582,21 +3858,37 @@ public final class GameActions {
 					);
 					return true;
 				}
+				/*
+				 * Movement, not drops, is the goal of an escape. Stone breaks
+				 * by hand in a few seconds, so a body that lost its pickaxe
+				 * must be allowed to tunnel out instead of reporting "no legal
+				 * recovery step" and replaying the same doomed plan.
+				 */
+				if (
+					state.getDestroySpeed(client.level, wall) >
+						ESCAPE_HAND_MINE_MAX_HARDNESS
+				) {
+					return false;
+				}
+				handMine = true;
+			}
+			boolean harvestable =
+				tool >= 0 || !state.requiresCorrectToolForDrops();
+			if (!harvestable && !handMine) {
 				return false;
 			}
-			boolean harvestable = ToolSelection.canHarvest(
-				state.requiresCorrectToolForDrops(),
-				tool >= 0
-			);
-			if (!harvestable) {
-				return false;
+			if (
+				handMine &&
+				(escapeWall == null || !escapeWall.equals(wall))
+			) {
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate escape hand-mine target={} state={} reason=no carried tool",
+					wall,
+					state
+				);
 			}
 			Vec3 centre = Vec3.atCenterOf(wall);
-			BlockHitResult hit = BlockInteraction.nearestExposedHit(
-				client.level,
-				player.getEyePosition(),
-				wall
-			);
+			BlockHitResult hit = escapeHit(client, player, wall);
 			aimBodyAt(player, hit.getLocation());
 			CameraController.steerTo(player, centre);
 			if (!ShaftEscape.canBreakWall(state.blocksMotion(), hit.getBlockPos().equals(wall))) {
@@ -2656,11 +3948,13 @@ public final class GameActions {
 			BlockPos pos,
 			BlockState state
 		) {
-			if (state.getDestroySpeed(client.level, pos) < 0.0f) {
+			float hardness = state.getDestroySpeed(client.level, pos);
+			if (hardness < 0.0f) {
 				return false;
 			}
-			return !state.requiresCorrectToolForDrops()
-				|| bestToolSlot(player, state) >= 0;
+			return !state.requiresCorrectToolForDrops() ||
+				bestToolSlot(player, state) >= 0 ||
+				hardness <= ESCAPE_HAND_MINE_MAX_HARDNESS;
 		}
 
 		/**
@@ -2852,6 +4146,15 @@ public final class GameActions {
 				: clientTick - lastAttempt;
 			if (ShaftEscape.ledgeAttemptExhausted(priorAttempts, sinceAttempt)) {
 				releaseWalkInput(client);
+				// The suppressed drop is often the only exit from the top of
+				// a self-built ceiling pillar. Retreat down that column
+				// instead of reporting the same failure until the cache
+				// expires.
+				if (beginPillarRetreat(client, player)) {
+					escapingNoRoute = true;
+					send.accept(progress(id, "descend", 0, 1));
+					return false;
+				}
 				CraftMateBodyClient.LOGGER.info(
 					"CraftMate goto ledge suppressed from={} landing={} priorAttempts={} since={}",
 					from,
@@ -2895,7 +4198,7 @@ public final class GameActions {
 				if (distance + 0.1 >= ledgeLastDistance) {
 					ledgeTarget = null;
 					releaseWalkInput(client);
-					if (!digOut(client)) {
+					if (!digOut(client, target)) {
 						finish(
 							id,
 							"failed",
@@ -2927,7 +4230,7 @@ public final class GameActions {
 				waypoints = route.waypoints();
 				waypointIndex = waypoints.size() > 1 ? 1 : 0;
 				lastWaypointIndex = waypointIndex;
-				lastWaypointDistance = playerDistance(player);
+				bestWaypointDistance = playerDistance(player);
 				nextReplanAt = 0;
 				send.accept(progress(id, "walking", 0, 1));
 				return;
@@ -2966,7 +4269,11 @@ public final class GameActions {
 			// death tick. Reset it only when the body is actually on ground;
 			// an airborne body must keep the real fall for the safety reflex.
 			if (client.player.onGround()) client.player.resetFallDistance();
-			if (!mode.isWalk() && onCanopy(client)) {
+			// Walking is the most common navigation mode, and leaves are not
+			// part of A*'s standable grid. Skipping the canopy descent for
+			// walk left the body retrying every destination from the same
+			// tree crown until the planner circuit-breaker opened.
+			if (onCanopy(client)) {
 				escapingCanopy = true;
 				canopyEscapeStartedAge = age;
 				send.accept(progress(id, "unstick", 0, 1));
@@ -3001,6 +4308,19 @@ public final class GameActions {
 			Route route = firstSafeRoute(client, client.player);
 			if (route == null || !routeMovesBody(route, client.player)) {
 				if (mode.isWalk()) {
+					/*
+					 * A ceiling/pillar build leaves the body standing on a
+					 * block it placed itself. Checking the ledge first can
+					 * fail once and then be suppressed by the ten-minute
+					 * repeat cache, which strands the body on top of its own
+					 * column because this retreat branch is never reached.
+					 * Back down the recorded pillar before stepping off.
+					 */
+					if (beginPillarRetreat(client, client.player)) {
+						escapingNoRoute = true;
+						send.accept(progress(id, "descend", 0, 1));
+						return;
+					}
 					Vec3 ledge = safeLedge(client, client.player);
 					if (ledge != null) {
 						beginLedge(client, client.player, ledge);
@@ -3017,7 +4337,7 @@ public final class GameActions {
 			waypoints = route.waypoints();
 			waypointIndex = waypoints.size() > 1 ? 1 : 0;
 			lastWaypointIndex = waypointIndex;
-			lastWaypointDistance = playerDistance(client.player);
+			bestWaypointDistance = playerDistance(client.player);
 			nextReplanAt = 0;
 			escapingNoRoute = false;
 			CraftMateBodyClient.LOGGER.info(
@@ -3168,6 +4488,10 @@ public final class GameActions {
 		private void tickEscape(Minecraft client, LocalPlayer player) {
 			if (pillarRetreat) {
 				tickPillarRetreat(client, player);
+				return;
+			}
+			if (towerUp) {
+				tickTowerUp(client, player);
 				return;
 			}
 			if (ceilingActive) {
@@ -3348,24 +4672,75 @@ public final class GameActions {
 			// In a low tunnel the staircase planner could spend its entire
 			// budget jumping against the same ceiling; a proven ceiling
 			// pillar is the reliable human move and preserves a safe floor.
-			boolean wantsUp = target.y - player.getY() > 2.5;
-			if (wantsUp && mode.mayBuild() && beginCeilingPillar(client, player)) {
+			/*
+			 * A one-block climb is still upward. The old 2.5 threshold treated
+			 * a body one block below its home cell as "not going up", so the
+			 * downward branch dismantled the recovery pillar it had just
+			 * built, then the next attempt climbed it again until the
+			 * twelve-block budget ran out. That is the visible place/retract
+			 * loop at the top of an escape shaft.
+			 */
+			boolean wantsUp = target.y - player.getY() > 0.9;
+			double horizontalToTarget = Math.hypot(
+				target.x - player.getX(),
+				target.z - player.getZ()
+			);
+			/*
+			 * A hillside twenty blocks away that happens to be six blocks
+			 * higher is not a vertical goal. The old check built a cobblestone
+			 * column into open sky, then had no route from the top of a 1x1
+			 * tower and dismantled it again. Only pillar when the target is
+			 * essentially straight above the body.
+			 */
+			boolean directlyAbove = wantsUp && horizontalToTarget <= 2.5;
+			if (directlyAbove && mode.mayBuild() && beginCeilingPillar(client, player, true)) {
 				send.accept(progress(id, "climbing", climbSteps, 16));
 				return;
 			}
-			if (mode.mayDig() && digOut(client)) {
+			if (mode.mayDig() && digOut(client, target)) {
 				send.accept(progress(id, "unstick", 0, 1));
 				return;
 			}
-			if (mode.mayDig() && !wantsUp && beginTunnel(client, player)) {
+			if (
+				mode.mayDig() &&
+				(!wantsUp || !directlyAbove) &&
+				beginTunnel(client, player)
+			) {
 				send.accept(progress(id, "tunneling", tunnelSteps, 6));
 				return;
 			}
-			if (mode.mayDig() && beginClimbStep(client, player)) {
+			/*
+			 * A target below the body is a descending problem. Trying
+			 * beginClimbStep first jumps one block up, then the pillar retreat
+			 * drops one block, and the two moves cancel out forever. If this
+			 * body is standing on its own placed column, dismantle it before
+			 * considering a climb.
+			 */
+			if (!wantsUp && mode.mayBuild() && beginPillarRetreat(client, player)) {
+				send.accept(progress(id, "descend", 0, 1));
+				return;
+			}
+			if (!wantsUp && mode.mayDig() && beginShaftDescent(client, player, target)) {
+				send.accept(progress(id, "descend", 0, 1));
+				return;
+			}
+			/*
+			 * `beginClimbStep` always builds upward. For a target four blocks
+			 * below, it lifted the body out of the stair one step at a time
+			 * and the next observation dropped it back to the same floor;
+			 * the goto then timed out after seventy seconds of climbing.
+			 * Descending targets must fall through to the retract/ledge
+			 * paths instead.
+			 */
+			if (
+				mode.mayDig() &&
+				directlyAbove &&
+				beginClimbStep(client, player)
+			) {
 				send.accept(progress(id, "climbing", climbSteps, 16));
 				return;
 			}
-			if (!wantsUp && mode.mayBuild() && beginCeilingPillar(client, player)) {
+			if (!wantsUp && mode.mayBuild() && beginCeilingPillar(client, player, false)) {
 				send.accept(progress(id, "climbing", climbSteps, 16));
 				return;
 			}
@@ -3373,9 +4748,16 @@ public final class GameActions {
 				send.accept(progress(id, "descend", 0, 1));
 				return;
 			}
-			Vec3 ledge = safeLedge(client, player);
+			// A lower ledge cannot make progress toward a target above the
+			// body. Dropping there and climbing again produced the visible
+			// up/down oscillation at the camp terrace.
+			Vec3 ledge = wantsUp ? null : safeLedge(client, player);
 			if (ledge != null) {
 				beginLedge(client, player, ledge);
+				return;
+			}
+			if (directlyAbove && mode.mayBuild() && beginTowerUp(client, player, target)) {
+				send.accept(progress(id, "pillar", 0, 1));
 				return;
 			}
 			CraftMateBodyClient.LOGGER.info(
@@ -3491,8 +4873,10 @@ public final class GameActions {
 				&& !playerFacility(state)
 				&& state.getDestroySpeed(client.level, pos) >= 0.0f
 				&& (
-					!state.requiresCorrectToolForDrops()
-						|| hasCorrectToolInInventory(player, state)
+					!state.requiresCorrectToolForDrops() ||
+					hasCorrectToolInInventory(player, state) ||
+					state.getDestroySpeed(client.level, pos) <=
+						ESCAPE_HAND_MINE_MAX_HARDNESS
 				);
 		}
 
@@ -4143,7 +5527,7 @@ public final class GameActions {
 		 * Scanning a small horizontal ring keeps the search bounded and gives
 		 * a river or pond an obvious exit instead of a random swim direction.
 		 */
-		private static Vec3 findShore(
+		private Vec3 findShore(
 			Minecraft client,
 			LocalPlayer player,
 			int maxRadius
@@ -4158,7 +5542,17 @@ public final class GameActions {
 						for (int dy = 0; dy <= 5; dy++) {
 							BlockPos candidate = feet.offset(dx, dy, dz);
 							if (!standableAt(client, candidate)) continue;
-							double score = Math.hypot(dx, dz) + dy * 0.2;
+							// Prefer the bank that actually reduces the
+							// remaining journey. Nearest-shore scoring sent a
+							// body that had just entered a river straight back
+							// to the bank it came from, then the route pushed
+							// it in again: a visible swim loop.
+							double remaining = Math.hypot(
+								candidate.getX() + 0.5 - target.x,
+								candidate.getZ() + 0.5 - target.z
+							);
+							double score =
+								remaining + Math.hypot(dx, dz) * 0.35 + dy * 0.2;
 							if (score < bestScore) {
 								bestScore = score;
 								best = new Vec3(
@@ -4180,7 +5574,7 @@ public final class GameActions {
 			waypoints = route.waypoints();
 			waypointIndex = waypoints.size() > 1 ? 1 : 0;
 			lastWaypointIndex = waypointIndex;
-			lastWaypointDistance = playerDistance(player);
+			bestWaypointDistance = playerDistance(player);
 			nextReplanAt = 0;
 			escapingNoRoute = false;
 			send.accept(progress(id, "walking", 0, 1));
@@ -4675,7 +6069,11 @@ public final class GameActions {
 			return hotbar;
 		}
 
-		private boolean beginCeilingPillar(Minecraft client, LocalPlayer player) {
+		private boolean beginCeilingPillar(
+			Minecraft client,
+			LocalPlayer player,
+			boolean targetAbove
+		) {
 			if (!mode.mayBuild()) return false;
 			if (!player.onGround()) return false;
 			int slot = buildingSlot(client, player);
@@ -4748,7 +6146,7 @@ public final class GameActions {
 			boolean solidCeiling =
 				ceilingMine != null &&
 				isRecoveryBarrier(client.level.getBlockState(ceilingMine));
-			if (!ShaftEscape.shouldStartPillar(solidCeiling, walls)) {
+			if (!ShaftEscape.shouldStartTargetClimb(targetAbove, solidCeiling, walls)) {
 				ceilingActive = false;
 				ceilingPlacing = false;
 				return false;
@@ -4822,8 +6220,13 @@ public final class GameActions {
 		) {
 			if (!state.getFluidState().isEmpty()) return false;
 			if (playerFacility(state)) return false;
-			if (state.getDestroySpeed(client.level, pos) < 0.0f) return false;
-			if (state.requiresCorrectToolForDrops() && !hasCorrectTool(player, state)) {
+			float hardness = state.getDestroySpeed(client.level, pos);
+			if (hardness < 0.0f) return false;
+			if (
+				state.requiresCorrectToolForDrops() &&
+				!hasCorrectTool(player, state) &&
+				hardness > ESCAPE_HAND_MINE_MAX_HARDNESS
+			) {
 				return false;
 			}
 			return !fluidWithin(client, pos, 3);
@@ -4961,10 +6364,12 @@ public final class GameActions {
 					climbSteps++;
 					ceilingStepAt = age;
 					releaseWalkInput(client);
-					if (!ShaftEscape.withinRecoveryPillarBudget(climbSteps)) {
-						abortCeiling(client, "recovery pillar exceeded its 12-block budget");
-						return;
-					}
+					/*
+					 * Arriving is not an over-budget failure. The final step of
+					 * a shaft can be exactly the twelfth placement, and the old
+					 * order aborted there before it checked the target. The
+					 * body then retried the same last block forever.
+					 */
 					if (
 						ShaftEscape.pillarReachedTarget(
 							player.blockPosition().getY(),
@@ -4983,6 +6388,10 @@ public final class GameActions {
 						} else {
 							tickEscape(client, player);
 						}
+						return;
+					}
+					if (!ShaftEscape.withinRecoveryPillarBudget(climbSteps)) {
+						abortCeiling(client, "recovery pillar exceeded its 12-block budget");
 						return;
 					}
 					Route route = firstSafeRoute(client, player);
@@ -5075,6 +6484,178 @@ public final class GameActions {
 			return true;
 		}
 
+		/**
+		 * A body that climbed its own one-cell shaft has no recorded column to
+		 * dismantle, yet breaking the block it stands on is still the only way
+		 * down. Require walls on three sides plus a solid floor and clear head
+		 * so the drop is exactly one block and cannot become a fall.
+		 */
+		private boolean beginShaftDescent(
+			Minecraft client,
+			LocalPlayer player,
+			Vec3 target
+		) {
+			if (target.y >= player.getY() - 2) return false;
+			if (!player.onGround()) return false;
+			BlockPos support = supportBlock(client, player).pos();
+			BlockState supportState = client.level.getBlockState(support);
+			if (!supportState.blocksMotion()) return false;
+			if (
+				!ToolSelection.canHarvest(
+					supportState.requiresCorrectToolForDrops(),
+					hasCorrectToolInInventory(player, supportState)
+				)
+			) return false;
+			BlockPos floor = support.below();
+			BlockState floorState = client.level.getBlockState(floor);
+			BlockState head = client.level.getBlockState(support.above());
+			int walls = 0;
+			for (Direction direction : Direction.Plane.HORIZONTAL) {
+				if (
+					client.level
+						.getBlockState(player.blockPosition().relative(direction))
+						.blocksMotion()
+				) walls++;
+			}
+			if (
+				!ShaftEscape.canDescendShaft(
+					walls,
+					true,
+					floorState.blocksMotion()
+						&& floorState.getFluidState().isEmpty(),
+					!head.blocksMotion() && head.getFluidState().isEmpty()
+				)
+			) return false;
+			pillarRetreat = true;
+			pillarRetreatMining = false;
+			pillarRetreatAt = age;
+			pillarPlacedAt = support;
+			ceilingPlacing = false;
+			releaseWalkInput(client);
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate shaft descent support={} state={} pos={} target={}",
+				support,
+				supportState,
+				player.position(),
+				target
+			);
+			return true;
+		}
+
+		/**
+		 * Start a short jump-and-place tower when the target is above and no
+		 * tunnel, step or ledge exists. The reachable height is capped so the
+		 * body cannot climb into an unloaded chunk or spend the whole block
+		 * stack on one route; after it rises, the normal escape re-plans.
+		 */
+		private boolean beginTowerUp(
+			Minecraft client,
+			LocalPlayer player,
+			Vec3 target
+		) {
+			if (!mode.mayBuild() || !player.onGround()) return false;
+			int slot = buildingSlot(client, player);
+			if (slot < 0) return false;
+			BlockPos feet = player.blockPosition();
+			BlockState support = client.level.getBlockState(feet.below());
+			if (
+				!support.blocksMotion()
+					|| !support.getFluidState().isEmpty()
+			) return false;
+			for (int offset = 1; offset <= 3; offset++) {
+				BlockState above = client.level.getBlockState(feet.above(offset));
+				if (!above.canBeReplaced() || !above.getFluidState().isEmpty()) {
+					return false;
+				}
+			}
+			int rise = Math.max(1, Math.min(4, (int)Math.ceil(target.y - player.getY())));
+			towerUp = true;
+			towerStartY = feet.getY();
+			towerBaseY = feet.getY();
+			towerPlaced = 0;
+			towerTargetCell = null;
+			towerAwaiting = false;
+			towerJumpAt = -1;
+			towerStartedAt = age;
+			player.getInventory().selected = slot;
+			releaseWalkInput(client);
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate tower up start feet={} target={} rise={} slot={}",
+				feet,
+				target,
+				rise,
+				slot
+			);
+			return true;
+		}
+
+		private void tickTowerUp(Minecraft client, LocalPlayer player) {
+			if (age - towerStartedAt > 20 * 20) {
+				towerUp = false;
+				releaseWalkInput(client);
+				tickEscape(client, player);
+				return;
+			}
+			releaseWalkInput(client);
+			if (towerPlaced >= Math.min(12, Math.max(1, (int)Math.ceil(target.y - towerStartY) + 2))) {
+				towerUp = false;
+				tickEscape(client, player);
+				return;
+			}
+			if (towerAwaiting) {
+				if (
+					towerTargetCell != null &&
+					!client.level.getBlockState(towerTargetCell).canBeReplaced()
+				) {
+					towerPlaced++;
+					towerBaseY = towerTargetCell.getY() + 1;
+					towerAwaiting = false;
+					towerTargetCell = null;
+					send.accept(progress(id, "pillar", towerPlaced, 1));
+					return;
+				}
+				if (age - towerJumpAt > 20) {
+					towerAwaiting = false;
+					towerTargetCell = null;
+				}
+				return;
+			}
+			if (player.onGround()) {
+				player.jumpFromGround();
+				towerJumpAt = age;
+				return;
+			}
+			if (player.getDeltaMovement().y < -0.15) return;
+			if (player.getY() < towerBaseY + 1.05) return;
+			BlockPos support = new BlockPos(
+				player.blockPosition().getX(),
+				towerBaseY - 1,
+				player.blockPosition().getZ()
+			);
+			BlockPos targetCell = support.above();
+			if (!client.level.getBlockState(targetCell).canBeReplaced()) return;
+			if (player.getBoundingBox().minY < targetCell.getY() + 1.0) return;
+			BlockHitResult hit = BlockInteraction.hit(support, Direction.UP);
+			if (
+				!PlacementTarget.withinReach(
+					player.getEyePosition().distanceToSqr(hit.getLocation())
+				)
+			) return;
+			int slot = buildingSlot(client, player);
+			if (slot < 0) {
+				towerUp = false;
+				releaseWalkInput(client);
+				tickEscape(client, player);
+				return;
+			}
+			player.getInventory().selected = slot;
+			CameraController.steerTo(player, Vec3.atCenterOf(support));
+			client.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
+			towerTargetCell = targetCell;
+			towerAwaiting = true;
+			towerJumpAt = age;
+		}
+
 		private void tickPillarRetreat(
 			Minecraft client,
 			LocalPlayer player
@@ -5157,8 +6738,19 @@ public final class GameActions {
 					);
 					return;
 				}
-				abortCeiling(client, "no carried tool can mine the retreat pillar");
-				return;
+				/*
+				 * Dropped blocks are irrelevant on an escape route; movement is
+				 * the only goal. A stone block breaks by hand in 7.5 seconds,
+				 * which is slow but far better than aborting the descent and
+				 * leaving the body stranded on a pillar with no pickaxe.
+				 */
+				if (!pillarRetreatMining) {
+					CraftMateBodyClient.LOGGER.info(
+						"CraftMate retreat hand-mine target={} state={} reason=no carried tool",
+						pillarPlacedAt,
+						state
+					);
+				}
 			}
 			if (tool >= 0) player.getInventory().selected = tool;
 			if (pillarRetreatMining) {
@@ -5240,10 +6832,20 @@ public final class GameActions {
 						);
 						return true;
 					}
-					abortCeiling(client, "no carried tool can mine the ceiling");
-					return false;
+					/*
+					 * As with the retreat pillar, the ceiling cell only has to
+					 * become air. Hand mining is slow but keeps a tool-less body
+					 * moving instead of parking the whole escape.
+					 */
+					if (climbMining == null || !climbMining.equals(pos)) {
+						CraftMateBodyClient.LOGGER.info(
+							"CraftMate ceiling hand-mine target={} state={} reason=no carried tool",
+							pos,
+							state
+						);
+					}
 				}
-				player.getInventory().selected = tool;
+				if (tool >= 0) player.getInventory().selected = tool;
 			}
 			BlockHitResult hit = BlockInteraction.nearestExposedHit(
 				client.level,
@@ -5450,10 +7052,6 @@ public final class GameActions {
 				finish(id, "timeout", "E_TIMEOUT", "bounded walk did not reach target");
 				return;
 			}
-			if (swimming) {
-				tickSwim(client, player);
-				return;
-			}
 			/*
 			 * A route can also end with the body stepping off a bank. If the
 			 * eyes go under water, stop following the land route and surface
@@ -5498,7 +7096,7 @@ public final class GameActions {
 				waypoints = route.waypoints();
 				waypointIndex = waypoints.size() > 1 ? 1 : 0;
 				lastWaypointIndex = waypointIndex;
-				lastWaypointDistance = playerDistance(client.player);
+				bestWaypointDistance = playerDistance(client.player);
 				nextReplanAt = 0;
 				send.accept(progress(id, "walking", 0, 1));
 				return;
@@ -5513,6 +7111,20 @@ public final class GameActions {
 					return;
 				}
 				BlockState wall = client.level.getBlockState(escapeWall);
+				if (
+					wall.is(BlockTags.LEAVES) &&
+					escapeWallSince >= 0 &&
+					age - escapeWallSince > 20 * 3
+				) {
+					// The chosen face was not hittable (a dense canopy can
+					// occlude it). Re-scan and try another exposed cell
+					// instead of holding attack on it for fifteen seconds.
+					releaseMiningInput(client);
+					escapeWall = null;
+					escapeWallSince = -1;
+					tickEscape(client, player);
+					return;
+				}
 				if (wall.isAir()) {
 					escapeWall = null;
 					escapeWallSince = -1;
@@ -5530,7 +7142,11 @@ public final class GameActions {
 				}
 				if (wall.requiresCorrectToolForDrops()) {
 					int tool = bestMiningSlot(player, wall);
-					if (tool < 0) {
+					if (
+						tool < 0 &&
+						wall.getDestroySpeed(client.level, escapeWall) >
+							ESCAPE_HAND_MINE_MAX_HARDNESS
+					) {
 						releaseMiningInput(client);
 						escapeWall = null;
 						escapeWallSince = -1;
@@ -5540,17 +7156,25 @@ public final class GameActions {
 					if (tool >= 0) player.getInventory().selected = tool;
 				}
 				Vec3 centre = Vec3.atCenterOf(escapeWall);
-				BlockHitResult hit = BlockInteraction.nearestExposedHit(
-					client.level,
-					player.getEyePosition(),
-					escapeWall
-				);
+				BlockHitResult hit = escapeHit(client, player, escapeWall);
 				aimBodyAt(player, hit.getLocation());
 				CameraController.steerTo(player, centre);
 				client.hitResult = hit;
 				client.gameMode.continueDestroyBlock(escapeWall, hit.getDirection());
 				holdMiningInput(client);
 				if (age % 20 == 0) send.accept(progress(id, "unstick", 1, 2));
+				return;
+			}
+			/*
+			 * A swim escape starts destroying a wall from tickSwim, but the
+			 * swim branch used to run first on every following tick. That
+			 * re-entered digSwimOut, called startDestroyBlock again, and never
+			 * reached this branch's continueDestroyBlock: the same flooded
+			 * wall stayed solid forever. Once an escape wall exists, finish
+			 * it before taking any more swim input.
+			 */
+			if (swimming) {
+				tickSwim(client, player);
 				return;
 			}
 			if (escapingNoRoute) {
@@ -5700,7 +7324,7 @@ public final class GameActions {
 								waypoints = replanned.waypoints();
 								waypointIndex = waypoints.size() > 1 ? 1 : 0;
 								lastWaypointIndex = waypointIndex;
-								lastWaypointDistance = playerDistance(player);
+								bestWaypointDistance = playerDistance(player);
 								send.accept(progress(id, "replanning", replans, MAX_REPLANS));
 								return;
 							}
@@ -5814,10 +7438,10 @@ public final class GameActions {
 			double waypointDistance = playerDistance(player);
 			if (
 				waypointIndex > lastWaypointIndex
-					|| waypointDistance + 0.05 < lastWaypointDistance
+					|| waypointDistance + STUCK_PROGRESS < bestWaypointDistance
 			) {
 				lastWaypointIndex = waypointIndex;
-				lastWaypointDistance = waypointDistance;
+				bestWaypointDistance = waypointDistance;
 				stuckTicks = 0;
 			} else {
 				stuckTicks++;
@@ -5829,7 +7453,7 @@ public final class GameActions {
 				// replanning the same route only burns the task budget.
 				// Pillar up with a block already in the backpack; the next
 				// route is planned from the new height.
-				if (mode.mayDig() && digOut(client)) {
+				if (mode.mayDig() && digOut(client, target)) {
 					send.accept(progress(id, "unstick", replans, MAX_REPLANS));
 					replans = 0;
 					nextReplanAt = age + 20;
@@ -5843,10 +7467,11 @@ public final class GameActions {
 					return;
 				}
 				Vec3 sideStep = openSideStep(client, player, step);
-				if (sideStep != null) {
+				if (sideStep != null && sideSteps < MAX_SIDE_STEPS) {
+					sideSteps++;
 					detour = sideStep;
 					detourTicks = 0;
-					lastWaypointDistance = playerDistance(player);
+					bestWaypointDistance = playerDistance(player);
 					send.accept(progress(id, "unstick", replans, MAX_REPLANS));
 					return;
 				}
@@ -5905,7 +7530,7 @@ public final class GameActions {
 				waypoints = replanned.waypoints();
 				waypointIndex = waypoints.size() > 1 ? 1 : 0;
 				lastWaypointIndex = waypointIndex;
-				lastWaypointDistance = playerDistance(player);
+				bestWaypointDistance = playerDistance(player);
 				send.accept(progress(id, "replanning", replans, MAX_REPLANS));
 				return;
 			}
@@ -6182,7 +7807,7 @@ public final class GameActions {
 			waypoints = next.waypoints();
 			waypointIndex = waypoints.size() > 1 ? 1 : 0;
 			lastWaypointIndex = waypointIndex;
-			lastWaypointDistance = playerDistance(player);
+			bestWaypointDistance = playerDistance(player);
 			nextReplanAt = 0;
 			CraftMateBodyClient.LOGGER.info(
 				"CraftMate goto explore continue {}/{} position={} destination={} remaining={}",
@@ -6233,6 +7858,16 @@ public final class GameActions {
 				feet
 				) != Integer.MIN_VALUE
 			) {
+				return false;
+			}
+			// The route was planned with `wadeableAt` in walk mode, and this
+			// probe used to reject exactly those cells. A proven shoreline
+			// route therefore died on its first water waypoint with
+			// "dangerous drop or water ahead" even though the search had just
+			// verified a fording cell with the head above the surface.
+			// Accept the same three-block wade window the pathfinder uses; a
+			// deeper pool or an actual cliff still fails.
+			if (mode.isWalk() && wadeableAt(client, feet)) {
 				return false;
 			}
 			// One block of water over a solid floor is a normal walk, not an
@@ -6335,8 +7970,17 @@ public final class GameActions {
 				goal,
 				acceptPartial
 					? (cell) -> isNearExploreGoal(cell, goal)
-					: (cell) -> isNearGoal(cell, goal),
-				(x, y, z) -> standableAt(client, new BlockPos(x, y, z)),
+					: (cell) ->
+						isNearGoal(cell, goal) &&
+						(
+							!cell.equals(start) ||
+							ShaftEscape.startCellReachesGoal(start.y(), goal.y())
+						),
+				(x, y, z) -> {
+					BlockPos pos = new BlockPos(x, y, z);
+					return standableAt(client, pos)
+						|| (mode.isWalk() && wadeableAt(client, pos));
+				},
 				traversal(client),
 				maxNodes,
 				maxRadius,
@@ -6476,6 +8120,8 @@ public final class GameActions {
 		private final String blockId;
 		private final boolean anyLog;
 		private final int count;
+		/** Staircase excavation may finish on block-break evidence alone. */
+		private final boolean requireDrop;
 		/** Exact cell for a reusable mine/camp blueprint, never a broad search. */
 		private final BlockPos fixedTarget;
 		private int mined;
@@ -6533,6 +8179,7 @@ public final class GameActions {
 			this.anyLog = anyLog;
 			this.blockId = anyLog ? null : required(args, "block");
 			this.count = integer(args, "count", 1);
+			this.requireDrop = !args.has("requireDrop") || flag(args, "requireDrop");
 			this.fixedTarget = anyLog ? null : optionalBlockPos(args, "at");
 			this.emergencyAction = !anyLog && flag(args, "emergency");
 		}
@@ -6858,6 +8505,16 @@ public final class GameActions {
 				send.accept(progress(id, "mining", mined, count));
 				if (blockBeforeDestroy != null) {
 					minedBlocks.add(miningResult(client.player, target, blockBeforeDestroy));
+				}
+				if (!requireDrop) {
+					/*
+					 * A stair cell is finished when it becomes air. Waiting for
+					 * a dirt or cobblestone entity that fell into the newly
+					 * opened shaft used to fail the step and retry the same
+					 * cell; the tunnel never advanced.
+					 */
+					advanceAfterPickup(client, inventoryCounts(client.player), false);
+					return;
 				}
 				// A broken block is not a collected item. The task stays in
 				// the pickup state until the inventory proves the drop.
@@ -7372,7 +9029,8 @@ public final class GameActions {
 		private void completeMining(Minecraft client, boolean pickupConfirmed) {
 			stopMining(client);
 			releaseWalkInput(client);
-			boolean pickupRequired = !MiningPickupEvidence.pickupOptional(expectedPickupItems);
+			boolean pickupRequired =
+				requireDrop && !MiningPickupEvidence.pickupOptional(expectedPickupItems);
 			JsonObject evidence = outcome(
 				(anyLog ? "砍下并拾取 " : "挖掉") +
 					(pickupConfirmed ? "并拾取 " : pickupRequired ? "，但 " : "，不必掉落 ") +
@@ -7436,7 +9094,7 @@ public final class GameActions {
 		private ItemEntity nearestDrop(Minecraft client, BlockPos around) {
 			BlockPos origin = around == null ? client.player.blockPosition() : around;
 			Vec3 originCenter = Vec3.atCenterOf(origin);
-			double maxDistanceSqr = 12.0 * 12.0;
+			double maxDistanceSqr = PICKUP_BLOCK_RADIUS * PICKUP_BLOCK_RADIUS;
 			return client.level
 				.getEntitiesOfClass(
 					ItemEntity.class,
@@ -9509,7 +11167,7 @@ public final class GameActions {
 	private static final class DepositTask extends Task {
 		private static final int WALK_BUDGET_TICKS = 20 * 15;
 		private static final int APPROACH_STALL_TICKS = 20 * 3;
-		private static final int MENU_TIMEOUT_TICKS = 20;
+		private static final int MENU_TIMEOUT_TICKS = 40;
 		private final String itemId;
 		private final BlockPos requestedContainer;
 		private final int maxStacks;
@@ -9565,6 +11223,19 @@ public final class GameActions {
 
 		@Override
 		void start(Minecraft client) {
+			/*
+			 * A stale crafting or inventory screen swallows the first use
+			 * packet. The live body placed a field chest, left the crafting
+			 * screen open, then reported "right-click did not open a
+			 * container screen" on every retry without ever moving.
+			 */
+			if (
+				client.screen instanceof AbstractContainerScreen<?> &&
+				client.player != null
+			) {
+				client.player.closeContainer();
+				client.setScreen(null);
+			}
 			if (!hasEligibleItems(client)) {
 				finish(
 					id,
@@ -9732,6 +11403,19 @@ public final class GameActions {
 				finish(id, "failed", "E_WORLD_CHANGED", "container disappeared", evidence("container was removed"));
 				return;
 			}
+			if (
+				client.level.getBlockState(current).getBlock() instanceof ChestBlock &&
+				!chestOpenable(client, current)
+			) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"container lid is blocked; storage needs a new openable chest",
+					evidence("the remembered chest cannot open")
+				);
+				return;
+			}
 			if (!canInteract(client, client.player, current)) {
 				walking = true;
 				lastApproachDistance = Double.POSITIVE_INFINITY;
@@ -9770,18 +11454,63 @@ public final class GameActions {
 					return;
 				}
 				if (age - menuSubmittedAt > MENU_TIMEOUT_TICKS) {
+					CraftMateBodyClient.LOGGER.info(
+						"CraftMate container open failed pos={} state={} entity={} eye={} player={} screen={}",
+						current,
+						client.level.getBlockState(current),
+						client.level.getBlockEntity(current),
+						client.player.getEyePosition(),
+						client.player.position(),
+						client.screen == null ? "null" : client.screen.getClass().getSimpleName()
+					);
 					finish(
 						id,
 						"failed",
 						"E_PRECONDITION",
-						"right-click did not open a container screen",
+						"container screen did not open; the interaction face is blocked or out of reach",
 						evidence("no menu opened")
 					);
+					return;
+				}
+				if (age - menuSubmittedAt == 10 && client.player != null) {
+					// One lost use packet is common after a block update.
+					// A player clicks again instead of declaring the chest
+					// permanently unusable.
+					BlockHitResult retry = BlockInteraction.hit(
+						client.player.getEyePosition(),
+						current
+					);
+					if (
+						retry.getType() == HitResult.Type.BLOCK &&
+						retry.getBlockPos().equals(current)
+					) {
+						net.minecraft.world.InteractionResult retried = client.gameMode.useItemOn(
+							client.player,
+							InteractionHand.MAIN_HAND,
+							retry
+						);
+						CraftMateBodyClient.LOGGER.info(
+							"CraftMate container retry pos={} face={} result={} sneak={} using={} screen={}",
+							current,
+							retry.getDirection(),
+							retried,
+							client.player.isSecondaryUseActive(),
+							client.player.isUsingItem(),
+							client.screen == null ? "null" : client.screen.getClass().getSimpleName()
+						);
+					}
 				}
 				return;
 			}
 			CameraController.steerTo(client.player, Vec3.atCenterOf(current));
-			BlockHitResult hit = stationHit(client.player, current);
+			// Prefer an actually exposed face. The eye-based hit could name a
+			// face buried inside the stair wall, which never opens a menu.
+			BlockHitResult hit = BlockInteraction.visibleExposedHit(
+				client.level,
+				client.player,
+				client.player.getEyePosition(),
+				current
+			);
 			if (hit.getType() != HitResult.Type.BLOCK || !hit.getBlockPos().equals(current)) {
 				finish(
 					id,
@@ -9794,7 +11523,21 @@ public final class GameActions {
 			}
 			releaseWalkInput(client);
 			menuSubmittedAt = age;
-			client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, hit);
+			net.minecraft.world.InteractionResult result = client.gameMode.useItemOn(
+				client.player,
+				InteractionHand.MAIN_HAND,
+				hit
+			);
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate container use pos={} face={} point={} result={} sneak={} using={} screen={}",
+				current,
+				hit.getDirection(),
+				hit.getLocation(),
+				result,
+				client.player.isSecondaryUseActive(),
+				client.player.isUsingItem(),
+				client.screen == null ? "null" : client.screen.getClass().getSimpleName()
+			);
 		}
 
 		private void transfer(Minecraft client) {
@@ -10256,11 +11999,7 @@ public final class GameActions {
 			int yawDirection
 		) {
 			if (mineEntrance != null) return;
-			int surface = client.level.getHeight(
-				Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-				player.blockPosition().getX(),
-				player.blockPosition().getZ()
-			);
+			int surface = surfaceHeight(client.level, player.blockPosition());
 			if (player.blockPosition().getY() < surface - 4) return;
 			if (!nearEstablishedHome(player.blockPosition(), 24)) return;
 			mineEntrance = player.blockPosition().immutable();
@@ -10892,8 +12631,17 @@ public final class GameActions {
 			}
 			int inputCount = countItem(client.player, inputItem);
 			if (inputCount < requested) {
-				validationError = "only " + inputCount + " x " + inputId + " in the inventory";
-				return false;
+				/*
+				 * A previous attempt can die after moving the ore into the
+				 * furnace. The input is then neither in the backpack nor
+				 * lost: the retry must open the furnace, collect what is
+				 * already there, and only ask the planner for more when the
+				 * block is empty too.
+				 */
+				if (inputCount + storedBatch(client) < requested) {
+					validationError = "only " + inputCount + " x " + inputId + " in the inventory";
+					return false;
+				}
 			}
 			if (countItem(client.player, BuiltInRegistries.ITEM.get(parsedFuel)) <= 0) {
 				validationError = "no " + fuel + " in the inventory";
@@ -10901,6 +12649,21 @@ public final class GameActions {
 			}
 			this.fuelId = parsedFuel.toString();
 			return true;
+		}
+
+		/** Input ore and finished output already sitting in the nearby furnace. */
+		private int storedBatch(Minecraft client) {
+			BlockPos pos = nearestFurnace(client);
+			if (pos == null) return 0;
+			if (!(client.level.getBlockEntity(pos) instanceof AbstractFurnaceBlockEntity smelter)) {
+				return 0;
+			}
+			int stored = 0;
+			ItemStack input = smelter.getItem(0);
+			if (!input.isEmpty() && input.getItem() == inputItem) stored += input.getCount();
+			ItemStack output = smelter.getItem(2);
+			if (!output.isEmpty() && output.getItem() == outputItem) stored += output.getCount();
+			return stored;
 		}
 
 		@Override
@@ -11208,13 +12971,38 @@ public final class GameActions {
 			if (!target.getItem().isEmpty()) {
 				if (matches(target.getItem(), itemId)) {
 					if (target.getItem().getCount() >= desired) return true;
+					/*
+					 * A previous attempt can stop after the furnace consumed
+					 * only part of a batch. The slot then holds the right item
+					 * but fewer than `desired`; returning here without picking
+					 * up the inventory stack repeated the same no-op until the
+					 * load timeout. Top the slot up instead.
+					 */
 					loadBaseCount = target.getItem().getCount();
 					loadDesired = desired;
 					loadItem = itemId;
 					loadTargetSlot = targetIndex;
 					loadLastCount = loadBaseCount;
-					loadPhase = 0;
-					loadSourceSlot = -1;
+					loadSourceSlot = findInventorySlot(client, current, itemId);
+					if (loadSourceSlot < 0) {
+						finish(
+							id,
+							"failed",
+							"E_PRECONDITION",
+							"no " + itemId + " in the inventory",
+							evidence("the required item disappeared from the inventory")
+						);
+						closeOwnMenu(client);
+						return false;
+					}
+					client.gameMode.handleInventoryMouseClick(
+						current.containerId,
+						loadSourceSlot,
+						0,
+						ClickType.PICKUP,
+						client.player
+					);
+					loadPhase = 1;
 					return false;
 				}
 				client.gameMode.handleInventoryMouseClick(
@@ -11296,8 +13084,20 @@ public final class GameActions {
 			}
 			if (loadPhase == 2) {
 				Slot loaded = current.getSlot(loadTargetSlot);
-				if (loaded.getItem().isEmpty()) return false;
+				/*
+				 * The furnace consumes the first fuel item on the same tick
+				 * the stack lands in its fuel slot. An empty fuel slot on a
+				 * lit furnace therefore still means the fuel was accepted;
+				 * treating it as a failed load made every coal smelt fail
+				 * with "the inventory did not contain enough coal" even
+				 * though one coal had just been burned.
+				 */
+				boolean burningFuel =
+					loadTargetSlot == AbstractFurnaceMenu.FUEL_SLOT &&
+					current.isLit();
+				if (loaded.getItem().isEmpty() && !burningFuel) return false;
 				int count = loaded.getItem().getCount();
+				if (loaded.getItem().isEmpty() && burningFuel) count = 1;
 				if (count <= loadLastCount) return false;
 				loadLastCount = count;
 				if (count < loadDesired && !current.getCarried().isEmpty()) {
@@ -11318,9 +13118,16 @@ public final class GameActions {
 			}
 			if (loadPhase == 3) {
 				if (!current.getCarried().isEmpty()) return false;
-				boolean ready = !current.getSlot(loadTargetSlot).getItem().isEmpty()
-					&& matches(current.getSlot(loadTargetSlot).getItem(), loadItem)
-					&& current.getSlot(loadTargetSlot).getItem().getCount() >= loadDesired;
+				Slot loaded = current.getSlot(loadTargetSlot);
+				boolean burningFuel =
+					loadTargetSlot == AbstractFurnaceMenu.FUEL_SLOT &&
+					current.isLit();
+				int count = loaded.getItem().getCount();
+				if (loaded.getItem().isEmpty() && burningFuel) count = 1;
+				boolean rightItem =
+					(!loaded.getItem().isEmpty() && matches(loaded.getItem(), loadItem)) ||
+					(loaded.getItem().isEmpty() && burningFuel);
+				boolean ready = rightItem && count >= loadDesired;
 				if (!ready) {
 					finish(
 						id,
@@ -13285,11 +15092,7 @@ public final class GameActions {
 				return;
 			}
 			BlockPos feet = client.player.blockPosition();
-			int terrainSurface = client.level.getHeight(
-				Heightmap.Types.MOTION_BLOCKING_NO_LEAVES,
-				feet.getX(),
-				feet.getZ()
-			);
+			int terrainSurface = surfaceHeight(client.level, feet);
 			if (
 				client.level.dimension() == Level.OVERWORLD &&
 				StationPlacement.blockedUnderground(
@@ -13461,6 +15264,19 @@ public final class GameActions {
 					"E_PRECONDITION",
 					"the requested placement cell is already occupied",
 					placeEvidence("the fixed cell is occupied")
+				);
+				return;
+			}
+			if (
+				isChestBlock(expectedBlock) &&
+				!chestPlacementOpenable(client, target)
+			) {
+				finish(
+					id,
+					"failed",
+					"E_PRECONDITION",
+					"the requested chest cell has a blocked lid",
+					placeEvidence("the fixed cell cannot hold an openable chest")
 				);
 				return;
 			}
@@ -14290,9 +16106,27 @@ public final class GameActions {
 		 * turn toward the best one before submitting, rather than reporting a
 		 * false "nothing to place on".
 		 */
-		private static BlockHitResult findPlacementSurface(Minecraft client) {
+		private BlockHitResult findPlacementSurface(Minecraft client) {
 			LocalPlayer player = client.player;
 			BlockPos origin = player.blockPosition();
+			boolean avoidStairStep =
+				"minecraft:furnace".equals(expectedBlock) ||
+				"minecraft:blast_furnace".equals(expectedBlock) ||
+				"minecraft:crafting_table".equals(expectedBlock) ||
+				"minecraft:chest".equals(expectedBlock) ||
+				"minecraft:trapped_chest".equals(expectedBlock) ||
+				"minecraft:barrel".equals(expectedBlock);
+			// A station in the player's own column directly above the head is
+			// legal placement geometry but it caps the one-block jump the
+			// staircase escape needs. The live body put a workbench at feet+2,
+			// then every "climb to the surface" failed with "no safe route".
+			boolean avoidJumpHeadroom =
+				"minecraft:furnace".equals(expectedBlock) ||
+				"minecraft:blast_furnace".equals(expectedBlock) ||
+				"minecraft:crafting_table".equals(expectedBlock) ||
+				"minecraft:chest".equals(expectedBlock) ||
+				"minecraft:trapped_chest".equals(expectedBlock) ||
+				"minecraft:barrel".equals(expectedBlock);
 			List<SurfaceCandidate> candidates = new ArrayList<>();
 			for (BlockPos pos : BlockPos.betweenClosed(
 				origin.offset(-SURFACE_SEARCH_RADIUS, -3, -SURFACE_SEARCH_RADIUS),
@@ -14320,9 +16154,31 @@ public final class GameActions {
 						destination.getY(),
 						destination.getZ()
 					)) continue;
+					if (
+						isChestBlock(expectedBlock) &&
+						!chestPlacementOpenable(client, destination)
+					) continue;
 					BlockHitResult hit = BlockInteraction.hit(support, face);
 					double distance = player.getEyePosition().distanceToSqr(hit.getLocation());
-					candidates.add(new SurfaceCandidate(hit, distance, true, opensMenu));
+					boolean inStairPath =
+						avoidStairStep &&
+						nearUpcomingStairStep(client, player, destination);
+					boolean capsJump =
+						avoidJumpHeadroom &&
+						destination.getX() == origin.getX() &&
+						destination.getZ() == origin.getZ() &&
+						destination.getY() >= origin.getY() + 1 &&
+						destination.getY() <= origin.getY() + 2;
+					candidates.add(
+						new SurfaceCandidate(
+							hit,
+							distance,
+							true,
+							opensMenu,
+							(inStairPath ? 100.0 : 0.0)
+								+ (capsJump ? 250.0 : 0.0)
+						)
+					);
 				}
 			}
 			SurfaceCandidate best = PlacementTarget.choose(candidates);
@@ -14341,13 +16197,36 @@ public final class GameActions {
 			BlockHitResult hit,
 			double distanceSqr,
 			boolean destinationFree,
-			boolean opensMenu
+			boolean opensMenu,
+			double penalty
 		)
 			implements PlacementTarget.Surface {}
 
 		private static boolean isBedItem(String itemId) {
 			ResourceLocation id = ResourceLocation.tryParse(itemId);
 			return id != null && BuiltInRegistries.ITEM.get(id) instanceof BedItem;
+		}
+
+		private static boolean isChestBlock(String blockId) {
+			return "minecraft:chest".equals(blockId)
+				|| "minecraft:trapped_chest".equals(blockId);
+		}
+
+		/**
+		 * A new chest must not connect to an already blocked half. Vanilla
+		 * checks both halves when building a double-chest menu, so placing
+		 * beside a lid-blocked chest would reproduce the same silent failure.
+		 */
+		private static boolean chestPlacementOpenable(Minecraft client, BlockPos pos) {
+			if (ChestBlock.isChestBlockedAt(client.level, pos)) return false;
+			for (Direction direction : Direction.Plane.HORIZONTAL) {
+				BlockPos adjacent = pos.relative(direction);
+				if (!(client.level.getBlockState(adjacent).getBlock() instanceof ChestBlock)) {
+					continue;
+				}
+				if (ChestBlock.isChestBlockedAt(client.level, adjacent)) return false;
+			}
+			return true;
 		}
 
 		private enum BedRoom {
@@ -14433,7 +16312,14 @@ public final class GameActions {
 			) {
 				placed++;
 				if ("minecraft:crafting_table".equals(expectedBlock) && targetPos != null) {
-					placedCraftingTable = targetPos.immutable();
+					// Portable benches are placed at the ore face and then left
+					// behind. Only a table beside the established camp becomes
+					// the remembered home station; otherwise the next `goto
+					// home` walks back into a mineshaft.
+					if (!outsideEstablishedHome(targetPos)) {
+						placedCraftingTable = targetPos.immutable();
+						placedCraftingTableTick = clientTick;
+					}
 					craftingTablePlaced = true;
 					saveHomeMemory();
 				}
@@ -14447,6 +16333,7 @@ public final class GameActions {
 				}
 				if ("minecraft:furnace".equals(expectedBlock) && targetPos != null) {
 					placedFurnace = targetPos.immutable();
+					placedFurnaceTick = clientTick;
 					saveHomeMemory();
 				}
 				if (isBedItem(expectedBlock) && targetPos != null && placedBed == null) {
@@ -14695,6 +16582,30 @@ public final class GameActions {
 	}
 
 	/**
+	 * A shallow surface-water cell a walker may wade or swim through.
+	 *
+	 * <p>Rivers and flooded beach edges are ordinary terrain, not walls. The
+	 * old walk grid excluded every fluid cell, so a body one bank away from
+	 * its camp reported "no natural route within the walk budget" forever.
+	 * Only the top three blocks are eligible and the head cell must be above
+	 * the surface, which keeps this a short crossing rather than an ocean
+	 * pathfinder. The body already surfaces on every water tick.
+	 */
+	static boolean wadeableAt(Minecraft client, BlockPos at) {
+		BlockState feet = client.level.getBlockState(at);
+		if (!feet.getFluidState().is(FluidTags.WATER)) return false;
+		BlockState head = client.level.getBlockState(at.above());
+		if (!head.getFluidState().isEmpty()) return false;
+		if (!head.isAir() && head.blocksMotion()) return false;
+		for (int depth = 1; depth <= 3; depth++) {
+			BlockState floor = client.level.getBlockState(at.below(depth));
+			if (floor.blocksMotion()) return true;
+			if (!floor.getFluidState().is(FluidTags.WATER)) return false;
+		}
+		return false;
+	}
+
+	/**
 	 * A cell the body's two-block frame can occupy at this feet level: no
 	 * fluid, and neither the feet nor the head cell blocks motion. The floor
 	 * is deliberately not required, so this also describes the air column the
@@ -14722,6 +16633,24 @@ public final class GameActions {
 	 */
 	static BoundedPathfinder.Traversal traversal(Minecraft client) {
 		return (from, to) -> {
+			if (to.y() > from.y()) {
+				/*
+				 * A one-block step is a real jump. Both cells above the
+				 * current head must be open, otherwise the body can stand in
+				 * a two-block-high tunnel but its head hits the ceiling on
+				 * the first tick of the jump. Such a route looked valid on
+				 * paper and wedged the live body against the lip for a full
+				 * walk budget.
+				 */
+				if (
+					!bodySpaceAt(
+						client,
+						new BlockPos(from.x(), from.y() + 1, from.z())
+					)
+				) {
+					return false;
+				}
+			}
 			if (to.y() < from.y()) {
 				// The body moves sideways at its current height first, so the
 				// destination column must be open for the body's feet and head
@@ -14848,8 +16777,31 @@ public final class GameActions {
 				player.onGround(),
 				client.level.canSeeSky(feet),
 				leafNeighbours(client, feet),
-				naturalGround(support.state())
+				naturalGround(support.state()),
+				!hasStandableNeighbour(client, feet),
+				isEscapePillarSupport(support.pos())
+			)
+			|| CanopyEscape.standingOnBareTreeTop(
+				player.onGround(),
+				support.state().is(BlockTags.LOGS),
+				!hasStandableNeighbour(client, feet)
 			);
+	}
+
+	/**
+	 * The pillar escape records every block it places. Its 1x1 column inside
+	 * a leaf crown is the body's own scaffolding, so canopy mining must leave
+	 * it to the pillar-retreat path instead of peeling it from under the feet.
+	 */
+	private static boolean isEscapePillarSupport(BlockPos pos) {
+		return escapePillarColumn.contains(pos) || pos.equals(lastEscapePillar);
+	}
+
+	private static boolean hasStandableNeighbour(Minecraft client, BlockPos feet) {
+		for (Direction direction : Direction.Plane.HORIZONTAL) {
+			if (standableAt(client, feet.relative(direction))) return true;
+		}
+		return false;
 	}
 
 	private static boolean naturalGround(BlockState state) {
@@ -14949,11 +16901,21 @@ public final class GameActions {
 		BlockPos support = supportBlock.pos();
 		BlockState under = supportBlock.state();
 		boolean leafSupport = under.is(BlockTags.LEAVES);
-		boolean logSupport = under.is(BlockTags.LOGS) && leafNeighbours(client, feet) >= 1;
+		boolean logSupport =
+			under.is(BlockTags.LOGS) &&
+			(
+				leafNeighbours(client, feet) >= 1 ||
+				!hasStandableNeighbour(client, feet)
+			);
 		boolean raisedPlatform =
-			client.level.canSeeSky(feet)
-				&& leafNeighbours(client, feet) >= 2
-				&& !naturalGround(under);
+			CanopyEscape.standingOnRaisedCanopyPlatform(
+				player.onGround(),
+				client.level.canSeeSky(feet),
+				leafNeighbours(client, feet),
+				naturalGround(under),
+				!hasStandableNeighbour(client, feet),
+				isEscapePillarSupport(support)
+			);
 		if (!leafSupport && !logSupport && !raisedPlatform) {
 			releaseMiningInput(client);
 			releaseWalkInput(client);
@@ -15028,7 +16990,7 @@ public final class GameActions {
 			BlockPos column = pos.immutable();
 			if (column.equals(feet)) continue;
 			if (!client.level.getBlockState(column.below()).is(BlockTags.LEAVES)) continue;
-			if (!bodySpaceAt(client, column)) continue;
+			if (!canopySpaceAt(client, column)) continue;
 			int drop = canopyGroundDrop(client, column.below());
 			if (!CanopyEscape.canLeaveCanopy(drop, canopyLandingSafe(client, column.below(), drop))) {
 				continue;
@@ -15054,7 +17016,16 @@ public final class GameActions {
 				if (dx == 0 && dz == 0) continue;
 				BlockPos next = feet.offset(dx, 0, dz);
 				if (!client.level.getBlockState(next.below()).is(BlockTags.LEAVES)) continue;
-				if (!bodySpaceAt(client, next)) continue;
+				if (!canopySpaceAt(client, next)) continue;
+				if (
+					!CanopyEscape.diagonalCanopyStepClear(
+						dx != 0 && dz != 0,
+						canopySpaceAt(client, feet.offset(dx, 0, 0)),
+						canopySpaceAt(client, feet.offset(0, 0, dz))
+					)
+				) {
+					continue;
+				}
 				double distance = next.distSqr(goal);
 				if (distance < bestDistance) {
 					bestDistance = distance;
@@ -15063,6 +17034,23 @@ public final class GameActions {
 			}
 		}
 		return best;
+	}
+
+	/**
+	 * Leaves and logs do not block motion for suffocation, but they do block
+	 * walking. A canopy step must be open at both body cells, otherwise the
+	 * body steers into the same leaf forever.
+	 */
+	private static boolean canopySpaceAt(Minecraft client, BlockPos at) {
+		BlockState feet = client.level.getBlockState(at);
+		BlockState head = client.level.getBlockState(at.above());
+		return CanopyEscape.walkableCanopyCell(
+			bodySpaceAt(client, at),
+			feet.is(BlockTags.LEAVES),
+			head.is(BlockTags.LEAVES),
+			feet.is(BlockTags.LOGS),
+			head.is(BlockTags.LOGS)
+		);
 	}
 
 	private static void steerTowards(Minecraft client, BlockPos column) {
@@ -15844,6 +17832,21 @@ public final class GameActions {
 		return Math.abs(left.getX() - right.getX()) + Math.abs(left.getZ() - right.getZ()) == 1;
 	}
 
+	/**
+	 * Vanilla refuses to build a chest menu when a solid block covers either
+	 * half's lid or a cat is sitting on it. The client's use prediction still
+	 * reports SUCCESS, so this must be checked from world state instead of
+	 * waiting for a screen that the server will never send.
+	 */
+	private static boolean chestOpenable(Minecraft client, BlockPos pos) {
+		BlockState state = client.level.getBlockState(pos);
+		if (!(state.getBlock() instanceof ChestBlock)) return false;
+		if (ChestBlock.isChestBlockedAt(client.level, pos)) return false;
+		if (state.getValue(ChestBlock.TYPE) == ChestType.SINGLE) return true;
+		BlockPos other = pos.relative(ChestBlock.getConnectedDirection(state));
+		return !ChestBlock.isChestBlockedAt(client.level, other);
+	}
+
 	private static boolean outsideEstablishedHome(BlockPos pos) {
 		return !nearEstablishedHome(pos, 24);
 	}
@@ -15945,6 +17948,40 @@ public final class GameActions {
 
 	private static double round(double value) {
 		return Math.round(value * 100.0) / 100.0;
+	}
+
+	private static String worldKey(Minecraft client) {
+		if (client.level == null || client.player == null) return "none";
+		return client.level.dimension().location() + ":" + client.player.blockPosition();
+	}
+
+	private static String worldIdentity(Minecraft client) {
+		return client.level == null
+			? "none"
+			: client.level.dimension().location() + ":" + lifeEpoch;
+	}
+
+	/**
+	 * Inventory is the observable side-effect ledger that is cheap to compare
+	 * at a job boundary. If it changed while a job was preempted, replaying a
+	 * half-finished craft could duplicate consumption; force a fresh plan.
+	 */
+	private static String inventorySignature(Minecraft client) {
+		LocalPlayer player = client.player;
+		if (player == null) return "none";
+		StringBuilder signature = new StringBuilder(256);
+		for (int slot = 0; slot < Inventory.INVENTORY_SIZE; slot++) {
+			ItemStack stack = player.getInventory().getItem(slot);
+			if (stack.isEmpty()) continue;
+			signature
+				.append(slot)
+				.append('=')
+				.append(BuiltInRegistries.ITEM.getKey(stack.getItem()))
+				.append('x')
+				.append(stack.getCount())
+				.append(';');
+		}
+		return signature.toString();
 	}
 
 	static boolean withinInteractionRange(LocalPlayer player, BlockPos target) {
