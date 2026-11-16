@@ -2450,10 +2450,19 @@ function mineStepTask(
    * A blueprint rebuilt from the surface can name a shallow stand while the
    * body is still deep in the old shaft. The bounded pathfinder cannot climb
    * from y=38 to that y=67 cell, so every retry mined into the nearest wall.
-   * Treat an upward jump of more than one step as a broken blueprint and let
-   * the caller plan a real staged climb to the surface.
+   * Keep cutting the pending cell when it is still at the body's depth: the
+   * live run climbed out after every few steps because the stale stand
+   * pointed above the body, and the rebuild-then-descend cycle never reached
+   * iron. Only a blueprint with no cell near the body needs the surface
+   * fallback.
    */
-  if (isUnderground(facts) && position.y < stand.y - 2) {
+  const staleStandPending =
+    isUnderground(facts) &&
+    position.y < stand.y - 2 &&
+    step.pending !== undefined &&
+    step.pending.y <= Math.round(position.y) + 1 &&
+    step.pending.y >= Math.round(position.y) - 3;
+  if (isUnderground(facts) && position.y < stand.y - 2 && !staleStandPending) {
     return null;
   }
   /*
@@ -2462,7 +2471,7 @@ function mineStepTask(
    * level first: the horizontal gap gives the recover planner a direction to
    * tunnel, while a target straight below only repeats the climb/drop loop.
    */
-  if (position.y > stand.y + 2) {
+  if (!staleStandPending && position.y > stand.y + 2) {
     const levelCell = straightStairCell(mine, Math.round(position.y));
     if (levelCell !== null && distanceTo(position, levelCell) > 2.5) {
       return {
@@ -2495,7 +2504,10 @@ function mineStepTask(
    * the body may mine or bridge the last step instead of repeating a walk.
    */
   const standBlocked = routePointBlacklisted(facts, stand);
-  if (distanceTo(position, stand) > 2 || Math.abs(position.y - stand.y) > 1) {
+  if (
+    !staleStandPending &&
+    (distanceTo(position, stand) > 2 || Math.abs(position.y - stand.y) > 1)
+  ) {
     return {
       id: `task:${newId()}`,
       stage,

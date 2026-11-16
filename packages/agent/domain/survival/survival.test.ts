@@ -2417,6 +2417,48 @@ describe("survival planning", () => {
     assert.equal(task.skill.name, "mine_block");
   });
 
+  test("a body below a stale stair stand keeps cutting the pending step", () => {
+    const task = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        position: { x: 149.5, y: 66, z: -74.5 },
+        surfaceY: 75,
+        canSeeSky: false,
+        mineEntrance: { x: 149, y: 75, z: -69 },
+        mine: {
+          entrance: { x: 149, y: 75, z: -69 },
+          direction: "north",
+          stair: {
+            stand: { x: 149, y: 75, z: -69 },
+            depth: 0,
+            pending: { id: "minecraft:stone", x: 149, y: 65, z: -79 },
+          },
+        },
+        inventory: [
+          { item: "minecraft:stone_pickaxe", count: 1 },
+          { item: "minecraft:stone_pickaxe", count: 1 },
+          { item: "minecraft:stone_sword", count: 1 },
+          { item: "minecraft:raw_iron", count: 2 },
+          { item: "minecraft:furnace", count: 1 },
+          { item: "minecraft:coal", count: 22 },
+          { item: "minecraft:torch", count: 8 },
+          { item: "minecraft:cobblestone", count: 64 },
+          { item: "minecraft:stick", count: 3 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:crafting_table" },
+          { id: "minecraft:furnace" },
+        ],
+        food: 20,
+        health: 20,
+      }),
+      newId: () => "stale-stand",
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "mine_block");
+    assert.deepEqual(task.skill.args["at"], { x: 149, y: 65, z: -79 });
+  });
+
   test("a body above its stair tunnels back to the step at its own level", () => {
     const mine = {
       entrance: { x: 131, y: 73, z: -62 },

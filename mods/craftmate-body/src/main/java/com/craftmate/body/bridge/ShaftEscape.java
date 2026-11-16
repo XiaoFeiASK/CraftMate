@@ -79,6 +79,31 @@ final class ShaftEscape {
 	}
 
 	/**
+	 * A body four blocks down its own stair is below the entrance by design.
+	 * The height guard exists to reject an entrance on a roof or chest
+	 * platform, not to relocate a perfectly good shaft every time the body
+	 * descends. The live run alternated between mining a few steps and
+	 * climbing back to the surface because the entrance was rebuilt at the
+	 * same high ground on every cycle.
+	 */
+	static boolean insideOwnStair(
+		int bodyX,
+		int bodyY,
+		int bodyZ,
+		int entranceX,
+		int entranceY,
+		int entranceZ,
+		int stepX,
+		int stepZ
+	) {
+		if (bodyY >= entranceY || bodyY < entranceY - 64) return false;
+		int depth = entranceY - bodyY;
+		int expectedX = entranceX + stepX * depth;
+		int expectedZ = entranceZ + stepZ * depth;
+		return Math.abs(bodyX - expectedX) <= 2 && Math.abs(bodyZ - expectedZ) <= 2;
+	}
+
+	/**
 	 * Entrance selection is a camp decision, not a body-position decision.
 	 * A body deep in its own stair still counts as "near home" in 3D, so the
 	 * old relocation/search anchored on it and moved the mine to the bottom

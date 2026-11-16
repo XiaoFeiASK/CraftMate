@@ -37,6 +37,28 @@ class ShaftEscapeTest {
 	}
 
 	@Test
+	void aBodyBelowItsEntranceOnTheStairLineIsNotRelocated() {
+		// Entrance at 149,75,-69 heading north (dz=-1); four steps down and
+		// north, the body stands at 149,71,-73. The old height guard saw the
+		// entrance four blocks above the body and rebuilt it every cycle.
+		assertTrue(
+			ShaftEscape.insideOwnStair(149, 71, -73, 149, 75, -69, 0, -1)
+		);
+		assertTrue(
+			ShaftEscape.insideOwnStair(149, 71, -74, 149, 75, -69, 0, -1),
+			"one block of stair drift is still the body's own shaft"
+		);
+		assertFalse(
+			ShaftEscape.insideOwnStair(159, 71, -73, 149, 75, -69, 0, -1),
+			"a body ten blocks east is on different ground"
+		);
+		assertFalse(
+			ShaftEscape.insideOwnStair(149, 76, -69, 149, 75, -69, 0, -1),
+			"a body above the entrance is the roof case the guard targets"
+		);
+	}
+
+	@Test
 	void sameLevelTargetsUseATunnelAndDeepTargetsDoNot() {
 		assertTrue(ShaftEscape.shouldTunnel(true, 0.0, 12.0));
 		assertTrue(ShaftEscape.shouldTunnel(true, -2.0, 12.0));

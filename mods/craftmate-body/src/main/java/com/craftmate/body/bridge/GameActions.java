@@ -2310,6 +2310,16 @@ public final class GameActions {
 				ShaftEscape.entranceAboveWalkingLevel(
 					mineEntrance.getY(),
 					player.blockPosition().getY()
+				) &&
+				!ShaftEscape.insideOwnStair(
+					player.blockPosition().getX(),
+					player.blockPosition().getY(),
+					player.blockPosition().getZ(),
+					mineEntrance.getX(),
+					mineEntrance.getY(),
+					mineEntrance.getZ(),
+					mineDirection == null ? 0 : mineDirection.getStepX(),
+					mineDirection == null ? 0 : mineDirection.getStepZ()
 				)
 			) {
 				CraftMateBodyClient.LOGGER.info(
