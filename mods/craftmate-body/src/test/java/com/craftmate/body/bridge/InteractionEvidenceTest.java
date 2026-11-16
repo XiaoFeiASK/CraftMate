@@ -82,6 +82,39 @@ class InteractionEvidenceTest {
 	}
 
 	@Test
+	void wallMountedVariantsConfirmTheRequestedItem() {
+		assertTrue(InteractionEvidence.placementMatches("minecraft:torch", "minecraft:wall_torch"));
+		assertTrue(
+			InteractionEvidence.placementMatches(
+				"minecraft:redstone_torch",
+				"minecraft:redstone_wall_torch"
+			)
+		);
+		assertTrue(
+			InteractionEvidence.placementMatches(
+				"minecraft:soul_torch",
+				"minecraft:soul_wall_torch"
+			)
+		);
+		assertFalse(InteractionEvidence.placementMatches("minecraft:torch", "minecraft:redstone_wall_torch"));
+		assertFalse(InteractionEvidence.placementMatches("minecraft:torch", "minecraft:oak_planks"));
+		assertFalse(InteractionEvidence.placementMatches(null, "minecraft:wall_torch"));
+		assertFalse(InteractionEvidence.placementMatches("minecraft:torch", null));
+
+		assertTrue(
+			InteractionEvidence.placementConfirmed(
+				"minecraft:torch",
+				block("minecraft:air", "air", true, true),
+				block("minecraft:wall_torch", "wall_torch[facing=north]", false, false),
+				6,
+				5,
+				false
+			),
+			"a torch placed on a wall is still a confirmed torch placement"
+		);
+	}
+
+	@Test
 	void useNeedsAWorldInventoryOrScreenEffect() {
 		assertFalse(
 			InteractionEvidence.useConfirmed(

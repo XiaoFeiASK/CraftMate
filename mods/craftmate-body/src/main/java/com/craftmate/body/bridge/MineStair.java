@@ -16,6 +16,15 @@ final class MineStair {
 	private MineStair() {
 	}
 
+	/**
+	 * A decoration such as a wall torch is non-air but does not obstruct the
+	 * body. Treating it as a stair obstacle makes the planner mine the torch
+	 * it just placed, lose the light, and place another one forever.
+	 */
+	static boolean blocksStep(boolean air, boolean blocksMotion, boolean fluid) {
+		return !air && blocksMotion && !fluid;
+	}
+
 	static int nextTarget(
 		boolean bodySolid,
 		boolean headSolid,

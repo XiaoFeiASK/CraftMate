@@ -1,5 +1,7 @@
 package com.craftmate.body.bridge;
 
+import java.util.Map;
+
 /**
  * Pure comparisons for confirming an interaction after its native API has
  * been submitted. A positive API return means "the client accepted the
@@ -9,6 +11,14 @@ package com.craftmate.body.bridge;
 final class InteractionEvidence {
 	/** How long to wait for an observable effect before reporting unknown. */
 	static final int CONFIRM_TICKS = 20;
+	private static final Map<String, String> WALL_PLACEMENT_VARIANTS = Map.of(
+		"minecraft:torch",
+		"minecraft:wall_torch",
+		"minecraft:redstone_torch",
+		"minecraft:redstone_wall_torch",
+		"minecraft:soul_torch",
+		"minecraft:soul_wall_torch"
+	);
 
 	private InteractionEvidence() {
 	}
@@ -30,6 +40,18 @@ final class InteractionEvidence {
 	}
 
 	/**
+	 * Some items intentionally place a different block id depending on the
+	 * clicked face. A torch on a wall is still the requested torch; comparing
+	 * only the item id to the resulting block id rejects a real placement.
+	 */
+	static boolean placementMatches(String expectedBlock, String actualBlock) {
+		if (expectedBlock == null || actualBlock == null) return false;
+		if (expectedBlock.equals(actualBlock)) return true;
+		return WALL_PLACEMENT_VARIANTS.get(expectedBlock) != null
+			&& WALL_PLACEMENT_VARIANTS.get(expectedBlock).equals(actualBlock);
+	}
+
+	/**
 	 * A placement is confirmed only when the previously replaceable cell now
 	 * holds the requested block. A stack count change alone is not enough:
 	 * the client can consume an item before the server accepts the placement.
@@ -43,7 +65,7 @@ final class InteractionEvidence {
 		boolean creative
 	) {
 		if (expectedBlock == null || after == null) return false;
-		if (!expectedBlock.equals(after.blockId()) || after.air()) return false;
+		if (!placementMatches(expectedBlock, after.blockId()) || after.air()) return false;
 		if (before != null && !before.replaceable()) return false;
 		if (creative) return true;
 		return afterCount < beforeCount;

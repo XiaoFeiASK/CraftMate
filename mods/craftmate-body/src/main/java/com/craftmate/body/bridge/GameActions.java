@@ -1884,8 +1884,18 @@ public final class GameActions {
 					}
 					return null;
 				}
-				boolean deepBodySolid = !client.level.getBlockState(front).isAir();
-				boolean deepHeadSolid = !client.level.getBlockState(front.above()).isAir();
+				BlockState deepBody = client.level.getBlockState(front);
+				BlockState deepHead = client.level.getBlockState(front.above());
+				boolean deepBodySolid = MineStair.blocksStep(
+					deepBody.isAir(),
+					deepBody.blocksMotion(),
+					!deepBody.getFluidState().isEmpty()
+				);
+				boolean deepHeadSolid = MineStair.blocksStep(
+					deepHead.isAir(),
+					deepHead.blocksMotion(),
+					!deepHead.getFluidState().isEmpty()
+				);
 				if (deepBodySolid || deepHeadSolid) {
 					BlockPos pending = firstBreakable(client, front, front.above());
 					if (
@@ -1905,9 +1915,24 @@ public final class GameActions {
 				current = deepLanding;
 				continue;
 			}
-			boolean bodySolid = !client.level.getBlockState(front).isAir();
-			boolean headSolid = !client.level.getBlockState(front.above()).isAir();
-			boolean landingSolid = !client.level.getBlockState(front.below()).isAir();
+			BlockState body = client.level.getBlockState(front);
+			BlockState head = client.level.getBlockState(front.above());
+			BlockState landing = client.level.getBlockState(front.below());
+			boolean bodySolid = MineStair.blocksStep(
+				body.isAir(),
+				body.blocksMotion(),
+				!body.getFluidState().isEmpty()
+			);
+			boolean headSolid = MineStair.blocksStep(
+				head.isAir(),
+				head.blocksMotion(),
+				!head.getFluidState().isEmpty()
+			);
+			boolean landingSolid = MineStair.blocksStep(
+				landing.isAir(),
+				landing.blocksMotion(),
+				!landing.getFluidState().isEmpty()
+			);
 			int target = MineStair.nextTarget(bodySolid, headSolid, landingSolid);
 			if (target != MineStair.ADVANCE) {
 				BlockPos pending = target == MineStair.BODY
@@ -2147,7 +2172,16 @@ public final class GameActions {
 
 	private static BlockPos firstBreakable(Minecraft client, BlockPos... cells) {
 		for (BlockPos cell : cells) {
-			if (!client.level.getBlockState(cell).isAir()) return cell;
+			BlockState state = client.level.getBlockState(cell);
+			if (
+				MineStair.blocksStep(
+					state.isAir(),
+					state.blocksMotion(),
+					!state.getFluidState().isEmpty()
+				)
+			) {
+				return cell;
+			}
 		}
 		return null;
 	}
@@ -16007,7 +16041,10 @@ public final class GameActions {
 				ResourceLocation wanted = ResourceLocation.tryParse(blockId);
 				if (
 					wanted != null
-						&& BuiltInRegistries.BLOCK.getKey(current.getBlock()).equals(wanted)
+						&& InteractionEvidence.placementMatches(
+							expectedBlock,
+							BuiltInRegistries.BLOCK.getKey(current.getBlock()).toString()
+						)
 				) {
 					finish(
 						id,
