@@ -20,6 +20,7 @@ export interface FactFilters {
 export interface SnapshotView {
   readonly inWorld?: boolean;
   readonly world?: string | null;
+  readonly worldVersion?: string | null;
   readonly position?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly yaw?: number | null;
   readonly cameraYaw?: number | null;
@@ -126,7 +127,19 @@ export interface SnapshotView {
     readonly distance?: number;
     readonly bearing?: number;
     readonly visible?: boolean;
+    readonly exposed?: boolean;
+    readonly reachable?: boolean;
+    readonly reason?: string;
   }[];
+  readonly orePerception?: {
+    readonly status: "NOT_OBSERVED" | "OBSERVED_NOT_PLANNED" | "CANDIDATE_READY";
+    readonly reason: string;
+    readonly observed: number;
+    readonly exposed: number;
+    readonly visible: number;
+    readonly reachable: number;
+    readonly surveying: boolean;
+  } | null;
   readonly reachableBlock?: {
     readonly id: string;
     readonly x: number;
@@ -291,6 +304,9 @@ export function worldFactsFromSnapshot(
     inventory,
     nearbyBlocks,
     entities,
+    ...(snapshot.orePerception === undefined || snapshot.orePerception === null
+      ? {}
+      : { orePerception: snapshot.orePerception }),
     ...(routeBlacklist.length === 0 ? {} : { routeBlacklist }),
     targetLock,
     now,
@@ -299,6 +315,7 @@ export function worldFactsFromSnapshot(
   };
   return withOptionals(facts, {
     world: snapshot.world,
+    worldVersion: snapshot.worldVersion,
     position: snapshot.position,
     yaw: snapshot.yaw,
     cameraYaw: snapshot.cameraYaw,
@@ -732,6 +749,7 @@ function withOptionals(
   base: WorldFacts,
   optional: {
     readonly world?: string | null | undefined;
+    readonly worldVersion?: string | null | undefined;
     readonly position?: WorldFacts["position"] | undefined;
     readonly yaw?: number | null | undefined;
     readonly cameraYaw?: number | null | undefined;
@@ -786,6 +804,7 @@ function withOptionals(
   return {
     ...base,
     ...(optional.world === undefined ? {} : { world: optional.world }),
+    ...(optional.worldVersion === undefined ? {} : { worldVersion: optional.worldVersion }),
     ...(optional.position === undefined ? {} : { position: optional.position }),
     ...(optional.yaw === undefined ? {} : { yaw: optional.yaw }),
     ...(optional.cameraYaw === undefined ? {} : { cameraYaw: optional.cameraYaw }),

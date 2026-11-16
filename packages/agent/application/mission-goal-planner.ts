@@ -1,7 +1,6 @@
 import {
-  skillCallSchema,
+  type PlanStep,
   type RouteBlacklist,
-  type SkillCall,
 } from "@craftmate/contracts";
 import {
   IRON_SET,
@@ -27,6 +26,7 @@ import {
   type GoalPlanningInput,
   type GoalTask,
 } from "./goal-runtime.ts";
+import { PlanCompiler, boundedId, guardsForSkill } from "./plan-compiler.ts";
 
 /**
  * Production planner: one deterministic mission spine compiles the current
@@ -227,22 +227,30 @@ function withCompiledJob(plan: GoalPlan, facts: WorldFacts): GoalPlan {
 
   let ingots = inventoryCount(facts, "minecraft:iron_ingot") + count;
   let sticks = inventoryCount(facts, "minecraft:stick");
-  const nodes: Array<{ skill: SkillCall["name"]; args: Record<string, unknown> }> = [];
+  const steps: PlanStep[] = [];
   if (!tableInReach && carriedTable) {
     // The craft node uses a placed station. A remembered table fifty blocks
     // away made the job fail with "no safe route to the crafting table" while
     // the backpack already held three tables.
-    nodes.push({
+    steps.push({
+      id: "place-table",
       skill: "place_block",
       args: { block: "minecraft:crafting_table", count: 1 },
+      label: "放置工作台",
+      guards: [],
+      evidence: ["nearbyBlocks contains crafting_table"],
     });
   }
-  nodes.push({
+  steps.push({
+    id: "smelt-ingots",
     skill: "smelt",
     args: {
       ...task.skill.args,
       count,
     },
+    label: "熔炼铁锭",
+    guards: [...guardsForSkill("smelt", { ...task.skill.args, count }, facts)],
+    evidence: ["inventory gain: minecraft:iron_ingot"],
   });
   for (const gear of IRON_SET) {
     if (hasItem(facts, gear.item) || ingots <= 0) continue;
@@ -277,27 +285,37 @@ function withCompiledJob(plan: GoalPlan, facts: WorldFacts): GoalPlan {
         sticks -= entry.ingredient.count;
       }
     }
-    nodes.push({
+    steps.push({
+      id: `craft:${gear.item}`,
       skill: "craft",
       args: { item: gear.item, count: 1 },
+      label: `制作${gear.item}`,
+      guards: [...guardsForSkill("craft", { item: gear.item, count: 1 }, facts)],
+      ...(tableInReach ? {} : { targetFamilyId: "station:crafting_table" }),
+      evidence: [`inventory gain: ${gear.item}`],
     });
   }
-  if (nodes.length < 2) return plan;
+  if (steps.length < 2) return plan;
   const missing = IRON_SET.find((gear) => !hasItem(facts, gear.item))?.item ?? "none";
-  const skill = skillCallSchema.parse({
-    name: "run_job",
-    args: {
-      jobId: `iron-set:${missing.replace(/^minecraft:/u, "")}:${count}`,
-      title: "连续熔炼并制作铁套",
-      nodes,
-      stopOnFailure: true,
-    },
-    idempotencyKey: `strategy:run_job:iron:${missing}:${count}:${nodes.length}`,
+  const compiler = new PlanCompiler();
+  const skill = compiler.compileSequence({
+    task,
+    facts,
+    planId: `iron-set:${missing.replace(/^minecraft:/u, "")}:${count}`,
+    entryNodeId: boundedId(task.taskId ?? "task:iron-set", 100),
+    goalFamily: "iron-set",
+    steps,
+    targetFamilies: tableInReach
+      ? []
+      : [{ id: "station:crafting_table", kind: "station", ids: ["minecraft:crafting_table"] }],
+    expectedEvidence: steps.flatMap((step) => step.evidence),
+    maxDurationSeconds: 180,
+    worldVersion: facts.worldVersion ?? null,
   });
   const nextTask: GoalTask = {
     ...task,
     text: "连续熔炼并制作铁套",
-    reason: "材料与工作台已具备，用一个连续任务完成熔炼和后续制作，避免节点之间空闲重排",
+    reason: "材料与工作台已具备，用一个受守卫计划完成熔炼和后续制作，避免节点之间空闲重排",
     skill,
   };
   return { ...plan, nextTask, strategyKey: `strategy:iron-job:${missing}` };

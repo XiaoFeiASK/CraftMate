@@ -19,6 +19,8 @@ import type {
   ToolTiersData,
 } from "../scripts/schema.ts";
 
+export * from "./graph.ts";
+
 export type {
   BlockDrop,
   BlockToolRequirement,

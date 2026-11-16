@@ -39,8 +39,10 @@ public final class CameraController {
 	private static float displayPitch;
 	private static float desiredYaw;
 	private static float desiredPitch;
+	private static float lookPitch;
 	private static float yawVelocity;
 	private static float pitchVelocity;
+	private static boolean holdPose;
 	private static long lastFrameNanos;
 	private static Object lastLevel;
 	private static Object lastPlayer;
@@ -49,8 +51,8 @@ public final class CameraController {
 	private static float lastBodyPitch;
 	private static final CameraSpring POSITION = new CameraSpring();
 	private static long lastPositionNanos;
-	/** A continuous job owns the camera across its child tasks. */
-	private static int jobHolds;
+	/** A continuous plan owns the camera across its child tasks. */
+	private static int planHolds;
 	private static boolean positionSettled = true;
 
 	private CameraController() {
@@ -73,6 +75,8 @@ public final class CameraController {
 		retained = false;
 		desiredYaw = displayYaw;
 		desiredPitch = displayPitch;
+		lookPitch = displayPitch;
+		holdPose = true;
 		releasing = false;
 	}
 
@@ -80,24 +84,27 @@ public final class CameraController {
 	public static void steerHeading(LocalPlayer player, float yaw, float pitch) {
 		begin(player);
 		retained = false;
+		holdPose = false;
 		desiredYaw = yaw;
-		desiredPitch = Mth.clamp(pitch, -90.0f, 90.0f);
+		lookPitch = Mth.clamp(pitch, -90.0f, 90.0f);
 		releasing = false;
 	}
 
 	private static void steerTo(LocalPlayer player, float yaw, float pitch) {
 		begin(player);
 		retained = false;
+		holdPose = false;
 		desiredYaw = yaw;
-		desiredPitch = Mth.clamp(pitch, -90.0f, 90.0f);
+		lookPitch = Mth.clamp(pitch, -90.0f, 90.0f);
 		releasing = false;
 	}
 
 	/** True once the rendered pose has held the requested target closely. */
-	public static boolean settled(float toleranceDegrees) {
+	public static boolean settled(LocalPlayer player, float toleranceDegrees) {
+		float expectedPitch = targetPitch(player);
 		return active
 			&& Math.abs(Mth.wrapDegrees(desiredYaw - displayYaw)) <= toleranceDegrees
-			&& Math.abs(desiredPitch - displayPitch) <= toleranceDegrees
+			&& Math.abs(expectedPitch - displayPitch) <= toleranceDegrees
 			&& Math.abs(yawVelocity) <= 4.0f
 			&& Math.abs(pitchVelocity) <= 4.0f;
 	}
@@ -108,17 +115,17 @@ public final class CameraController {
 	 * produces a one-frame camera jump.
 	 */
 	public static void release() {
-		if (!active || retained || jobHolds > 0) return;
+		if (!active || retained || planHolds > 0) return;
 		releasing = true;
 		positionSettled = false;
 	}
 
-	public static void holdForJob() {
-		jobHolds++;
+	public static void holdForPlan() {
+		planHolds++;
 	}
 
-	public static void releaseJobHold() {
-		if (jobHolds > 0) jobHolds--;
+	public static void releasePlanHold() {
+		if (planHolds > 0) planHolds--;
 	}
 
 	/** Keeps an explicit observation pose after its task has completed. */
@@ -139,10 +146,11 @@ public final class CameraController {
 		retained = false;
 		yawVelocity = 0;
 		pitchVelocity = 0;
+		holdPose = false;
 		lastFrameNanos = 0;
 		lastPositionNanos = 0;
 		POSITION.reset();
-		jobHolds = 0;
+		planHolds = 0;
 		positionSettled = true;
 		lastLevel = client.level;
 		lastPlayer = client.player;
@@ -152,6 +160,7 @@ public final class CameraController {
 			displayPitch = player.getViewXRot(1.0f);
 			desiredYaw = displayYaw;
 			desiredPitch = displayPitch;
+			lookPitch = displayPitch;
 			lastBodyPlayer = player;
 			lastBodyYaw = displayYaw;
 			lastBodyPitch = displayPitch;
@@ -184,22 +193,26 @@ public final class CameraController {
 			: Math.min(MAX_FRAME_SECONDS, (now - lastPositionNanos) / 1_000_000_000.0f);
 		lastPositionNanos = now;
 
-		Vec3 eye = entity.getEyePosition(partialTick);
+		Vec3 anchor = entity.getPosition(partialTick).add(
+			0,
+			entity.getBbHeight() * CameraSpring.TORSO_HEIGHT_FRACTION,
+			0
+		);
 		Vec3 desired = new Vec3(vanillaPosition.x, vanillaPosition.y, vanillaPosition.z);
 		if (!releasing) {
 			Vec3 movement = entity.getDeltaMovement();
-			CameraSpring.Target shoulder = CameraSpring.shoulderTarget(
-				eye.x,
-				eye.y,
-				eye.z,
+			CameraSpring.Target follow = CameraSpring.followTarget(
+				anchor.x,
+				anchor.y,
+				anchor.z,
 				displayYaw,
 				displayPitch,
 				movement.x,
 				movement.z
 			);
-			desired = new Vec3(shoulder.x(), shoulder.y(), shoulder.z());
+			desired = new Vec3(follow.x(), follow.y(), follow.z());
 			HitResult hit = level.clip(new ClipContext(
-				eye,
+				anchor,
 				desired,
 				ClipContext.Block.VISUAL,
 				ClipContext.Fluid.NONE,
@@ -207,11 +220,11 @@ public final class CameraController {
 			));
 			if (hit.getType() != HitResult.Type.MISS) {
 				CameraSpring.Target clipped = CameraSpring.clipped(
-					eye.x,
-					eye.y,
-					eye.z,
-					shoulder,
-					hit.getLocation().distanceTo(eye)
+					anchor.x,
+					anchor.y,
+					anchor.z,
+					follow,
+					hit.getLocation().distanceTo(anchor)
 				);
 				desired = new Vec3(clipped.x(), clipped.y(), clipped.z());
 			}
@@ -254,8 +267,8 @@ public final class CameraController {
 
 		if (releasing) {
 			desiredYaw = player.getViewYRot(1.0f);
-			desiredPitch = player.getViewXRot(1.0f);
 		}
+		desiredPitch = targetPitch(player);
 		float yawError = Mth.wrapDegrees(desiredYaw - displayYaw);
 		float pitchError = desiredPitch - displayPitch;
 		yawVelocity = approach(
@@ -330,11 +343,19 @@ public final class CameraController {
 		displayPitch = sameBody ? lastBodyPitch : player.getViewXRot(1.0f);
 		desiredYaw = displayYaw;
 		desiredPitch = displayPitch;
+		lookPitch = displayPitch;
+		holdPose = false;
 		yawVelocity = 0;
 		pitchVelocity = 0;
 		lastFrameNanos = 0;
 		releasing = false;
 		active = true;
+	}
+
+	private static float targetPitch(LocalPlayer player) {
+		if (holdPose) return displayPitch;
+		if (releasing) return player.getViewXRot(1.0f);
+		return CameraSpring.framingPitch(lookPitch, player.getViewXRot(1.0f));
 	}
 
 	/**

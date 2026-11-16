@@ -65,7 +65,7 @@ Bridge 是受控命令通道，不是模型网关。
 
 当前 Fabric 身体声明 18 个技能：`goto`、`look_at`、`mine_block`、`chop_tree`、
 `collect_items`、`craft`、`deposit`、`say`、`wait`、`attack`、`equip`、`eat`、
-`use_block`、`place_block`、`pillar_up`、`smelt`、`sleep`、`run_job`。
+`use_block`、`place_block`、`pillar_up`、`smelt`、`sleep`、`run_plan`。
 
 ### 3.2 移动、镜头与地形
 
@@ -96,11 +96,24 @@ Bridge 是受控命令通道，不是模型网关。
 `E_PRECONDITION` 和已确认数量。当前不含熔炉、高炉、烟熏炉、切石机等非合成台
 配方。
 
-`run_job` 接受 `jobId`、`title`、一个非空的原子技能节点数组和可选
-`stopOnFailure`（默认 `true`）。节点只允许普通技能，不能嵌套 `run_job`；每个节点
-仍按自己的契约、前置和结果证据执行。当前用于把“熔炼铁锭 → 制作多件铁装”合成为
-一个连续任务，避免节点之间出现空闲重排。任何节点失败后停止后续节点并返回该节点
-的 error/detail。
+`run_plan` 接受 `planId`、`entryNodeId`、`goalFamily`、`targetFamilies`、1–32 个
+`steps`、`maxDurationSeconds`（上限 180）、可选 `checkpointIndex`、
+`expectedEvidence` 和编译时的 `worldVersion`。每一步只允许普通原子技能，不能嵌套
+`run_plan`；步骤可带类型化 `guards`、预批准的 `targetFamilyId` 和证据声明。
+身体在执行每一步前重新求值白名单 guard（背包、目标族、站点、维度、生命/饥饿、
+昼夜、世界版本、AND/OR），只在预批准目标族内选具体实例，并在结果中回报
+`targetLocks`、`evidence`、`worldVersion` 和 `checkpoint`。guard 不匹配、证据
+冲突、世界身份变化、超时、危险或操作员接管都会让身体回到 Agent 安全点；不会在
+身体里做分支选择或重新规划。
+
+当 `target_family` guard 询问矿族时，身体会先发起一次有界矿脉观察；多 tick 扫描
+期间在最多 5 秒内等待并重试 guard，而不是把“尚未扫完”误报成“没有矿”。扫描完成
+后若仍不满足数量或可达性，失败结果会带上 `NOT_OBSERVED` /
+`OBSERVED_NOT_PLANNED` / `CANDIDATE_READY` 状态和具体原因。
+
+当前用于把“熔炼铁锭 → 制作多件铁装”编译成一个连续计划，避免节点之间出现空闲
+重排。任何步骤失败后默认停止后续步骤并返回该步骤的 error/detail；`run_job` 已
+从契约、身体技能表和分发路径移除，没有旧规划器回退。
 
 `deposit` 的参数为可选的 `container`（整数方块坐标）与可选的 `item`；不传
 `item` 时只转移非损坏物品，并跳过工具和装备。容器结果必须以背包减少量与容器

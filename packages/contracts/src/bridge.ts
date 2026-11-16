@@ -59,6 +59,12 @@ export type WorldEvent = z.infer<typeof worldEventSchema>;
 export const worldSnapshotSchema = z.object({
   inWorld: z.boolean(),
   world: z.string().max(160).nullable().optional(),
+  /**
+   * Monotonic observation identity projected from the body heartbeat
+   * (`worldGeneration:tick`). A stale snapshot must not satisfy a plan guard
+   * for a newer world.
+   */
+  worldVersion: z.string().min(1).max(80).optional(),
   position: z.object({
     x: z.number(),
     y: z.number(),
@@ -353,7 +359,25 @@ export const worldSnapshotSchema = z.object({
     /** Degrees relative to the player's facing, -180..180. */
     bearing: z.number().min(-180).max(180).optional(),
     visible: z.boolean().optional(),
+    /** An exposed, clickable face exists (not just an adjacent air cell). */
+    exposed: z.boolean().optional(),
+    /** A standable route to an interaction cell was proven. */
+    reachable: z.boolean().optional(),
+    /** Why this ore candidate is or is not selectable. */
+    reason: z.string().max(200).optional(),
   })).max(64).optional(),
+  /** Body-side ore observation chain, separate from bulk nearby counts. */
+  orePerception: z
+    .object({
+      status: z.enum(["NOT_OBSERVED", "OBSERVED_NOT_PLANNED", "CANDIDATE_READY"]),
+      reason: z.string().max(240),
+      observed: z.number().int().nonnegative(),
+      exposed: z.number().int().nonnegative(),
+      visible: z.number().int().nonnegative(),
+      reachable: z.number().int().nonnegative(),
+      surveying: z.boolean(),
+    })
+    .optional(),
   /**
    * The nearest block with a reachable exposed face. This does not depend on
    * the camera direction. Existence in `nearbyBlocks` is not enough: stone

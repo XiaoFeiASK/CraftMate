@@ -27,7 +27,7 @@ export const skillNameSchema = z.enum([
   "say",
   "emote",
   "wait",
-  "run_job",
+  "run_plan",
 ]);
 export type SkillName = z.infer<typeof skillNameSchema>;
 
@@ -41,33 +41,137 @@ const point = z.object({
 });
 
 /**
- * One node in a body-owned job. The body executes these sequentially without
- * returning to the idle planner between nodes, which removes the visible
- * stop/start between related actions while keeping every node an ordinary
- * skill with the same validation and evidence rules.
+ * A body may choose a concrete instance only inside a family the Agent
+ * approved. Families are data, never callbacks, so a plan cannot smuggle an
+ * arbitrary predicate onto the body.
  */
-export const jobNodeSchema = z.object({
-  skill: skillNameSchema,
-  args: z.record(z.unknown()),
-  /** Optional operator-facing label; the body falls back to the skill name. */
-  label: z.string().trim().min(1).max(80).optional(),
+export const planTargetFamilySchema = z.object({
+  id: z.string().trim().min(1).max(80),
+  kind: z.enum(["block", "entity", "station", "item"]),
+  ids: z.array(z.string().trim().min(1).max(120)).min(1).max(64),
+  dimension: z.string().trim().min(1).max(120).optional(),
+  maxDistance: z.number().min(1).max(64).optional(),
 });
-export type JobNode = z.infer<typeof jobNodeSchema>;
+export type PlanTargetFamily = z.infer<typeof planTargetFamilySchema>;
+
+function guardDepth(guard: PlanGuard): number {
+  return guard.type === "all" || guard.type === "or"
+    ? 1 + Math.max(0, ...guard.guards.map(guardDepth))
+    : 1;
+}
 
 /**
- * A bounded macro plan. `jobId` is stable across a replan so the body can
- * reject a resume against a different mission. `checkpointIndex` is advisory:
- * the body still re-validates every node precondition before executing it.
+ * Guard whitelist. The body evaluates these directly; no expression language,
+ * script, or model-authored predicate is accepted.
  */
-export const jobPlanSchema = z.object({
-  jobId: z.string().trim().min(1).max(120),
-  title: z.string().trim().min(1).max(120),
-  nodes: z.array(jobNodeSchema).min(1).max(32),
-  checkpointIndex: z.number().int().nonnegative().optional(),
-  /** A failed node aborts the job unless the caller explicitly opts out. */
-  stopOnFailure: z.boolean().default(true),
+export type PlanGuard =
+  | { readonly type: "inventory"; readonly item: string; readonly min?: number | undefined; readonly max?: number | undefined }
+  | { readonly type: "target_family"; readonly family: string; readonly state: "observed" | "visible" | "reachable"; readonly min?: number | undefined }
+  | { readonly type: "station"; readonly block: string; readonly reachable: boolean }
+  | { readonly type: "dimension"; readonly id: string }
+  | { readonly type: "health"; readonly min?: number | undefined; readonly max?: number | undefined }
+  | { readonly type: "food"; readonly min?: number | undefined; readonly max?: number | undefined }
+  | { readonly type: "time"; readonly phase: "day" | "night" }
+  | { readonly type: "world_version"; readonly equals?: string | undefined; readonly changed?: boolean | undefined }
+  | { readonly type: "all"; readonly guards: readonly PlanGuard[] }
+  | { readonly type: "or"; readonly guards: readonly PlanGuard[] };
+
+export const planGuardSchema = z.lazy(() =>
+  z.discriminatedUnion("type", [
+    z.object({
+      type: z.literal("inventory"),
+      item: z.string().trim().min(1).max(120),
+      min: z.number().int().nonnegative().optional(),
+      max: z.number().int().nonnegative().optional(),
+    }),
+    z.object({
+      type: z.literal("target_family"),
+      family: z.string().trim().min(1).max(80),
+      state: z.enum(["observed", "visible", "reachable"]),
+      min: z.number().int().min(1).max(64).default(1),
+    }),
+    z.object({
+      type: z.literal("station"),
+      block: z.string().trim().min(1).max(120),
+      reachable: z.boolean().default(true),
+    }),
+    z.object({
+      type: z.literal("dimension"),
+      id: z.string().trim().min(1).max(120),
+    }),
+    z.object({
+      type: z.literal("health"),
+      min: z.number().min(0).max(20).optional(),
+      max: z.number().min(0).max(20).optional(),
+    }),
+    z.object({
+      type: z.literal("food"),
+      min: z.number().int().min(0).max(20).optional(),
+      max: z.number().int().min(0).max(20).optional(),
+    }),
+    z.object({
+      type: z.literal("time"),
+      phase: z.enum(["day", "night"]),
+    }),
+    z.object({
+      type: z.literal("world_version"),
+      equals: z.string().trim().min(1).max(80).optional(),
+      changed: z.boolean().optional(),
+    }),
+    z.object({
+      type: z.literal("all"),
+      guards: z.array(planGuardSchema).min(1).max(8),
+    }),
+    z.object({
+      type: z.literal("or"),
+      guards: z.array(planGuardSchema).min(1).max(8),
+    }),
+  ]),
+).superRefine((guard, context) => {
+  if (guardDepth(guard) > 3) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "guard nesting exceeds 3 levels",
+    });
+  }
+}) as z.ZodType<PlanGuard>;
+
+export const planStepSchema = z.object({
+  id: z.string().trim().min(1).max(100),
+  /** The body executes ordinary atomic skills; a plan cannot nest plans. */
+  skill: skillNameSchema,
+  args: z.record(z.unknown()),
+  label: z.string().trim().min(1).max(80).optional(),
+  /** Re-evaluated immediately before this step starts. */
+  guards: z.array(planGuardSchema).max(8).default([]),
+  /** The body may pick a concrete instance inside this pre-approved family. */
+  targetFamilyId: z.string().trim().min(1).max(80).optional(),
+  /** Evidence the body must report before the step may be considered done. */
+  evidence: z.array(z.string().trim().min(1).max(120)).max(8).default([]),
 });
-export type JobPlan = z.infer<typeof jobPlanSchema>;
+export type PlanStep = z.infer<typeof planStepSchema>;
+
+/**
+ * A bounded continuable plan. `planId` is stable across a replan so the body
+ * can reject a resume against a different mission. No nested plan exists; the
+ * body returns to the Agent at every guard boundary.
+ */
+export const runPlanSchema = z.object({
+  planId: z.string().trim().min(1).max(120),
+  title: z.string().trim().min(1).max(120),
+  /** The task-tree node that produced this plan. */
+  entryNodeId: z.string().trim().min(1).max(100),
+  goalFamily: z.string().trim().min(1).max(120),
+  targetFamilies: z.array(planTargetFamilySchema).max(8).default([]),
+  steps: z.array(planStepSchema).min(1).max(32),
+  maxDurationSeconds: z.number().int().min(1).max(180).default(180),
+  checkpointIndex: z.number().int().nonnegative().max(32).optional(),
+  stopOnFailure: z.boolean().default(true),
+  expectedEvidence: z.array(z.string().trim().min(1).max(120)).max(16).default([]),
+  /** The observation this plan was compiled against. */
+  worldVersion: z.string().trim().min(1).max(80).optional(),
+});
+export type RunPlan = z.infer<typeof runPlanSchema>;
 
 export const skillArgsSchema = z.discriminatedUnion("name", [
   z.object({
@@ -190,8 +294,8 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
   z.object({ name: z.literal("emote"), args: z.object({ name: z.string().trim().min(1).max(40) }) }),
   z.object({ name: z.literal("wait"), args: z.object({ ticks: z.number().int().min(1).max(20 * 60) }) }),
   z.object({
-    name: z.literal("run_job"),
-    args: jobPlanSchema,
+    name: z.literal("run_plan"),
+    args: runPlanSchema,
   }),
 ]);
 export type SkillArgs = z.infer<typeof skillArgsSchema>;
@@ -200,13 +304,17 @@ export type SkillArgs = z.infer<typeof skillArgsSchema>;
 export function parseSkillArgs(name: SkillName, args: unknown): SkillArgs | null {
   const parsed = skillArgsSchema.safeParse({ name, args });
   if (!parsed.success) return null;
-  if (parsed.data.name !== "run_job") return parsed.data;
+  if (parsed.data.name !== "run_plan") return parsed.data;
   // The wire keeps nested args open so an older body can reject a newer
-  // skill itself. The producer still validates every child before dispatch;
-  // a job may not recursively contain another job.
-  for (const node of parsed.data.args.nodes) {
-    if (node.skill === "run_job") return null;
-    if (skillArgsSchema.safeParse({ name: node.skill, args: node.args }).success === false) {
+  // skill itself. The producer still validates every step before dispatch;
+  // a plan may not recursively contain another plan.
+  const familyIds = new Set(parsed.data.args.targetFamilies.map((family) => family.id));
+  for (const step of parsed.data.args.steps) {
+    if (step.skill === "run_plan") return null;
+    if (step.targetFamilyId !== undefined && !familyIds.has(step.targetFamilyId)) {
+      return null;
+    }
+    if (skillArgsSchema.safeParse({ name: step.skill, args: step.args }).success === false) {
       return null;
     }
   }
@@ -226,8 +334,8 @@ export const skillCallSchema = z
     idempotencyKey: z.string().min(1),
   })
   .superRefine((call, context) => {
-    const parsed = skillArgsSchema.safeParse({ name: call.name, args: call.args });
-    if (!parsed.success) {
+    const parsed = parseSkillArgs(call.name, call.args);
+    if (parsed === null) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["args"],
@@ -260,10 +368,10 @@ export const SKILL_CAPABILITY: Readonly<Record<SkillName, string>> = {
   emote: "hud",
   wait: "sensor",
   /**
-   * A job is a body-owned sequencer, not a new game capability. The body
+   * A plan is a body-owned sequencer, not a new game capability. The body
    * re-checks each child skill against its own advertised catalogue.
    */
-  run_job: "sensor",
+  run_plan: "sensor",
 };
 
 /**
@@ -289,7 +397,7 @@ export const FABRIC_BODY_SKILLS = [
   "pillar_up",
   "smelt",
   "sleep",
-  "run_job",
+  "run_plan",
 ] as const satisfies readonly SkillName[];
 
 export const FABRIC_BODY_CAPABILITIES = [

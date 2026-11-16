@@ -100,6 +100,31 @@ function runtime(goalPlanner: GoalPlanner = planner()) {
 }
 
 describe("goal runtime", () => {
+  test("dispatch records an active task-tree branch and settlement keeps evidence", () => {
+    const { value } = runtime();
+    const issued = value.beginStep(context());
+    assert.ok(issued);
+    assert.equal(value.currentProgress?.taskTree?.currentNodeIntent, "砍一根原木");
+    assert.equal(value.currentProgress?.taskTree?.targetFamily, "wood");
+
+    assert.equal(
+      value.settle(issued.decision.id, {
+        status: "completed",
+        at: 2_000,
+        changes: [{ kind: "block_broken", detail: "minecraft:oak_log" }],
+      }),
+      true,
+    );
+    const record = value.snapshot();
+    assert.ok(record.taskTree !== null && record.taskTree !== undefined);
+    assert.ok(
+      record.taskTree.nodes.some(
+        (node) => node.state === "succeeded" && node.failureCount === 0,
+      ),
+    );
+    assert.ok((record.evidenceRefs ?? []).includes("block_broken: minecraft:oak_log"));
+  });
+
   test("a completed mine that only replays an open cell is a failure", () => {
     const { value } = runtime();
     const issued = value.beginStep(context());

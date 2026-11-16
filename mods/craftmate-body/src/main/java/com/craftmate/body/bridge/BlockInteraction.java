@@ -87,6 +87,22 @@ final class BlockInteraction {
 		Vec3 eye,
 		BlockPos target
 	) {
+		Direction visible = visibleExposedFace(level, viewer, eye, target);
+		if (visible != null) return hit(target, visible);
+		return nearestExposedHit(level, eye, target);
+	}
+
+	/**
+	 * Returns an exposed face whose click point is visible from the eye, or
+	 * null when every exposed point is behind terrain. Adjacency and a centre
+	 * ray are both insufficient for a block with several faces.
+	 */
+	static Direction visibleExposedFace(
+		Level level,
+		Entity viewer,
+		Vec3 eye,
+		BlockPos target
+	) {
 		Direction visible = null;
 		double bestDistance = Double.POSITIVE_INFINITY;
 		for (Direction direction : Direction.values()) {
@@ -119,8 +135,7 @@ final class BlockInteraction {
 				visible = direction;
 			}
 		}
-		if (visible != null) return hit(target, visible);
-		return nearestExposedHit(level, eye, target);
+		return visible;
 	}
 
 	static Direction nearestExposedFace(Level level, Vec3 eye, BlockPos target) {

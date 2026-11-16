@@ -91,3 +91,37 @@ dsh-mc-agent 也暴露了几个反例：41 个工具语义重叠、部分工具�
 ## 许可与边界
 
 按仓库当前公开说明，MaiBot 使用 GPL-3.0，MaiCraftMod 使用 GPL-3.0-only，Amaidesu 使用 MIT，dsh-mc-agent 使用 MIT。这里只记录功能和架构方向，不复制代码；若未来考虑采用代码、依赖或协议实现，需单独审查对应版本的许可证、NOTICE 和兼容性。CraftMate 当前采用 MIT OR Apache-2.0，相关既有约束见[决策记录](../decisions/adr.md)。
+
+## Baritone 与 AltoClef（2026-11-16）
+
+### 结论
+
+两者对 CraftMate 的价值在**机制**，不在“脚本树”。不引入依赖、不复制代码：
+
+- [Baritone](https://github.com/cabaletta/baritone) 是 LGPL-3.0 的客户端寻路/自动化模组；
+  它的强项是单一导航权威、进程优先级、临时抢占、`safeToCancel`、分段规划和
+  不可达目标拉黑。CraftMate 已有自己的 Bridge、`goto` 状态机和 A*，不应再引入
+  第二个策略中心，也不应把 `MineProcess` / `BuilderProcess` 当高层策略。
+- [AltoClef](https://github.com/Extra-Modding/AltoClef) 是 MIT 的 1.18 Fabric
+  全能代理，已归档。它的强项是递归 `Task.onTick`、最高优先级任务链、资源获取
+  回退顺序、目标滞回和同类任务合并。CraftMate 只吸收这些调度原则；其框架版本和
+  代码不移植。
+
+### 映射到 CraftMate
+
+| 外部机制 | CraftMate 的独立实现 | 不做的事 |
+| --- | --- | --- |
+| Baritone 单一寻路权威 | `goto` 是唯一拥有移动目标的任务；其他技能只能提交目标或等待 | 不让挖掘/建造流程各自维护一套导航 |
+| `safeToCancel` | `PlanSafety` 检查落地、岩浆、窒息、坠落和未闭合容器；操作员/反射可强制取消并记录边界状态 | 不用“取消失败”阻止操作员接管 |
+| 分段规划与推测段 | 当前 `goto` 在安全部分路径终点继续重规划；世界身份变化/偏离时丢弃旧段 | 不预生成整张世界路径 |
+| 不可达目标拉黑 | Body 侧 `UnreachableTargets` 短期抑制同一精确坐标；Agent 侧保留 `route_blacklist` 持久拒绝 | 不把暂时不可达当成永久不存在 |
+| AltoClef 递归任务 tick | Agent `TaskTree` 只展开当前活动分支，`TaskScheduler` 按优先级选一个节点 | 不在 Body tick 里递归展开整棵任务树 |
+| 最高优先级任务链 | 反射/操作员 > 生存 > 当前目标 > 可选工作；生存任务压栈后恢复游标 | 不让模型在 tick 内重排优先级 |
+| 资源获取回退顺序 | 知识图 `action` 节点把不同来源作为竞争方案；任务失败两次后切换来源 | 不把固定配方顺序写死为唯一路径 |
+| 目标滞回 | `TargetHysteresis`：当前目标失效立即换；否则挑战者连续两次领先 ≥20% 才换 | 不因单帧噪声频繁换目标 |
+
+### 许可边界
+
+Baritone 的 LGPL-3.0 不适合直接复制进当前 MIT OR Apache-2.0 仓库；AltoClef
+虽为 MIT，但其已归档的 1.18 实现无法直接运行在 1.20.1 Fabric 身体上。两者都只作为
+设计参考，CraftMate 的实现是独立代码。

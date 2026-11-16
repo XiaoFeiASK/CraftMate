@@ -1,0 +1,60 @@
+{
+  "meta": {
+    "schemaVersion": 1,
+    "minecraftVersion": "1.20.1",
+    "reviewedBy": "CraftMate maintainers",
+    "reviewedAt": "2026-11-16"
+  },
+  "trades": [
+    {
+      "id": "farmer_bread",
+      "profession": "farmer",
+      "level": 1,
+      "takes": { "item": "minecraft:wheat", "count": 20 },
+      "gives": { "item": "minecraft:bread", "count": 6 },
+      "source": "https://minecraft.fandom.com/wiki/Trading#Farmer",
+      "reviewer": "CraftMate maintainers",
+      "reviewedAt": "2026-11-16"
+    },
+    {
+      "id": "shepherd_wool",
+      "profession": "shepherd",
+      "level": 2,
+      "takes": { "item": "minecraft:emerald", "count": 1 },
+      "gives": { "item": "minecraft:white_wool", "count": 1 },
+      "source": "https://minecraft.fandom.com/wiki/Trading#Shepherd",
+      "reviewer": "CraftMate maintainers",
+      "reviewedAt": "2026-11-16"
+    },
+    {
+      "id": "fisherman_cooked_cod",
+      "profession": "fisherman",
+      "level": 2,
+      "takes": { "item": "minecraft:emerald", "count": 1 },
+      "gives": { "item": "minecraft:cooked_cod", "count": 6 },
+      "source": "https://minecraft.fandom.com/wiki/Trading#Fisherman",
+      "reviewer": "CraftMate maintainers",
+      "reviewedAt": "2026-11-16"
+    },
+    {
+      "id": "weaponsmith_iron_axe",
+      "profession": "weaponsmith",
+      "level": 2,
+      "takes": { "item": "minecraft:emerald", "count": 3 },
+      "gives": { "item": "minecraft:iron_axe", "count": 1 },
+      "source": "https://minecraft.fandom.com/wiki/Trading#Weaponsmith",
+      "reviewer": "CraftMate maintainers",
+      "reviewedAt": "2026-11-16"
+    },
+    {
+      "id": "mason_chiseled_stone_bricks",
+      "profession": "mason",
+      "level": 1,
+      "takes": { "item": "minecraft:emerald", "count": 1 },
+      "gives": { "item": "minecraft:chiseled_stone_bricks", "count": 4 },
+      "source": "https://minecraft.fandom.com/wiki/Trading#Mason",
+      "reviewer": "CraftMate maintainers",
+      "reviewedAt": "2026-11-16"
+    }
+  ]
+}

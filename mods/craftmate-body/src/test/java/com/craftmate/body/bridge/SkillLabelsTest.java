@@ -23,7 +23,7 @@ class SkillLabelsTest {
 		assertEquals("放置方块", SkillLabels.displayName("place_block"));
 		assertEquals("垫高", SkillLabels.displayName("pillar_up"));
 		assertEquals("睡觉", SkillLabels.displayName("sleep"));
-		assertEquals("连续任务", SkillLabels.displayName("run_job"));
+		assertEquals("连续计划", SkillLabels.displayName("run_plan"));
 	}
 
 	@Test

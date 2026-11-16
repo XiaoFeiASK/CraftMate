@@ -261,7 +261,7 @@ export function nextTaskForStage(context: TaskContext): Task | BlockedTask | nul
     const equipmentNow =
       stagedProgress !== null &&
       "skill" in stagedProgress &&
-      /^(craft|place_block|smelt|run_job)$/u.test(stagedProgress.skill.name);
+      /^(craft|place_block|smelt|run_plan)$/u.test(stagedProgress.skill.name);
     /*
      * A hungry body must spend its remaining time finding food. Storage and
      * the trip back to the mine are useful housekeeping, but they were taking
@@ -1163,6 +1163,7 @@ function crossStageIronOpportunity(
   if (
     ore === null ||
     ore.visible !== true ||
+    ore.reachable === false ||
     (ore.distance ?? Number.POSITIVE_INFINITY) > 16
   ) {
     return null;
@@ -1294,6 +1295,13 @@ function blockHasLocation(block: NearbyBlock): boolean {
 function locatedNearby(facts: WorldFacts, pattern: RegExp): NearbyBlock | null {
   const matches = (facts.nearbyBlocks ?? []).filter((block) => pattern.test(block.id));
   return (
+    matches.find(
+      (block) =>
+        blockHasLocation(block) &&
+        block.visible !== false &&
+        block.reachable !== false &&
+        block.exposed !== false,
+    ) ??
     matches.find((block) => blockHasLocation(block) && block.visible !== false) ??
     matches.find(blockHasLocation) ??
     null
@@ -1992,7 +2000,7 @@ function exactOpportunisticAt(
     block.y! - position.y,
     block.z! - position.z,
   );
-  if (distance > 6) return {};
+  if (distance > (block.reachable === true ? 16 : 6)) return {};
   return { at: { x: block.x!, y: block.y!, z: block.z! } };
 }
 
@@ -2011,6 +2019,8 @@ function withinInteractionReach(
   const position = facts.position;
   if (position === undefined || position === null) return false;
   if (blockHasLocation(block)) {
+    if (block.reachable === true) return true;
+    if (block.reachable === false) return false;
     if (Math.abs(block.y! - position.y) > 2) return false;
     return (
       Math.hypot(block.x! - position.x, block.y! - position.y, block.z! - position.z) <=

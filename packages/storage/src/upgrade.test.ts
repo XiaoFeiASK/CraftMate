@@ -65,7 +65,20 @@ describe("schema upgrade", () => {
       const versions = (db.prepare("SELECT version FROM schema_migration ORDER BY version").all() as {
         version: number;
       }[]).map((row) => row.version);
-      assert.deepEqual(versions, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+      assert.deepEqual(versions, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+
+      const goalColumns = (
+        db.prepare("PRAGMA table_info(goal_runtime)").all() as { name: string }[]
+      ).map((column) => column.name);
+      for (const column of [
+        "task_tree_json",
+        "task_node_json",
+        "target_family",
+        "evidence_refs_json",
+        "failure_record_json",
+      ]) {
+        assert.ok(goalColumns.includes(column));
+      }
 
       const row = db
         .prepare("SELECT speech_text, skill_json FROM decision_log WHERE id = 'upgrade-d1'")

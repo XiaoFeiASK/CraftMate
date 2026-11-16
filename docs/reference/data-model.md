@@ -42,6 +42,9 @@
 | `0011_dashboard_activity` | 按场次记录工作台活动统计起点 |
 | `0012_model_usage` | 模型 token 用量，零价格调用也留证据 |
 | `0013_memory_outcomes` | 记忆的成功/失败次数、失败条件与适用版本 |
+| `0014_world_memory` | 世界地标、站点和可复用观察记忆 |
+| `0015_route_blacklist` | 会话内持久路线拒绝与证据 |
+| `0016_task_tree` | 任务树游标、活动节点、目标族、证据引用和失败记录 |
 
 当前校验器报告 35 个对象、34 个索引；新增迁移后以 `npm run db:check` 输出为准。
 
@@ -53,6 +56,20 @@ duration_ms, summary, error_code, source, created_at_ms
 ```
 
 - 只追加，不修改既有行；同一 `id` 重复写入为 no-op。
+
+### 2.2 `goal_runtime` 任务树字段
+
+`0016_task_tree` 增加：
+
+- `task_tree_json`：`TaskTreeSnapshot`，包含根、游标、节点和来源失败记录；
+- `task_node_json`：当前活动节点快照；
+- `target_family`：当前目标族；
+- `evidence_refs_json`：有界证据引用，完整记录仍由 `world_memory` /
+  `action_attempt` 持有；
+- `failure_record_json`：最近一次结构化失败分类、详情和时间。
+
+重启时先恢复目标与树游标，但不会直接重放旧任务；下一次观察后由 Agent 重新
+规划。`goalProgress.taskTree` 只暴露活动路径、当前节点、检查点年龄和阻塞原因。
 - `stage`、`status` 和 `source` 都是封闭枚举，非法值在 SQLite 与 zod 两层拒绝。
 - `duration_ms` 只能为空或非负；UID 之外没有明文观众标识。
 - 索引支持最近窗口、按 trace 回放、按 task 聚合和按 decision 关联：

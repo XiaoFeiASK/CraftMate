@@ -8,8 +8,8 @@ import org.junit.jupiter.api.Test;
 
 class CameraSpringTest {
 	@Test
-	void shoulderTargetUsesGentleRightOffsetAtEveryHeading() {
-		CameraSpring.Target south = CameraSpring.shoulderTarget(
+	void followTargetKeepsTheCharacterOnTheHorizontalCentreLine() {
+		CameraSpring.Target south = CameraSpring.followTarget(
 			0,
 			64,
 			0,
@@ -18,11 +18,11 @@ class CameraSpringTest {
 			0,
 			0
 		);
-		assertEquals(-0.6, south.x(), 1.0e-6);
+		assertEquals(0.0, south.x(), 1.0e-6);
 		assertEquals(64.35, south.y(), 1.0e-6);
 		assertEquals(-3.2, south.z(), 1.0e-6);
 
-		CameraSpring.Target east = CameraSpring.shoulderTarget(
+		CameraSpring.Target east = CameraSpring.followTarget(
 			0,
 			64,
 			0,
@@ -32,12 +32,12 @@ class CameraSpringTest {
 			0
 		);
 		assertEquals(-3.2, east.x(), 1.0e-6);
-		assertEquals(0.6, east.z(), 1.0e-6);
+		assertEquals(0.0, east.z(), 1.0e-6);
 	}
 
 	@Test
 	void lookAheadIsBounded() {
-		CameraSpring.Target target = CameraSpring.shoulderTarget(
+		CameraSpring.Target target = CameraSpring.followTarget(
 			0,
 			64,
 			0,
@@ -49,6 +49,12 @@ class CameraSpringTest {
 		double dx = target.x();
 		double dz = target.z() + 3.2;
 		assertTrue(Math.hypot(dx, dz) <= 0.5 + 1.0e-6);
+	}
+
+	@Test
+	void framingPitchBlendsLookIntentWithBodyPitch() {
+		assertEquals(12.0f, CameraSpring.framingPitch(20.0f, 0.0f), 1.0e-6);
+		assertEquals(8.0f, CameraSpring.framingPitch(0.0f, 20.0f), 1.0e-6);
 	}
 
 	@Test

@@ -32,7 +32,9 @@ export class GoalRuntimeSqliteStore implements GoalRuntimeStore {
       .prepare(
         `SELECT goal_json, enabled, progress_json, current_decision_id,
                 current_strategy_key, last_failure, last_failure_strategy,
-                consecutive_failures, retry_at_ms, updated_at_ms, failures_json
+                consecutive_failures, retry_at_ms, updated_at_ms, failures_json,
+                task_tree_json, task_node_json, target_family,
+                evidence_refs_json, failure_record_json
          FROM goal_runtime WHERE session_id = ?`,
       )
       .get(this.context.sessionId) as
@@ -48,6 +50,11 @@ export class GoalRuntimeSqliteStore implements GoalRuntimeStore {
           retry_at_ms: number;
           updated_at_ms: number;
           failures_json: string | null;
+          task_tree_json: string | null;
+          task_node_json: string | null;
+          target_family: string | null;
+          evidence_refs_json: string | null;
+          failure_record_json: string | null;
         }
       | undefined;
     if (!row) return null;
@@ -68,6 +75,16 @@ export class GoalRuntimeSqliteStore implements GoalRuntimeStore {
       retryAt: row.retry_at_ms,
       updatedAt: row.updated_at_ms,
       failures: parseFailures(row.failures_json),
+      taskTree:
+        (parseJson(row.task_tree_json) as GoalRuntimeRecord["taskTree"]) ?? null,
+      taskNode:
+        (parseJson(row.task_node_json) as GoalRuntimeRecord["taskNode"]) ?? null,
+      targetFamily: row.target_family,
+      evidenceRefs: parseStringArray(row.evidence_refs_json),
+      failureRecord:
+        (parseJson(
+          row.failure_record_json,
+        ) as GoalRuntimeRecord["failureRecord"]) ?? null,
     };
   }
 
@@ -77,8 +94,10 @@ export class GoalRuntimeSqliteStore implements GoalRuntimeStore {
         `INSERT INTO goal_runtime
            (session_id, goal_json, enabled, progress_json, current_decision_id,
             current_strategy_key, last_failure, last_failure_strategy,
-            consecutive_failures, retry_at_ms, updated_at_ms, failures_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            consecutive_failures, retry_at_ms, updated_at_ms, failures_json,
+            task_tree_json, task_node_json, target_family,
+            evidence_refs_json, failure_record_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (session_id) DO UPDATE SET
            goal_json = excluded.goal_json,
            enabled = excluded.enabled,
@@ -90,7 +109,12 @@ export class GoalRuntimeSqliteStore implements GoalRuntimeStore {
            consecutive_failures = excluded.consecutive_failures,
            retry_at_ms = excluded.retry_at_ms,
            updated_at_ms = excluded.updated_at_ms,
-           failures_json = excluded.failures_json`,
+           failures_json = excluded.failures_json,
+           task_tree_json = excluded.task_tree_json,
+           task_node_json = excluded.task_node_json,
+           target_family = excluded.target_family,
+           evidence_refs_json = excluded.evidence_refs_json,
+           failure_record_json = excluded.failure_record_json`,
       )
       .run(
         this.context.sessionId,
@@ -105,6 +129,17 @@ export class GoalRuntimeSqliteStore implements GoalRuntimeStore {
         record.retryAt,
         record.updatedAt,
         JSON.stringify(record.failures ?? []),
+        record.taskTree === undefined || record.taskTree === null
+          ? null
+          : JSON.stringify(record.taskTree),
+        record.taskNode === undefined || record.taskNode === null
+          ? null
+          : JSON.stringify(record.taskNode),
+        record.targetFamily ?? null,
+        JSON.stringify(record.evidenceRefs ?? []),
+        record.failureRecord === undefined || record.failureRecord === null
+          ? null
+          : JSON.stringify(record.failureRecord),
       );
   }
 }
@@ -115,6 +150,18 @@ function parseFailures(value: string | null): NonNullable<GoalRuntimeRecord["fai
     const parsed = JSON.parse(value) as unknown;
     return Array.isArray(parsed)
       ? (parsed as NonNullable<GoalRuntimeRecord["failures"]>)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseStringArray(value: string | null): readonly string[] {
+  if (value === null) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === "string")
       : [];
   } catch {
     return [];

@@ -642,6 +642,7 @@ test("a liveness-only heartbeat does not erase the last world snapshot", () => {
     inWorld: true,
     position: { x: 10, y: 64, z: 8 },
     nearbyBlocks: [{ id: "minecraft:stone" }],
+    worldVersion: "1:100",
   });
 });
 

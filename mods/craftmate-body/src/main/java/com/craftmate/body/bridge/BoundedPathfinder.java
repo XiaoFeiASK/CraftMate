@@ -73,6 +73,20 @@ public final class BoundedPathfinder {
 	}
 
 	/**
+	 * Costs one proven transition. The pathfinder never decides whether water,
+	 * a drop or a block is dangerous; the caller prices those hazards and the
+	 * search simply prefers the cheaper proven route.
+	 */
+	@FunctionalInterface
+	public interface StepCost {
+		double cost(Cell from, Cell to);
+
+		StepCost DEFAULT = (from, to) ->
+			(Math.abs(to.x - from.x) > 0 && Math.abs(to.z - from.z) > 0 ? 1.414 : 1.0)
+				+ (to.y == from.y ? 0.0 : 0.25);
+	}
+
+	/**
 	 * Returns the best path found before the node budget is exhausted. A
 	 * non-complete path still ends on a reachable standable cell, so callers
 	 * can report an honest partial result instead of pretending to arrive.
@@ -117,6 +131,30 @@ public final class BoundedPathfinder {
 			goal,
 			grid,
 			traversal,
+			StepCost.DEFAULT,
+			maxNodes,
+			maxRadius,
+			DEFAULT_MAX_VERTICAL
+		);
+	}
+
+	public static Result find(
+		Cell start,
+		Cell goalCell,
+		Goal goal,
+		Grid grid,
+		Traversal traversal,
+		StepCost stepCost,
+		int maxNodes,
+		double maxRadius
+	) {
+		return find(
+			start,
+			goalCell,
+			goal,
+			grid,
+			traversal,
+			stepCost,
 			maxNodes,
 			maxRadius,
 			DEFAULT_MAX_VERTICAL
@@ -136,6 +174,30 @@ public final class BoundedPathfinder {
 		Goal goal,
 		Grid grid,
 		Traversal traversal,
+		int maxNodes,
+		double maxRadius,
+		int maxVertical
+	) {
+		return find(
+			start,
+			goalCell,
+			goal,
+			grid,
+			traversal,
+			StepCost.DEFAULT,
+			maxNodes,
+			maxRadius,
+			maxVertical
+		);
+	}
+
+	public static Result find(
+		Cell start,
+		Cell goalCell,
+		Goal goal,
+		Grid grid,
+		Traversal traversal,
+		StepCost stepCost,
 		int maxNodes,
 		double maxRadius,
 		int maxVertical
@@ -201,9 +263,10 @@ public final class BoundedPathfinder {
 					if (!grid.standable(x, y, z)) continue;
 					if (!traversal.allowed(current.cell, next)) continue;
 
-					double moveCost =
-						(direction[0] != 0 && direction[1] != 0 ? 1.414 : 1.0)
-							+ (dy == 0 ? 0.0 : 0.25);
+					double moveCost = Math.max(
+						0.01,
+						stepCost.cost(current.cell, next)
+					);
 					double cost = current.cost + moveCost;
 					Double known = bestCost.get(next);
 					if (known != null && known <= cost) continue;

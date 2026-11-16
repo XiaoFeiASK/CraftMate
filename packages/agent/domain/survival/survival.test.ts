@@ -2777,6 +2777,74 @@ describe("survival planning", () => {
     assert.doesNotMatch(task.title, /接近地表|寻找食物/u);
   });
 
+  test("a reachable deepslate iron ore is an iron-family opportunity", () => {
+    const task = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        position: { x: 18.5, y: 40, z: -4.5 },
+        surfaceY: 80,
+        canSeeSky: false,
+        timeOfDay: 6_000,
+        food: 18,
+        inventory: [
+          { item: "minecraft:stone_pickaxe", count: 1, durability: 96 },
+          { item: "minecraft:torch", count: 8 },
+        ],
+        nearbyBlocks: [
+          {
+            id: "minecraft:deepslate_iron_ore",
+            count: 1,
+            x: 20,
+            y: 40,
+            z: -4,
+            distance: 2,
+            visible: true,
+            exposed: true,
+            reachable: true,
+          },
+        ],
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "mine_block");
+    assert.equal(task.skill.args["block"], "minecraft:deepslate_iron_ore");
+  });
+
+  test("a visible but unreachable ore is not pinned as an exact target", () => {
+    const task = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        position: { x: 18.5, y: 40, z: -4.5 },
+        surfaceY: 80,
+        canSeeSky: false,
+        timeOfDay: 6_000,
+        food: 18,
+        inventory: [
+          { item: "minecraft:stone_pickaxe", count: 1, durability: 96 },
+          { item: "minecraft:torch", count: 8 },
+        ],
+        nearbyBlocks: [
+          {
+            id: "minecraft:iron_ore",
+            count: 1,
+            x: 20,
+            y: 40,
+            z: -4,
+            distance: 2,
+            visible: true,
+            exposed: true,
+            reachable: false,
+            reason: "visible ore has no standable interaction route",
+          },
+        ],
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.notEqual(task.skill.args["block"], "minecraft:iron_ore");
+  });
+
   test("critical health hunts a nearby animal even after the food stage is complete", () => {
     const baseFacts: TaskContext = {
       stage: "iron",

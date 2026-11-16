@@ -45,6 +45,11 @@ export interface NearbyBlock {
   /** Degrees relative to the player's facing, -180..180. */
   readonly bearing?: number;
   readonly visible?: boolean;
+  /** An exposed, clickable face exists; not the same as line of sight. */
+  readonly exposed?: boolean;
+  /** A standable interaction route to this candidate was proven. */
+  readonly reachable?: boolean;
+  readonly reason?: string;
 }
 
 export interface NearbyEntity {
@@ -81,6 +86,8 @@ export interface TargetLockIntent {
 export interface WorldFacts {
   readonly inWorld: boolean;
   readonly world?: string | null;
+  /** Heartbeat observation identity; stale evidence cannot satisfy a guard. */
+  readonly worldVersion?: string | null;
   readonly dimension?: string | null;
   readonly position?: Position | null;
   /** Body yaw in degrees; 0 faces south (+Z), -90 faces east (+X). */
@@ -212,6 +219,16 @@ export interface WorldFacts {
   readonly lightLevel?: number | null;
   readonly inventory: readonly InventorySlot[];
   readonly nearbyBlocks?: readonly NearbyBlock[];
+  /** Body-reported ore observation chain and rejection counts. */
+  readonly orePerception?: {
+    readonly status: "NOT_OBSERVED" | "OBSERVED_NOT_PLANNED" | "CANDIDATE_READY";
+    readonly reason: string;
+    readonly observed: number;
+    readonly exposed: number;
+    readonly visible: number;
+    readonly reachable: number;
+    readonly surveying: boolean;
+  } | null;
   readonly entities?: readonly NearbyEntity[];
   /** Active route refusals relevant to this body snapshot. */
   readonly routeBlacklist?: readonly RouteBlacklist[];

@@ -408,7 +408,7 @@ final class IdleWander {
 			player.getYRot(),
 			player.getXRot()
 		);
-		if (bodySettled && CameraController.settled(2.5f)) {
+		if (bodySettled && CameraController.settled(player, 2.5f)) {
 			if (holdTicks-- <= 0) end(client);
 			return;
 		}

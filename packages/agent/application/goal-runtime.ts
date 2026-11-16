@@ -9,6 +9,7 @@ import {
   type GoalMilestone,
   type GoalProgress,
   type GoalStatus,
+  type GoalTaskTree,
   type Proposal,
   type RouteBlacklist,
   type SeasonGoal,
@@ -25,10 +26,14 @@ import {
   planSurvival,
   recover,
   taskSignature,
+  TaskTree,
   worldFactsFromSnapshot,
+  type FailureCategory,
   type GoalId,
   type SurvivalPlan,
   type Task,
+  type TaskNode,
+  type TaskTreeSnapshot,
   type TaskFailure,
   type WorldFacts,
 } from "../domain/index.ts";
@@ -125,6 +130,16 @@ export interface GoalRuntimeRecord {
   readonly updatedAt: number;
   /** Stage-scoped failed strategies, so a restart does not repeat them. */
   readonly failures?: readonly TaskFailure[];
+  /** Active-branch cursor restored after a restart; never replayed blindly. */
+  readonly taskTree?: TaskTreeSnapshot | null;
+  readonly taskNode?: TaskNode | null;
+  readonly targetFamily?: string | null;
+  readonly evidenceRefs?: readonly string[];
+  readonly failureRecord?: {
+    readonly category: FailureCategory;
+    readonly detail: string;
+    readonly at: number;
+  } | null;
 }
 
 export interface GoalRuntimeStore {
@@ -309,6 +324,16 @@ export class GoalRuntime {
     readonly detail: string;
     readonly until: number;
   } | null = null;
+  private taskTree: TaskTree | null = null;
+  private taskRootId: string | null = null;
+  private taskNodeId: string | null = null;
+  private taskTargetFamily: string | null = null;
+  private taskEvidenceRefs: string[] = [];
+  private taskFailureRecord: {
+    readonly category: FailureCategory;
+    readonly detail: string;
+    readonly at: number;
+  } | null = null;
 
   constructor(options: GoalRuntimeOptions) {
     this.store = options.store;
@@ -347,6 +372,21 @@ export class GoalRuntime {
     this.consecutiveFailures = record.consecutiveFailures;
     this.retryAt = record.retryAt;
     this.failures = safeFailures(record.failures);
+    if (record.taskTree !== undefined && record.taskTree !== null) {
+      try {
+        this.taskTree = TaskTree.restore(record.taskTree, () => this.clock.now());
+        this.taskRootId = record.taskTree.rootId;
+      } catch {
+        // A truncated or hand-edited tree is diagnosis, not execution state.
+        // Drop it and let the planner re-observe from the durable goal.
+        this.taskTree = null;
+        this.taskRootId = null;
+      }
+    }
+    this.taskNodeId = record.taskNode?.id ?? null;
+    this.taskTargetFamily = record.targetFamily ?? null;
+    this.taskEvidenceRefs = [...(record.evidenceRefs ?? [])].slice(-16);
+    this.taskFailureRecord = record.failureRecord ?? null;
     if (record.currentDecisionId !== null) {
       this.restoredInFlight = record.currentDecisionId;
       this.lastFailure = "重启前任务终态未知；已丢弃旧计划，重新观察世界";
@@ -426,6 +466,12 @@ export class GoalRuntime {
     this.consecutiveFailures = 0;
     this.failures = [];
     this.retryAt = 0;
+    this.taskTree = null;
+    this.taskRootId = null;
+    this.taskNodeId = null;
+    this.taskTargetFamily = null;
+    this.taskEvidenceRefs = [];
+    this.taskFailureRecord = null;
     this.persist();
     return { goal, interruption };
   }
@@ -489,6 +535,10 @@ export class GoalRuntime {
       };
     }
     this.retryAt = 0;
+    const current = this.taskTree?.current ?? null;
+    if (current !== null && current.state === "paused") {
+      this.taskTree?.activate(current.id);
+    }
     this.persist();
   }
 
@@ -497,6 +547,13 @@ export class GoalRuntime {
     const current = this.inFlight;
     if (current === null) return null;
     this.inFlight = null;
+    if (
+      this.taskTree !== null &&
+      this.taskNodeId !== null &&
+      this.taskTree.get(this.taskNodeId)?.state === "active"
+    ) {
+      this.taskTree.pause(this.taskNodeId);
+    }
     this.persist();
     return {
       decisionId: current.decision.id,
@@ -797,6 +854,7 @@ export class GoalRuntime {
       );
       return null;
     }
+    this.noteTaskStarted(plan, taskId, this.clock.now());
 
     const id = this.clock.newId();
     // A decision is a fresh execution attempt, not a transport retry. Reusing
@@ -889,6 +947,10 @@ export class GoalRuntime {
     if (outcome.status === "completed") {
       const missingEvidence = completionEvidenceProblem(current.decision, outcome.changes ?? []);
       if (missingEvidence !== null) {
+        this.noteTaskSettled(current.taskId, "failed", {
+          ...outcome,
+          detail: missingEvidence,
+        });
         this.recordFailure(
           current.taskId,
           current.strategyKey,
@@ -909,6 +971,7 @@ export class GoalRuntime {
         });
         return true;
       }
+      this.noteTaskSettled(current.taskId, "completed", outcome);
       this.consecutiveFailures = 0;
       this.lastFailure = null;
       this.lastFailureStrategy = null;
@@ -943,6 +1006,7 @@ export class GoalRuntime {
       return true;
     }
     if (outcome.status === "preempted") {
+      this.noteTaskSettled(current.taskId, "preempted", outcome);
       /*
        * Death and a deliberate safety handoff are not strategy failures. The
        * body preempts its in-flight skill, the planner waits for a live body,
@@ -974,6 +1038,11 @@ export class GoalRuntime {
       this.persist();
       return true;
     }
+    if (outcome.status === "cancelled") {
+      this.noteTaskSettled(current.taskId, "cancelled", outcome);
+    } else {
+      this.noteTaskSettled(current.taskId, outcome.status, outcome);
+    }
     this.recordFailure(
       current.taskId,
       current.strategyKey,
@@ -1001,6 +1070,13 @@ export class GoalRuntime {
     if (this.inFlight === null) return;
     const current = this.inFlight;
     this.inFlight = null;
+    this.noteTaskSettled(taskId, "failed", {
+      status: "failed",
+      errorCode: "E_DISPATCH",
+      detail,
+      at: this.clock.now(),
+      changes: [],
+    });
     this.recordFailure(taskId, strategyKey, detail, "failed");
     this.onSettlement?.({
       decision: current.decision,
@@ -1026,7 +1102,134 @@ export class GoalRuntime {
       retryAt: this.retryAt,
       updatedAt: this.clock.now(),
       failures: this.failures,
+      taskTree: this.taskTree?.snapshot() ?? null,
+      taskNode:
+        this.taskNodeId === null || this.taskTree === null
+          ? null
+          : this.taskTree.get(this.taskNodeId),
+      targetFamily: this.taskTargetFamily,
+      evidenceRefs: [...this.taskEvidenceRefs],
+      failureRecord: this.taskFailureRecord,
     };
+  }
+
+  /**
+   * Task trees are Agent-side state. The projection is bounded and read-only;
+   * it never selects the next branch or replaces a planner decision.
+   */
+  private projectTaskTree(): GoalTaskTree | null {
+    if (this.taskTree === null) return null;
+    const current = this.taskTree.current;
+    const path = this.taskTree.activePath.map((node) => ({
+      id: node.id,
+      intent: node.intent.slice(0, 240),
+      state: node.state,
+      priority: node.priority,
+    }));
+    return {
+      activePath: path.slice(-16),
+      currentNodeId: current?.id ?? null,
+      currentNodeIntent: current?.intent.slice(0, 240) ?? null,
+      checkpointAgeMs:
+        current === null ? 0 : Math.max(0, this.clock.now() - current.updatedAt),
+      blockedReason:
+        current !== null && (current.state === "blocked" || current.state === "failed")
+          ? current.failureDetail
+          : this.taskFailureRecord?.detail ?? null,
+      targetFamily: this.taskTargetFamily,
+      evidenceRefs: this.taskEvidenceRefs.slice(-16),
+    };
+  }
+
+  /**
+   * Adds the task the planner is about to dispatch to the active branch. The
+   * tree records intent and evidence; it never chooses a target or a skill.
+   */
+  private noteTaskStarted(
+    plan: GoalPlan,
+    taskId: string,
+    at: number,
+  ): void {
+    if (plan.nextTask === null) return;
+    if (this.taskTree === null || this.taskRootId === null || this.taskTargetFamily !== plan.stage.id) {
+      this.taskTree = new TaskTree(() => this.clock.now());
+      const root = this.taskTree.createRoot({
+        intent: this.goal?.title ?? plan.stage.title,
+        targetFamily: plan.stage.id,
+        priority: "goal",
+        sourceKey: `stage:${plan.stage.id}`,
+      });
+      this.taskRootId = root.id;
+      this.taskTargetFamily = plan.stage.id;
+    } else if (this.taskTree.snapshot().nodes.length > 64) {
+      // Bounded history: committed evidence is preserved for the current
+      // stage, while an old exploration branch cannot grow without limit.
+      const stage = plan.stage.id;
+      this.taskTree = new TaskTree(() => this.clock.now());
+      const root = this.taskTree.createRoot({
+        intent: this.goal?.title ?? plan.stage.title,
+        targetFamily: stage,
+        priority: "goal",
+        sourceKey: `stage:${stage}`,
+      });
+      this.taskRootId = root.id;
+      this.taskTargetFamily = stage;
+    }
+    const node = this.taskTree.add({
+      parentId: this.taskRootId,
+      intent: plan.nextTask.text,
+      targetFamily: plan.stage.id,
+      priority: plan.nextTask.critical === true ? "survival" : "goal",
+      sourceKey: taskId,
+      successEvidence: [],
+    });
+    this.taskTree.activate(node.id);
+    this.taskNodeId = node.id;
+    this.taskFailureRecord = null;
+    this.progress =
+      this.progress === null
+        ? this.progress
+        : { ...this.progress, taskTree: this.projectTaskTree(), updatedAt: at };
+  }
+
+  private noteTaskSettled(
+    taskId: string,
+    status: GoalSettlement["status"],
+    outcome: GoalSettlement,
+  ): void {
+    if (this.taskTree === null || this.taskNodeId === null) return;
+    const nodeId = this.taskNodeId;
+    const refs = (outcome.changes ?? [])
+      .map((change) => `${change.kind}: ${change.detail}`.slice(0, 240))
+      .filter((entry) => entry.length > 0);
+    if (status === "completed") {
+      const evidence = refs.length > 0 ? refs : [`settled: ${taskId}`.slice(0, 240)];
+      this.taskEvidenceRefs = [...this.taskEvidenceRefs, ...evidence].slice(-16);
+      try {
+        this.taskTree.complete(nodeId, evidence);
+      } catch {
+        // A node already completed by recovery is not an execution failure.
+      }
+      this.taskNodeId = null;
+      return;
+    }
+    if (status === "cancelled" || status === "preempted") {
+      this.taskTree.pause(nodeId);
+      // A preempted task remains the active branch so a restart can explain
+      // where it stopped; the next plan will activate a fresh node.
+      this.taskNodeId = null;
+      return;
+    }
+    const category = taskFailureCategory(outcome.errorCode);
+    this.taskFailureRecord = {
+      category,
+      detail: failureDetail(outcome).slice(0, 600),
+      at: outcome.at,
+    };
+    this.taskTree.fail(nodeId, category, this.taskFailureRecord.detail, {
+      blacklistMs: 10 * 60_000,
+    });
+    this.taskNodeId = null;
   }
 
   private applyPlan(plan: GoalPlan): void {
@@ -1213,6 +1416,12 @@ export class GoalRuntime {
   }
 
   private persist(): void {
+    if (this.progress !== null) {
+      this.progress = {
+        ...this.progress,
+        taskTree: this.projectTaskTree(),
+      };
+    }
     this.store.save(this.snapshot());
     this.onUpdate?.(this.currentProgress);
   }
@@ -1909,6 +2118,32 @@ function failureDetail(outcome: GoalSettlement): string {
     outcome.nextHint === undefined ? "" : `下一步：${outcome.nextHint}`,
   ].filter((part) => part.length > 0);
   return parts.join("；");
+}
+
+function taskFailureCategory(code: string | undefined | null): FailureCategory {
+  switch (code) {
+    case "E_UNREACHABLE":
+    case "E_ENCLOSED":
+      return "unreachable";
+    case "E_NOT_OBSERVED":
+      return "not_observed";
+    case "E_WORLD_CHANGED":
+      return "world_changed";
+    case "E_PLAN_EVIDENCE":
+      return "evidence_conflict";
+    case "E_TIMEOUT":
+      return "timeout";
+    case "E_OPERATOR":
+      return "operator";
+    case "E_PRECONDITION":
+      return "precondition";
+    case "E_DANGER":
+    case "E_LAVA":
+    case "E_FALL":
+      return "danger";
+    default:
+      return "internal";
+  }
 }
 
 /**

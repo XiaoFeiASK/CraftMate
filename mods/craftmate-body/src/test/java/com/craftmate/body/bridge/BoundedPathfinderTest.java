@@ -74,6 +74,24 @@ class BoundedPathfinderTest {
 	}
 
 	@Test
+	void aCallerSuppliedStepCostChoosesTheCheaperProvenRoute() {
+		BoundedPathfinder.Cell expensive = new BoundedPathfinder.Cell(1, 0, 0);
+		BoundedPathfinder.Result result = BoundedPathfinder.find(
+			new BoundedPathfinder.Cell(0, 0, 0),
+			new BoundedPathfinder.Cell(2, 0, 0),
+			(cell) -> cell.x() == 2 && cell.y() == 0 && cell.z() == 0,
+			(x, y, z) -> y == 0,
+			BoundedPathfinder.Traversal.ANY,
+			(from, to) -> to.equals(expensive) ? 100.0 : 1.0,
+			500,
+			8
+		);
+		assertNotNull(result);
+		assertTrue(result.complete());
+		assertFalse(result.path().contains(expensive));
+	}
+
+	@Test
 	void allowsOneBlockStepUp() {
 		BoundedPathfinder.Result result = BoundedPathfinder.find(
 			new BoundedPathfinder.Cell(0, 0, 0),

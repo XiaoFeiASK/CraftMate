@@ -100,6 +100,44 @@ export const goalMilestoneSchema = z.object({
 export type GoalMilestone = z.infer<typeof goalMilestoneSchema>;
 
 /**
+ * Read-only projection of the Agent's task tree. It exists so the console can
+ * explain where the run is and why it stopped; it is never an input to
+ * dispatch, and the body never receives it.
+ */
+export const goalTaskStateSchema = z.enum([
+  "pending",
+  "active",
+  "waiting",
+  "blocked",
+  "succeeded",
+  "failed",
+  "invalidated",
+  "paused",
+]);
+export type GoalTaskState = z.infer<typeof goalTaskStateSchema>;
+
+export const goalTaskTreeSchema = z.object({
+  activePath: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(100),
+        intent: z.string().trim().min(1).max(240),
+        state: goalTaskStateSchema,
+        priority: z.enum(["operator", "reflex", "survival", "goal", "optional"]),
+      }),
+    )
+    .max(16)
+    .default([]),
+  currentNodeId: z.string().min(1).max(100).nullable().default(null),
+  currentNodeIntent: z.string().trim().max(240).nullable().default(null),
+  checkpointAgeMs: z.number().int().nonnegative().default(0),
+  blockedReason: z.string().trim().max(600).nullable().default(null),
+  targetFamily: z.string().trim().max(120).nullable().default(null),
+  evidenceRefs: z.array(z.string().trim().min(1).max(240)).max(16).default([]),
+});
+export type GoalTaskTree = z.infer<typeof goalTaskTreeSchema>;
+
+/**
  * Progress is evidence, never a percentage. Before the goal engine can verify
  * a milestone it stays explicitly `unverified`; the console must not turn that
  * gap into a fabricated completion rate.
@@ -154,6 +192,8 @@ export const goalProgressSchema = z.object({
     .optional(),
   /** Short-lived entity/explore target selected by the planner. */
   targetLock: targetLockSchema.nullable().optional(),
+  /** Active branch and checkpoint projection from the Agent task tree. */
+  taskTree: goalTaskTreeSchema.nullable().optional(),
   /** Consecutive terminal failures; zero means the runtime is not backing off. */
   consecutiveFailures: z.number().int().nonnegative().default(0),
   /** Absolute epoch-ms time the next attempt is allowed, or null when none. */

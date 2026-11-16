@@ -69,6 +69,37 @@ describe("goal runtime storage", () => {
       consecutiveFailures: 0,
       retryAt: 0,
       updatedAt: 1_000,
+      taskTree: {
+        schemaVersion: 1,
+        rootId: "task:1:goal",
+        cursorId: "task:2:mine",
+        pausedCursorId: null,
+        nodes: [
+          {
+            id: "task:1:goal",
+            parentId: null,
+            intent: "击败末影龙",
+            targetFamily: "wood",
+            quantity: 1,
+            preconditions: [],
+            successEvidence: [],
+            priority: "goal",
+            state: "active",
+            sourceKey: "stage:wood",
+            fallbackNodeId: null,
+            failureCategory: null,
+            failureDetail: null,
+            failureCount: 0,
+            createdAt: 1_000,
+            updatedAt: 1_000,
+          },
+        ],
+        failures: [],
+        updatedAt: 1_000,
+      },
+      targetFamily: "wood",
+      evidenceRefs: ["block_broken: minecraft:oak_log"],
+      failureRecord: null,
     });
     first.close();
 
@@ -77,6 +108,9 @@ describe("goal runtime storage", () => {
     assert.equal(reopened?.goal?.title, "击败末影龙");
     assert.equal(reopened?.currentDecisionId, "decision-1");
     assert.equal(reopened?.progress?.status, "unverified");
+    assert.equal(reopened?.taskTree?.cursorId, "task:2:mine");
+    assert.equal(reopened?.targetFamily, "wood");
+    assert.deepEqual(reopened?.evidenceRefs, ["block_broken: minecraft:oak_log"]);
     second.close();
   });
 

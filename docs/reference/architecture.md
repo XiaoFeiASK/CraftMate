@@ -60,7 +60,7 @@ Admin Console 崩溃不中断直播；外部系统故障只降级对应能力，
 
 ```text
 身体快照 → worldFactsFromSnapshot → planMission（安全门与验收链）
-         → planSurvival（阶段任务）→ MissionGoalPlanner（可合成 run_job）
+         → planSurvival（阶段任务）→ MissionGoalPlanner（可编译 run_plan）
          → GoalRuntime → Bridge → Fabric Mod
          → result/changes → settle → 重新观察
 ```

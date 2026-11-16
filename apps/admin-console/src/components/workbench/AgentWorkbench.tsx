@@ -192,6 +192,23 @@ function CurrentWorkCard({
         </span>
         {goal?.nextTask ? <span>下一步 {goal.nextTask}</span> : null}
       </div>
+      {goal?.taskTree ? (
+        <div className="agent-chat__work-meta" data-task-tree="true">
+          <span>
+            任务树{" "}
+            {goal.taskTree.activePath
+              .map((node) => node.intent)
+              .join(" → ") || "等待活动分支"}
+          </span>
+          <span>
+            当前节点 {goal.taskTree.currentNodeIntent ?? "无"} · 检查点{" "}
+            {Math.floor(goal.taskTree.checkpointAgeMs / 1000)}s 前
+          </span>
+          {goal.taskTree.blockedReason ? (
+            <span>阻塞原因 {humanizeRuntimeText(goal.taskTree.blockedReason)}</span>
+          ) : null}
+        </div>
+      ) : null}
       {goal?.playbook ? (
         <div className="agent-chat__work-meta" data-playbook="true">
           <span>

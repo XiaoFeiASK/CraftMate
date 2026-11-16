@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { BridgeCapability, SkillName } from "./bridge.ts";
-import { FABRIC_BODY_CAPABILITIES, FABRIC_BODY_SKILLS, SKILL_CAPABILITY, parseSkillArgs, skillNameSchema } from "./skills.ts";
+import {
+  FABRIC_BODY_CAPABILITIES,
+  FABRIC_BODY_SKILLS,
+  SKILL_CAPABILITY,
+  parseSkillArgs,
+  skillCallSchema,
+  skillNameSchema,
+} from "./skills.ts";
 
 describe("skills", () => {
   test("parses supported skill arguments", () => {
@@ -116,44 +123,135 @@ describe("skills", () => {
       }),
       null,
     );
-    const job = parseSkillArgs("run_job", {
-      jobId: "iron-finish",
+    const plan = parseSkillArgs("run_plan", {
+      planId: "iron-finish",
       title: "完成铁套",
-      nodes: [
+      entryNodeId: "node:iron",
+      goalFamily: "iron-set",
+      targetFamilies: [
         {
+          id: "iron-ore",
+          kind: "block",
+          ids: ["minecraft:iron_ore", "minecraft:deepslate_iron_ore"],
+        },
+      ],
+      steps: [
+        {
+          id: "smelt",
           skill: "smelt",
           args: {
             input: "minecraft:raw_iron",
             output: "minecraft:iron_ingot",
             count: 3,
           },
+          guards: [{ type: "inventory", item: "minecraft:raw_iron", min: 3 }],
         },
-        { skill: "craft", args: { item: "minecraft:iron_pickaxe", count: 1 } },
+        {
+          id: "pickaxe",
+          skill: "craft",
+          args: { item: "minecraft:iron_pickaxe", count: 1 },
+          guards: [{ type: "inventory", item: "minecraft:iron_ingot", min: 3 }],
+          targetFamilyId: "iron-ore",
+        },
       ],
+      maxDurationSeconds: 180,
     });
-    if (job?.name !== "run_job") throw new Error("run_job was not parsed");
-    assert.equal(job.args.nodes.length, 2);
-    assert.equal(job.args.stopOnFailure, true);
+    if (plan?.name !== "run_plan") throw new Error("run_plan was not parsed");
+    assert.equal(plan.args.steps.length, 2);
+    assert.equal(plan.args.stopOnFailure, true);
+    assert.equal(plan.args.maxDurationSeconds, 180);
     assert.equal(
-      parseSkillArgs("run_job", {
-        jobId: "bad",
+      parseSkillArgs("run_plan", {
+        planId: "bad",
         title: "非法节点",
-        nodes: [{ skill: "mine_block", args: { block: "minecraft:stone", count: 0 } }],
+        entryNodeId: "node",
+        goalFamily: "test",
+        steps: [
+          {
+            id: "bad",
+            skill: "mine_block",
+            args: { block: "minecraft:stone", count: 0 },
+          },
+        ],
       }),
       null,
     );
     assert.equal(
-      parseSkillArgs("run_job", {
-        jobId: "nested",
+      parseSkillArgs("run_plan", {
+        planId: "nested",
         title: "嵌套任务",
-        nodes: [
+        entryNodeId: "node",
+        goalFamily: "test",
+        steps: [
           {
-            skill: "run_job",
+            id: "child",
+            skill: "run_plan",
             args: {
-              jobId: "child",
+              planId: "child",
               title: "child",
-              nodes: [{ skill: "wait", args: { ticks: 1 } }],
+              entryNodeId: "node",
+              goalFamily: "test",
+              steps: [{ id: "wait", skill: "wait", args: { ticks: 1 } }],
             },
+          },
+        ],
+      }),
+      null,
+    );
+    assert.equal(
+      parseSkillArgs("run_plan", {
+        planId: "too-long",
+        title: "超长计划",
+        entryNodeId: "node",
+        goalFamily: "test",
+        maxDurationSeconds: 181,
+        steps: [{ id: "wait", skill: "wait", args: { ticks: 1 } }],
+      }),
+      null,
+    );
+    assert.equal(
+      parseSkillArgs("run_plan", {
+        planId: "too-many",
+        title: "超长计划",
+        entryNodeId: "node",
+        goalFamily: "test",
+        steps: Array.from({ length: 33 }, (_, index) => ({
+          id: `wait-${index}`,
+          skill: "wait" as const,
+          args: { ticks: 1 },
+        })),
+      }),
+      null,
+    );
+    assert.equal(
+      parseSkillArgs("run_plan", {
+        planId: "unknown-family",
+        title: "未知目标族",
+        entryNodeId: "node",
+        goalFamily: "test",
+        steps: [
+          {
+            id: "mine",
+            skill: "mine_block",
+            args: { block: "minecraft:iron_ore", count: 1 },
+            targetFamilyId: "missing",
+          },
+        ],
+      }),
+      null,
+    );
+    assert.equal(
+      parseSkillArgs("run_plan", {
+        planId: "bad-guard",
+        title: "非法守卫",
+        entryNodeId: "node",
+        goalFamily: "test",
+        steps: [
+          {
+            id: "wait",
+            skill: "wait",
+            args: { ticks: 1 },
+            guards: [{ type: "script", expression: "player.health > 0" }],
           },
         ],
       }),
@@ -176,11 +274,42 @@ describe("fabric body capability catalogue", () => {
   test("contract catalogue is not mistaken for current body capabilities", () => {
     const implemented = new Set([
       "goto", "look_at", "mine_block", "chop_tree", "collect_items", "craft", "deposit", "say", "wait", "attack", "equip", "eat", "use_block", "place_block", "pillar_up", "smelt", "sleep",
-      "run_job",
+      "run_plan",
     ]);
     for (const skill of skillNameSchema.options) {
       assert.equal((FABRIC_BODY_SKILLS as readonly SkillName[]).includes(skill), implemented.has(skill));
     }
     assert.equal(implemented.size, FABRIC_BODY_SKILLS.length);
+  });
+});
+
+describe("plan dispatch contract", () => {
+  test("a skill call cannot smuggle a nested plan past the Agent gate", () => {
+    assert.equal(
+      skillCallSchema.safeParse({
+        name: "run_plan",
+        idempotencyKey: "nested",
+        args: {
+          planId: "outer",
+          title: "outer",
+          entryNodeId: "node",
+          goalFamily: "test",
+          steps: [
+            {
+              id: "inner",
+              skill: "run_plan",
+              args: {
+                planId: "inner",
+                title: "inner",
+                entryNodeId: "node",
+                goalFamily: "test",
+                steps: [{ id: "wait", skill: "wait", args: { ticks: 1 } }],
+              },
+            },
+          ],
+        },
+      }).success,
+      false,
+    );
   });
 });

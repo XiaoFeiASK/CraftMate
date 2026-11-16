@@ -22,10 +22,10 @@ cd mods/craftmate-body
 2026-11-16 当前工作区：
 
 - `npm run typecheck`：通过；
-- `npm test`：687 个测试、74 个 suite 全部通过；
+- `npm test`：706 个测试、75 个 suite 全部通过；
 - `npm run build`：Admin Console 生产构建通过；
 - `npm run db:check` / `db:check:file`：迁移、约束、视图、FTS 和真实 WAL 文件库通过；
-- `./gradlew test build`：JUnit 与 Fabric 1.20.1 构建通过；
+- `./gradlew test build`：232 个 JUnit 测试与 Fabric 1.20.1 构建通过；
 - `git diff --check`：通过。
 
 CI 不覆盖真实直播间、供应商计费、音频硬件、Minecraft 图形进程或桌面安装包。
@@ -87,13 +87,26 @@ CRAFTMATE_CHECK_COUNT=3 npm run check:control
 - 低血量、近身威胁、食物、可用镐和工作台是确定性前置，不能由观众提议或模型跳过。
 - 完成必须带身体世界证据；空结果、`unconfirmed` 和旧快照不推进里程碑。
 - 失败分类、路线黑名单、恢复路径、最长 6 秒退避和重新观察均有自动化覆盖。
-- 铁套材料和工作台就绪时可合成 `run_job`，连续完成熔炼和制作。
+- 铁套材料和工作台就绪时可编译 `run_plan`，连续完成熔炼和制作；契约和身体都强制
+  32 步/180 秒上限、禁止嵌套、目标族白名单和类型化 guard。矿族 guard 会等待
+  最多 5 秒的有界观察，扫描完成仍不满足时返回明确原因，不把未扫完当作不存在。
+- Agent 任务树支持滞回、两次失败拉黑、只失效当前分支、生存任务压栈和检查点恢复；
+  `goalProgress.taskTree` 只读投影当前路径、节点、检查点年龄和阻塞原因。
+- B：第三人称构图以躯干中心为目标，pitch 为 60% 看向意图 + 40% 身体 pitch；
+  第一人称和操作员接管路径不变。已有纯函数单元测试，待真机多朝向/贴墙验收。
+- A：铁矿族匹配覆盖 `iron_ore` / `deepslate_iron_ore`，矿脉状态走
+  `NOT_OBSERVED → OBSERVED_NOT_PLANNED → CANDIDATE_READY`；可见面要求真实暴露面
+  和进入该面的视线。已有 Java/领域单测，待真实存档链路复现。
 - 目标运行时恢复、观察间隔、死亡预占和策略熔断均有自动化覆盖。
 
 **未验收**
 
 - 从目标模式开启到击杀末影龙的全链路。
-- 真实存档中的长时间 `run_job`、站点复用和多段返地表。
+- 真实存档中的长时间 `run_plan`、站点复用、多段返地表和重启续跑。
+- B 真机：多个朝向、俯仰、横移、贴墙、第一人称、操作员接管/释放。
+- A 真机：脸上有铁矿石时稳定进入候选、选择、接近和挖掘；不可达矿石给出明确原因。
+- C 真机：从 `CraftMate-4h-2026-11-13w` 原地继续，最终背包含
+  `iron_pickaxe`、`iron_sword` 和四件铁护甲。
 - 4 小时无人接管稳定性、感知 P95 和策略熔断现场表现。
 
 ## 5. 真实环境证据

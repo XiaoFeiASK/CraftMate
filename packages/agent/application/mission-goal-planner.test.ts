@@ -57,7 +57,7 @@ function input(world: Record<string, unknown>): GoalPlanningInput {
         "craft",
         "smelt",
         "place_block",
-        "run_job",
+        "run_plan",
       ],
       world: world as WorldSnapshot,
       queued: 0,
@@ -97,12 +97,12 @@ test("mission planner compiles one continuous smelt+craft job", () => {
       { id: "minecraft:crafting_table", x: -1, y: 64, z: 0, distance: 1 },
     ],
   }));
-  assert.equal(plan?.nextTask?.skill.name, "run_job");
-  const nodes = plan?.nextTask?.skill.args["nodes"];
-  assert.ok(Array.isArray(nodes));
-  assert.equal(nodes[0]?.skill, "smelt");
-  assert.equal(nodes[1]?.skill, "craft");
-  assert.equal(nodes[1]?.args.item, "minecraft:iron_pickaxe");
+  assert.equal(plan?.nextTask?.skill.name, "run_plan");
+  const steps = plan?.nextTask?.skill.args["steps"];
+  assert.ok(Array.isArray(steps));
+  assert.equal(steps[0]?.skill, "smelt");
+  assert.equal(steps[1]?.skill, "craft");
+  assert.equal(steps[1]?.args.item, "minecraft:iron_pickaxe");
 });
 
 test("a carried table is placed before the job's craft node", () => {
@@ -128,13 +128,13 @@ test("a carried table is placed before the job's craft node", () => {
       { id: "minecraft:furnace", x: 1, y: 64, z: 0, distance: 1 },
     ],
   }));
-  assert.equal(plan?.nextTask?.skill.name, "run_job");
-  const nodes = plan?.nextTask?.skill.args["nodes"];
-  assert.ok(Array.isArray(nodes));
-  assert.equal(nodes[0]?.skill, "place_block");
-  assert.equal(nodes[0]?.args.block, "minecraft:crafting_table");
-  assert.equal(nodes[1]?.skill, "smelt");
-  assert.equal(nodes[2]?.skill, "craft");
+  assert.equal(plan?.nextTask?.skill.name, "run_plan");
+  const steps = plan?.nextTask?.skill.args["steps"];
+  assert.ok(Array.isArray(steps));
+  assert.equal(steps[0]?.skill, "place_block");
+  assert.equal(steps[0]?.args.block, "minecraft:crafting_table");
+  assert.equal(steps[1]?.skill, "smelt");
+  assert.equal(steps[2]?.skill, "craft");
 });
 
 test("three diamonds end the acceptance mission", () => {

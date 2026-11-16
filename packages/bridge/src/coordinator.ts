@@ -271,7 +271,13 @@ export class BodySession {
         // A null/omitted world is an explicit delta, not evidence that no
         // snapshot exists. Only a fresh snapshot replaces the planner view.
         if (parsed.data.world !== null && parsed.data.world !== undefined) {
-          this.world = parsed.data.world;
+          // The world object is a delta cache; the heartbeat always carries a
+          // monotonic observation identity. Project it into the snapshot so a
+          // plan guard can reject evidence taken against an older world.
+          this.world = {
+            ...parsed.data.world,
+            worldVersion: `${parsed.data.worldGeneration ?? 0}:${parsed.data.tick}`,
+          };
         }
         break;
       default:

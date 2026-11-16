@@ -93,7 +93,7 @@ import org.lwjgl.glfw.GLFW;
 public final class GameActions {
 	private static final List<String> SKILLS = List.of(
 		"goto", "look_at", "mine_block", "chop_tree", "collect_items", "craft", "deposit", "say", "wait", "attack",
-		"equip", "eat", "use_block", "place_block", "pillar_up", "smelt", "sleep", "run_job"
+		"equip", "eat", "use_block", "place_block", "pillar_up", "smelt", "sleep", "run_plan"
 	);
 	private static final List<String> CAPABILITIES = List.of(
 		"sensor", "move", "mine", "container", "attack", "use", "build", "camera", "hud"
@@ -210,17 +210,17 @@ public final class GameActions {
 	private static final int PATH_STEP_DOWN = 1;
 	private static final Map<String, Task> TASKS = new ConcurrentHashMap<>();
 	/**
-	 * A job-owned child reports its terminal result to the sequencer instead
-	 * of the bridge. The job is the one authoritative command on the wire;
+	 * A plan-owned child reports its terminal result to the sequencer instead
+	 * of the bridge. The plan is the one authoritative command on the wire;
 	 * exposing every child would make the orchestrator race the sequencer.
 	 */
 	private static final Map<String, Consumer<NodeResult>> NODE_OBSERVERS = new ConcurrentHashMap<>();
-	private static final int JOB_CHECKPOINT_LIMIT = 16;
-	private static final Map<String, JobCheckpoint> JOB_CHECKPOINTS =
+	private static final int PLAN_CHECKPOINT_LIMIT = 16;
+	private static final Map<String, PlanCheckpoint> PLAN_CHECKPOINTS =
 		new java.util.LinkedHashMap<>(16, 0.75f, true) {
 			@Override
-			protected boolean removeEldestEntry(Map.Entry<String, JobCheckpoint> eldest) {
-				return size() > JOB_CHECKPOINT_LIMIT;
+			protected boolean removeEldestEntry(Map.Entry<String, PlanCheckpoint> eldest) {
+				return size() > PLAN_CHECKPOINT_LIMIT;
 			}
 		};
 	private static int clientTick;
@@ -327,6 +327,45 @@ public final class GameActions {
 	 */
 	private static List<OreTarget> localOres = List.of();
 	/**
+	 * Bounded phased ore survey. A 24x16x24 sweep is only started after the
+	 * small cube confirmed NOT_OBSERVED, and it is sliced across ticks so the
+	 * render thread never pays for a full cave scan at once.
+	 */
+	private static OreScan oreScan;
+	private static int oreScanTick = Integer.MIN_VALUE;
+	private static BlockPos oreScanOrigin;
+	private static String oreObservationStatus = OrePerception.NOT_OBSERVED;
+	private static String oreObservationReason = "no ore survey has run";
+	/**
+	 * The ore family currently worth surveying. Guard evaluation and mining
+	 * both own requests; the owner keeps a short-lived guard probe from
+	 * clearing the request of the task it just started.
+	 */
+	private static volatile OreSurveyRequest oreSurveyRequest;
+
+	private static final class OreSurveyRequest {
+		final String owner;
+		final String blockId;
+		final String state;
+		final int createdTick;
+		long expiresTick;
+		boolean published;
+
+		OreSurveyRequest(
+			String owner,
+			String blockId,
+			String state,
+			int createdTick,
+			long expiresTick
+		) {
+			this.owner = owner;
+			this.blockId = blockId;
+			this.state = state;
+			this.createdTick = createdTick;
+			this.expiresTick = expiresTick;
+		}
+	}
+	/**
 	 * Mutable state for one surface survey. Minecraft world reads stay on the
 	 * client thread; only the amount of work per tick is bounded.
 	 */
@@ -369,7 +408,50 @@ public final class GameActions {
 	private record NearbyCount(String id, int count) {
 	}
 
-	private record OreTarget(String id, int x, int y, int z, double distance) {
+	private record OreTarget(
+		String id,
+		int x,
+		int y,
+		int z,
+		double distance,
+		boolean exposed,
+		boolean visible,
+		boolean reachable,
+		String reason
+	) {
+	}
+
+	/**
+	 * Cursor for the wide survey. Candidates are retained only while the scan
+	 * runs; the previous complete list remains published until a new complete
+	 * result replaces it.
+	 */
+	private static final class OreScan {
+		static final int RADIUS = 12;
+		static final int MIN_DY = -8;
+		static final int MAX_DY = 7;
+		static final int MAX_CANDIDATES = 24;
+		static final long BUDGET_NANOS = 6_000_000L;
+
+		final BlockPos origin;
+		final int startedTick;
+		final OreSurveyRequest request;
+		final List<OreTarget> candidates = new ArrayList<>();
+		final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+		int nextDx = -RADIUS;
+		int nextDz = -RADIUS;
+		int nextDy = MIN_DY;
+		int reachabilityProbes;
+
+		OreScan(BlockPos origin, int startedTick, OreSurveyRequest request) {
+			this.origin = origin;
+			this.startedTick = startedTick;
+			this.request = request;
+		}
+
+		boolean complete() {
+			return nextDx > RADIUS;
+		}
 	}
 	/**
 	 * The last crafting table this body placed. A table is a durable world
@@ -678,6 +760,12 @@ public final class GameActions {
 		nearbyCountsOrigin = null;
 		visibleOres = List.of();
 		localOres = List.of();
+		oreScan = null;
+		oreScanTick = Integer.MIN_VALUE;
+		oreScanOrigin = null;
+		oreObservationStatus = OrePerception.NOT_OBSERVED;
+		oreObservationReason = "not in a world";
+		oreSurveyRequest = null;
 	}
 
 	private record VisibleWood(
@@ -771,6 +859,12 @@ public final class GameActions {
 			nearbyCountsOrigin = null;
 			visibleOres = List.of();
 			localOres = List.of();
+			oreScan = null;
+			oreScanTick = Integer.MIN_VALUE;
+			oreScanOrigin = null;
+			oreObservationStatus = OrePerception.NOT_OBSERVED;
+			oreObservationReason = "not in a world";
+			oreSurveyRequest = null;
 			return world;
 		}
 		syncWorld(client);
@@ -1172,6 +1266,21 @@ public final class GameActions {
 			});
 		world.add("entities", entities);
 		world.add("nearbyBlocks", nearbyBlocks(client, player));
+		JsonObject ore = new JsonObject();
+		ore.addProperty("status", oreObservationStatus);
+		ore.addProperty("reason", oreObservationReason);
+		ore.addProperty("observed", localOres.size());
+		ore.addProperty(
+			"exposed",
+			localOres.stream().filter(OreTarget::exposed).count()
+		);
+		ore.addProperty("visible", visibleOres.size());
+		ore.addProperty(
+			"reachable",
+			localOres.stream().filter(OreTarget::reachable).count()
+		);
+		ore.addProperty("surveying", oreScan != null);
+		world.add("orePerception", ore);
 		world.add("reachableBlock", reachableBlock(client, player));
 		return world;
 	}
@@ -2602,7 +2711,7 @@ public final class GameActions {
 				integer(args, "height", 3)
 			);
 			case "sleep" -> new SleepTask(id);
-			case "run_job" -> new JobTask(id, args);
+			case "run_plan" -> new PlanTask(id, args);
 			default -> null;
 		};
 	}
@@ -2646,7 +2755,18 @@ public final class GameActions {
 		if (task == null && commandId != null) task = TASKS.remove(commandId);
 		if (task != null) {
 			task.stop(client);
-			task.send.accept(result(task.id, "cancelled", "E_CANCELLED", "cancelled by orchestrator"));
+			JsonObject data = task.cancellationData(client);
+			task.send.accept(
+				data == null
+					? result(task.id, "cancelled", "E_CANCELLED", "cancelled by orchestrator")
+					: result(
+						task.id,
+						"cancelled",
+						"E_CANCELLED",
+						"cancelled by orchestrator",
+						data
+					)
+			);
 			return;
 		}
 		if (taskId == null && commandId == null) stopLocally(client);
@@ -2995,6 +3115,11 @@ public final class GameActions {
 		void stop(Minecraft client) {
 		}
 
+		/** Optional checkpoint returned with an orchestrator cancellation. */
+		JsonObject cancellationData(Minecraft client) {
+			return null;
+		}
+
 		/**
 		 * A task that needs a screen (for example the container it just
 		 * opened) must keep it across the normal "close blocking GUI" pass.
@@ -3012,92 +3137,184 @@ public final class GameActions {
 	) {
 	}
 
-	private record JobCheckpoint(
+	private record PlanCheckpoint(
 		String world,
 		String inventory,
 		int index,
-		int completed
+		int completed,
+		String entryNodeId,
+		int stepCount
 	) {
 	}
 
 	/**
-	 * Runs a bounded plan as one body task. Children are ordinary tasks, so
-	 * all existing preconditions still apply; the difference is that the
-	 * sequencer owns the wire lifecycle and starts the next node in the same
-	 * client tick the previous one finishes. No idle/camera release happens
-	 * between nodes.
+	 * Executes a bounded, typed plan as one body task. Children are ordinary
+	 * atomic skills, so every existing precondition still applies. The body
+	 * owns only the sequence: the Agent owns branch choice, guards and
+	 * evidence; this task stops at the first guard mismatch, evidence
+	 * conflict, world change, timeout or danger and returns a checkpoint.
 	 */
-	private static final class JobTask extends Task {
+	private static final class PlanTask extends Task {
 		private static final int MAX_SCREEN_WAIT_TICKS = 20 * 5;
+		private static final int MAX_STEPS = 32;
+		private static final int MAX_FAMILIES = 8;
+		private static final int MAX_SECONDS = 180;
+		private static final int DEFAULT_FAMILY_DISTANCE = 32;
+		private static final int BLOCK_SCAN_CAP = 16;
+		private static final int MAX_GUARD_OBSERVE_TICKS = 20 * 5;
 
-		private final String jobId;
+		private record Family(
+			String id,
+			String kind,
+			List<String> ids,
+			String dimension,
+			int maxDistance
+		) {
+		}
+
+		private final String planId;
 		private final String title;
-		private final JsonArray nodes;
+		private final String entryNodeId;
+		private final String goalFamily;
+		private final String planWorldVersion;
+		private final JsonArray steps;
+		private final Map<String, Family> families = new LinkedHashMap<>();
+		private final List<String> expectedEvidence;
 		private final boolean stopOnFailure;
 		private final JsonArray changes = new JsonArray();
+		private final JsonArray evidence = new JsonArray();
+		private final JsonArray targetLocks = new JsonArray();
 		private int index;
 		private int completed;
 		private int childSerial;
 		private String childId;
 		private boolean waiting;
 		private int screenWaitSince = -1;
-		private String lastNode;
+		private int guardWaitSince = -1;
+		private int guardWaitIndex = -1;
+		private int startedTick = -1;
+		private int durationTicks = MAX_SECONDS * 20;
+		private String lastStep;
+		private String startWorldIdentity;
+		private String cancelDetail;
 		private NodeResult pendingResult;
 
-		JobTask(String id, JsonObject args) {
+		PlanTask(String id, JsonObject args) {
 			super(id);
-			this.jobId = required(args, "jobId");
+			this.planId = required(args, "planId");
 			this.title = required(args, "title");
-			this.nodes = args.has("nodes") && args.get("nodes").isJsonArray()
-				? args.getAsJsonArray("nodes")
+			this.entryNodeId = required(args, "entryNodeId");
+			this.goalFamily = required(args, "goalFamily");
+			this.planWorldVersion = optional(args, "worldVersion");
+			this.steps = args.has("steps") && args.get("steps").isJsonArray()
+				? args.getAsJsonArray("steps")
 				: new JsonArray();
+			this.expectedEvidence = stringList(args, "expectedEvidence");
 			this.stopOnFailure = !args.has("stopOnFailure")
 				|| args.get("stopOnFailure").getAsBoolean();
+			this.durationTicks = Math.min(
+				MAX_SECONDS,
+				Math.max(1, integer(args, "maxDurationSeconds", MAX_SECONDS))
+			) * 20;
+			if (args.has("targetFamilies") && args.get("targetFamilies").isJsonArray()) {
+				for (var element : args.getAsJsonArray("targetFamilies")) {
+					if (!element.isJsonObject()) continue;
+					JsonObject raw = element.getAsJsonObject();
+					String familyId = optional(raw, "id");
+					String kind = optional(raw, "kind");
+					if (familyId == null || kind == null) continue;
+					families.put(
+						familyId,
+						new Family(
+							familyId,
+							kind,
+							stringList(raw, "ids"),
+							optional(raw, "dimension"),
+							Math.max(
+								1,
+								integer(raw, "maxDistance", DEFAULT_FAMILY_DISTANCE)
+							)
+						)
+					);
+				}
+			}
 			int checkpoint = args.has("checkpointIndex")
 				? Math.max(0, args.get("checkpointIndex").getAsInt())
 				: 0;
 			if (!args.has("checkpointIndex")) {
-				JobCheckpoint saved = JOB_CHECKPOINTS.get(jobId);
+				PlanCheckpoint saved = PLAN_CHECKPOINTS.get(planId);
 				Minecraft client = Minecraft.getInstance();
 				if (
 					saved != null &&
 					saved.world().equals(worldIdentity(client)) &&
-					saved.inventory().equals(inventorySignature(client))
+					saved.inventory().equals(inventorySignature(client)) &&
+					saved.entryNodeId().equals(entryNodeId) &&
+					saved.stepCount() == steps.size()
 				) {
 					checkpoint = saved.index();
 				}
 			}
-			this.index = Math.min(checkpoint, Math.max(0, nodes.size()));
+			this.index = Math.min(checkpoint, Math.max(0, steps.size()));
 		}
 
 		@Override
 		boolean validate(Minecraft client) {
 			if (!super.validate(client)) return false;
-			if (nodes.size() == 0) {
-				validationError = "job has no executable nodes";
+			if (steps.size() == 0) {
+				validationError = "plan has no executable steps";
 				return false;
 			}
-			if (nodes.size() > 32) {
-				validationError = "job has too many nodes";
+			if (steps.size() > MAX_STEPS) {
+				validationError = "plan has more than " + MAX_STEPS + " steps";
 				return false;
 			}
-			for (var element : nodes) {
+			if (families.size() > MAX_FAMILIES) {
+				validationError = "plan has more than " + MAX_FAMILIES + " target families";
+				return false;
+			}
+			for (var element : steps) {
 				if (!element.isJsonObject()) {
-					validationError = "job node is not an object";
+					validationError = "plan step is not an object";
 					return false;
 				}
-				JsonObject node = element.getAsJsonObject();
-				String skill = optional(node, "skill");
+				JsonObject step = element.getAsJsonObject();
+				String skill = optional(step, "skill");
 				if (skill == null || skill.isBlank()) {
-					validationError = "job node is missing skill";
+					validationError = "plan step is missing skill";
 					return false;
 				}
-				if ("run_job".equals(skill)) {
-					validationError = "nested jobs are not allowed";
+				if ("run_plan".equals(skill)) {
+					validationError = "nested plans are not allowed in the body";
 					return false;
 				}
-				if (node.has("args") && !node.get("args").isJsonObject()) {
-					validationError = "job node args must be an object";
+				if (!SKILLS.contains(skill)) {
+					validationError = "plan step uses unsupported skill " + skill;
+					return false;
+				}
+				if (step.has("args") && !step.get("args").isJsonObject()) {
+					validationError = "plan step args must be an object";
+					return false;
+				}
+				JsonObject stepArgs = step.has("args") && step.get("args").isJsonObject()
+					? step.getAsJsonObject("args")
+					: new JsonObject();
+				try {
+					if (createTask("plan:validate", skill, stepArgs) == null) {
+						validationError = "plan step has no executable builder for " + skill;
+						return false;
+					}
+				} catch (RuntimeException error) {
+					validationError = "invalid args for plan step " + skill + ": " + message(error);
+					return false;
+				}
+				String familyId = optional(step, "targetFamilyId");
+				if (familyId != null && !families.containsKey(familyId)) {
+					validationError = "plan step names undeclared target family " + familyId;
+					return false;
+				}
+				String problem = familyProblem(step, familyId);
+				if (problem != null) {
+					validationError = problem;
 					return false;
 				}
 			}
@@ -3106,17 +3323,43 @@ public final class GameActions {
 
 		@Override
 		void start(Minecraft client) {
-			CameraController.holdForJob();
-			send.accept(progress(id, "job", completed, nodes.size()));
+			startedTick = clientTick;
+			startWorldIdentity = worldIdentity(client);
+			CameraController.holdForPlan();
+			send.accept(progress(id, "plan", completed, steps.size()));
 			startNext(client);
 		}
 
 		@Override
 		void tick(Minecraft client) {
+			if (startedTick >= 0 && clientTick - startedTick > durationTicks) {
+				finish(
+					id,
+					"timeout",
+					"E_TIMEOUT",
+					"plan exceeded " + durationTicks / 20 + "s at step "
+						+ (index + 1) + "/" + steps.size(),
+					checkpointData("timeout")
+				);
+				return;
+			}
+			if (
+				startWorldIdentity != null &&
+				!startWorldIdentity.equals(worldIdentity(client))
+			) {
+				finish(
+					id,
+					"failed",
+					"E_WORLD_CHANGED",
+					"world identity changed during plan; re-observe before continuing",
+					checkpointData("world_changed")
+				);
+				return;
+			}
 			if (pendingResult != null) {
 				NodeResult result = pendingResult;
 				pendingResult = null;
-				handleNodeResult(client, result);
+				handleStepResult(client, result);
 				return;
 			}
 			if (waiting) {
@@ -3129,7 +3372,7 @@ public final class GameActions {
 		}
 
 		private void startNext(Minecraft client) {
-			if (index >= nodes.size()) {
+			if (index >= steps.size()) {
 				complete();
 				return;
 			}
@@ -3140,19 +3383,67 @@ public final class GameActions {
 					id,
 					"failed",
 					"E_BUSY",
-					"job could not close a child menu: " + title,
+					"plan could not close a child menu: " + title,
 					checkpointData("blocked")
 				);
 				return;
 			}
 			screenWaitSince = -1;
-			JsonObject node = nodes.get(index).getAsJsonObject();
-			String skill = required(node, "skill");
-			JsonObject args = node.has("args") && node.get("args").isJsonObject()
-				? node.getAsJsonObject("args")
+			JsonObject step = steps.get(index).getAsJsonObject();
+			String skill = required(step, "skill");
+			JsonObject args = step.has("args") && step.get("args").isJsonObject()
+				? step.getAsJsonObject("args")
 				: new JsonObject();
-			lastNode = node.has("label") ? optional(node, "label") : skill;
-			childId = id + ":node-" + (++childSerial);
+			lastStep = step.has("label") ? optional(step, "label") : skill;
+			if (step.has("guards") && step.get("guards").isJsonArray()) {
+				if (guardWaitIndex != index) {
+					guardWaitSince = -1;
+					guardWaitIndex = index;
+				}
+				JsonArray guards = step.getAsJsonArray("guards");
+				PlanGuardNeeds.Need oreNeed = oreGuardNeed(guards);
+				if (oreNeed != null) {
+					requestOreSurvey(
+						id,
+						oreNeed.blockId(),
+						oreNeed.state(),
+						MAX_GUARD_OBSERVE_TICKS + 20
+					);
+				}
+				PlanGuardEvaluator.Result guard = PlanGuardEvaluator.evaluateAll(
+					guards,
+					facts(client)
+				);
+				if (!guard.ok()) {
+					if (
+						oreNeed != null &&
+						oreObservationPending() &&
+						waitForGuardObservation()
+					) {
+						return;
+					}
+					releaseOreSurvey(id);
+					String detail = guard.detail();
+					if (oreNeed != null) {
+						detail += " [" + oreObservationStatus + ": "
+							+ oreObservationReason + "]";
+					}
+					finish(
+						id,
+						"failed",
+						guard.code(),
+						"plan step " + (index + 1) + "/" + steps.size()
+							+ " (" + lastStep + ") guard failed: " + detail,
+						checkpointData("guard_failed")
+					);
+					return;
+				}
+				releaseOreSurvey(id);
+				guardWaitSince = -1;
+			}
+			JsonObject lock = targetLock(client, step);
+			if (lock != null) targetLocks.add(lock);
+			childId = id + ":step-" + (++childSerial);
 			waiting = true;
 			String observedChild = childId;
 			NODE_OBSERVERS.put(
@@ -3181,7 +3472,7 @@ public final class GameActions {
 					id,
 					"failed",
 					started.code(),
-					"job node " + (index + 1) + "/" + nodes.size()
+					"plan step " + (index + 1) + "/" + steps.size()
 						+ " (" + skill + ") rejected: " + started.detail(),
 					checkpointData("rejected")
 				);
@@ -3189,12 +3480,36 @@ public final class GameActions {
 			}
 		}
 
-		private void handleNodeResult(Minecraft client, NodeResult result) {
+		private PlanGuardNeeds.Need oreGuardNeed(JsonArray guards) {
+			return PlanGuardNeeds.oreNeed(
+				guards,
+				familyId -> {
+					Family family = families.get(familyId);
+					return family == null ? null : family.ids();
+				}
+			);
+		}
+
+		private boolean oreObservationPending() {
+			OreSurveyRequest request = activeOreRequest();
+			return request != null && request.owner.equals(id) && !request.published;
+		}
+
+		private boolean waitForGuardObservation() {
+			if (guardWaitSince < 0) {
+				guardWaitSince = clientTick;
+				send.accept(progress(id, "observing", index, steps.size()));
+			}
+			return clientTick - guardWaitSince < MAX_GUARD_OBSERVE_TICKS;
+		}
+
+		private void handleStepResult(Minecraft client, NodeResult result) {
 			mergeChanges(result.data());
 			if ("completed".equals(result.status())) {
 				completed++;
+				recordEvidence(result.data());
 				index++;
-				send.accept(progress(id, "job", completed, nodes.size()));
+				send.accept(progress(id, "plan", completed, steps.size()));
 				startNext(client);
 				return;
 			}
@@ -3207,8 +3522,8 @@ public final class GameActions {
 				id,
 				result.status(),
 				result.code(),
-				"job node " + (index + 1) + "/" + nodes.size()
-					+ " (" + lastNode + ") " + result.status()
+				"plan step " + (index + 1) + "/" + steps.size()
+					+ " (" + lastStep + ") " + result.status()
 					+ (result.detail() == null ? "" : ": " + result.detail()),
 				checkpointData(result.status())
 			);
@@ -3222,50 +3537,362 @@ public final class GameActions {
 		}
 
 		private void complete() {
+			List<String> missingEvidence = new ArrayList<>();
+			for (String wanted : expectedEvidence) {
+				if (!contains(evidence, wanted)) missingEvidence.add(wanted);
+			}
+			if (!missingEvidence.isEmpty()) {
+				finish(
+					id,
+					"failed",
+					"E_PLAN_EVIDENCE",
+					"plan completed its steps without the expected evidence: "
+						+ String.join("; ", missingEvidence),
+					checkpointData("evidence_conflict")
+				);
+				return;
+			}
 			JsonObject data = checkpointData("completed");
-			data.addProperty("summary", title + " · " + completed + "/" + nodes.size() + " 步完成");
+			data.addProperty("summary", title + " · " + completed + "/" + steps.size() + " 步完成");
 			data.add("changes", changes);
 			JsonObject progress = new JsonObject();
 			progress.addProperty("done", completed);
-			progress.addProperty("total", nodes.size());
+			progress.addProperty("total", steps.size());
 			progress.addProperty("unit", "steps");
 			data.add("progress", progress);
+			data.add("evidence", evidence.deepCopy());
+			data.add("targetLocks", targetLocks.deepCopy());
+			if (planWorldVersion != null) data.addProperty("worldVersion", planWorldVersion);
 			data.addProperty("resumable", true);
 			finish(id, "completed", null, null, data);
 		}
 
 		private JsonObject checkpointData(String status) {
 			JsonObject data = new JsonObject();
-			JsonObject job = new JsonObject();
-			job.addProperty("id", jobId);
-			job.addProperty("title", title);
-			job.addProperty("status", status);
-			job.addProperty("nodeIndex", index);
-			job.addProperty("completedNodes", completed);
-			job.addProperty("totalNodes", nodes.size());
-			job.addProperty("world", worldKey(Minecraft.getInstance()));
+			JsonObject plan = new JsonObject();
+			plan.addProperty("id", planId);
+			plan.addProperty("title", title);
+			plan.addProperty("entryNodeId", entryNodeId);
+			plan.addProperty("goalFamily", goalFamily);
+			plan.addProperty("status", status);
+			plan.addProperty("stepIndex", index);
+			plan.addProperty("completedSteps", completed);
+			plan.addProperty("totalSteps", steps.size());
+			plan.addProperty("world", worldKey(Minecraft.getInstance()));
+			if (startWorldIdentity != null) plan.addProperty("startWorld", startWorldIdentity);
+			if (planWorldVersion != null) plan.addProperty("worldVersion", planWorldVersion);
 			LocalPlayer player = Minecraft.getInstance().player;
 			if (player != null) {
 				JsonObject position = new JsonObject();
 				position.addProperty("x", round(player.getX()));
 				position.addProperty("y", round(player.getY()));
 				position.addProperty("z", round(player.getZ()));
-				job.add("position", position);
+				plan.add("position", position);
+				plan.addProperty("onGround", player.onGround());
+				plan.addProperty("fallDistance", round(player.fallDistance));
+				plan.addProperty("health", round(player.getHealth()));
+				plan.addProperty("food", player.getFoodData().getFoodLevel());
 			}
-			data.add("job", job);
-			data.add("checkpoint", job.deepCopy());
+			if (cancelDetail != null) plan.addProperty("cancelDetail", cancelDetail);
+			data.add("plan", plan);
+			data.add("checkpoint", plan.deepCopy());
 			data.add("changes", changes);
-			if (index < nodes.size()) {
+			data.add("evidence", evidence.deepCopy());
+			data.add("targetLocks", targetLocks.deepCopy());
+			if (index < steps.size()) {
 				data.addProperty(
 					"remaining",
-					"job node " + (index + 1) + "/" + nodes.size()
+					"plan step " + (index + 1) + "/" + steps.size()
 				);
 			}
 			return data;
 		}
 
+		private PlanGuardEvaluator.Facts facts(Minecraft client) {
+			LocalPlayer player = client.player;
+			return new PlanGuardEvaluator.Facts() {
+				@Override
+				public int inventory(String item) {
+					return countItem(player, item);
+				}
+
+				@Override
+				public int family(String family, String state) {
+					return familyCount(client, family, state);
+				}
+
+				@Override
+				public boolean stationReachable(String block) {
+					return hasReachableBlock(client, block);
+				}
+
+				@Override
+				public String dimension() {
+					return client.level == null
+						? ""
+						: client.level.dimension().location().toString();
+				}
+
+				@Override
+				public float health() {
+					return player == null ? 0.0f : player.getHealth();
+				}
+
+				@Override
+				public int food() {
+					return player == null ? 0 : player.getFoodData().getFoodLevel();
+				}
+
+				@Override
+				public boolean night() {
+					if (client.level == null) return false;
+					long time = Math.floorMod(client.level.getDayTime(), 24_000L);
+					return time >= 13_000L && time <= 23_000L;
+				}
+
+				@Override
+				public String worldVersion() {
+					return planWorldVersion;
+				}
+
+				@Override
+				public boolean worldChanged() {
+					return startWorldIdentity != null
+						&& !startWorldIdentity.equals(worldIdentity(client));
+				}
+			};
+		}
+
+		private int familyCount(Minecraft client, String familyId, String state) {
+			Family family = families.get(familyId);
+			LocalPlayer player = client.player;
+			if (family == null || player == null) return 0;
+			return switch (family.kind()) {
+				case "item" -> countMatches(player, family.ids());
+				case "entity" -> countEntities(client, player, family, state);
+				case "station" -> hasReachableBlock(client, family.ids()) ? 1 : 0;
+				case "block" -> countBlocks(client, player, family, state);
+				default -> 0;
+			};
+		}
+
+		private int countBlocks(
+			Minecraft client,
+			LocalPlayer player,
+			Family family,
+			String state
+		) {
+			if (family.ids().stream().allMatch(GameActions::isOreId)) {
+				// The shared ore survey already classified each candidate; do
+				// not launch a second scan with different semantics.
+				nearbyCounts(client, player);
+				List<OreTarget> observed = new ArrayList<>();
+				for (OreTarget ore : localOres) {
+					if (familyMatches(family, ore.id())) observed.add(ore);
+				}
+				int visible = 0;
+				int reachable = 0;
+				for (OreTarget ore : visibleOres) {
+					if (familyMatches(family, ore.id())) visible++;
+				}
+				for (OreTarget ore : observed) {
+					if (ore.reachable()) reachable++;
+				}
+				return switch (state) {
+					case "observed" -> observed.size();
+					case "visible" -> visible;
+					case "reachable" -> reachable;
+					default -> 0;
+				};
+			}
+			if (family.ids().stream().allMatch(GameActions::isLogId)) {
+				int observed = 0;
+				int reachable = 0;
+				for (VisibleWood wood : visibleWood(client, player)) {
+					if (!familyMatches(family, wood.id())) continue;
+					observed++;
+					if (withinInteractionRange(
+						player,
+						new BlockPos(wood.x(), wood.y(), wood.z())
+					)) {
+						reachable++;
+					}
+				}
+				return "reachable".equals(state) ? reachable : observed;
+			}
+			int radius = Math.min(BLOCK_SCAN_CAP, Math.max(1, family.maxDistance()));
+			BlockPos origin = player.blockPosition();
+			Vec3 eye = player.getEyePosition();
+			int observed = 0;
+			int visible = 0;
+			int reachable = 0;
+			for (BlockPos pos : BlockPos.betweenClosed(
+				origin.offset(-radius, -Math.min(8, radius), -radius),
+				origin.offset(radius, Math.min(8, radius), radius)
+			)) {
+				BlockState blockState = client.level.getBlockState(pos);
+				if (blockState.isAir()) continue;
+				String blockId = BuiltInRegistries.BLOCK.getKey(blockState.getBlock()).toString();
+				if (!familyMatches(family, blockId)) continue;
+				observed++;
+				if (BlockInteraction.visibleExposedFace(
+					client.level,
+					player,
+					eye,
+					pos.immutable()
+				) == null) continue;
+				visible++;
+				if (withinInteractionRange(player, pos.immutable())) reachable++;
+			}
+			return switch (state) {
+				case "observed" -> observed;
+				case "visible" -> visible;
+				case "reachable" -> reachable;
+				default -> 0;
+			};
+		}
+
+		private int countEntities(
+			Minecraft client,
+			LocalPlayer player,
+			Family family,
+			String state
+		) {
+			int radius = Math.min(48, Math.max(1, family.maxDistance()));
+			int observed = 0;
+			int visible = 0;
+			int reachable = 0;
+			for (Entity entity : client.level.getEntitiesOfClass(
+				Entity.class,
+				player.getBoundingBox().inflate(radius)
+			)) {
+				if (entity == player || !entity.isAlive()) continue;
+				String type = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType()).toString();
+				if (!familyMatches(family, type) && !familyMatches(family, entity.getName().getString())) {
+					continue;
+				}
+				observed++;
+				if (player.hasLineOfSight(entity)) visible++;
+				if (player.distanceToSqr(entity) <= 16.0) reachable++;
+			}
+			return switch (state) {
+				case "observed" -> observed;
+				case "visible" -> visible;
+				case "reachable" -> reachable;
+				default -> 0;
+			};
+		}
+
+		private boolean hasReachableBlock(Minecraft client, String blockId) {
+			return hasReachableBlock(client, List.of(blockId));
+		}
+
+		private boolean hasReachableBlock(Minecraft client, List<String> ids) {
+			LocalPlayer player = client.player;
+			if (player == null) return false;
+			BlockPos origin = player.blockPosition();
+			int radius = 16;
+			for (BlockPos pos : BlockPos.betweenClosed(
+				origin.offset(-radius, -8, -radius),
+				origin.offset(radius, 8, radius)
+			)) {
+				String observed = BuiltInRegistries.BLOCK
+					.getKey(client.level.getBlockState(pos).getBlock())
+					.toString();
+				if (ids.contains(observed) && withinInteractionRange(player, pos.immutable())) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		private JsonObject targetLock(Minecraft client, JsonObject step) {
+			String familyId = optional(step, "targetFamilyId");
+			if (familyId == null) return null;
+			Family family = families.get(familyId);
+			if (family == null) return null;
+			JsonObject lock = new JsonObject();
+			lock.addProperty("family", familyId);
+			lock.addProperty("kind", family.kind());
+			JsonArray ids = new JsonArray();
+			for (String id : family.ids()) ids.add(id);
+			lock.add("ids", ids);
+			JsonObject args = step.has("args") && step.get("args").isJsonObject()
+				? step.getAsJsonObject("args")
+				: new JsonObject();
+			String selected = optional(args, "block");
+			if (selected == null) selected = optional(args, "target");
+			if (selected == null) selected = optional(args, "item");
+			if (selected != null) lock.addProperty("selected", selected);
+			lock.addProperty("step", index);
+			lock.addProperty("worldVersion", planWorldVersion);
+			lock.addProperty("at", clientTick);
+			return lock;
+		}
+
+		private String familyProblem(JsonObject step, String familyId) {
+			if (familyId == null) return null;
+			Family family = families.get(familyId);
+			if (family == null) return "plan step names undeclared target family " + familyId;
+			String skill = required(step, "skill");
+			JsonObject args = step.has("args") && step.get("args").isJsonObject()
+				? step.getAsJsonObject("args")
+				: new JsonObject();
+			if ("mine_block".equals(skill) || "place_block".equals(skill)) {
+				String block = optional(args, "block");
+				if (block != null && !familyMatches(family, block)) {
+					return "plan step target " + block + " is outside family " + familyId;
+				}
+			}
+			if ("attack".equals(skill)) {
+				for (String target : stringList(args, "targets")) {
+					if (!familyMatches(family, target)) {
+						return "plan step target " + target + " is outside family " + familyId;
+					}
+				}
+				String target = optional(args, "target");
+				if (target != null && !familyMatches(family, target)) {
+					return "plan step target " + target + " is outside family " + familyId;
+				}
+			}
+			return null;
+		}
+
+		private void recordEvidence(JsonObject data) {
+			JsonObject step = steps.get(index).getAsJsonObject();
+			for (String claim : stringList(step, "evidence")) {
+				addEvidence(claim);
+			}
+			if (data != null && data.has("evidence") && data.get("evidence").isJsonArray()) {
+				for (var element : data.getAsJsonArray("evidence")) {
+					if (element.isJsonPrimitive()) addEvidence(element.getAsString());
+				}
+			}
+		}
+
+		private void addEvidence(String claim) {
+			if (claim == null || claim.isBlank()) return;
+			if (!contains(evidence, claim)) evidence.add(claim);
+		}
+
 		@Override
 		void stop(Minecraft client) {
+			releaseOreSurvey(id);
+			LocalPlayer player = client.player;
+			boolean irreversibleOpen =
+				client.screen instanceof AbstractContainerScreen<?>
+					|| (player != null && player.containerMenu != player.inventoryMenu
+						&& player.containerMenu.containerId != 0);
+			PlanSafety.State safety = player == null
+				? null
+				: new PlanSafety.State(
+					player.onGround(),
+					player.isInLava(),
+					player.isInWall(),
+					player.fallDistance,
+					irreversibleOpen
+				);
+			cancelDetail = PlanSafety.cancelDetail(safety, true);
 			if (childId != null) {
 				NODE_OBSERVERS.remove(childId);
 				Task child = TASKS.remove(childId);
@@ -3274,20 +3901,76 @@ public final class GameActions {
 			}
 			waiting = false;
 			pendingResult = null;
-			if (index > 0 && index < nodes.size()) {
-				JOB_CHECKPOINTS.put(
-					jobId,
-					new JobCheckpoint(
+			if (index > 0 && index < steps.size()) {
+				PLAN_CHECKPOINTS.put(
+					planId,
+					new PlanCheckpoint(
 						worldIdentity(client),
 						inventorySignature(client),
 						index,
-						completed
+						completed,
+						entryNodeId,
+						steps.size()
 					)
 				);
-			} else if (index >= nodes.size()) {
-				JOB_CHECKPOINTS.remove(jobId);
+			} else if (index >= steps.size()) {
+				PLAN_CHECKPOINTS.remove(planId);
 			}
-			CameraController.releaseJobHold();
+			CameraController.releasePlanHold();
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate plan stop id={} plan={} step={}/{} detail={}",
+				id,
+				planId,
+				index,
+				steps.size(),
+				cancelDetail
+			);
+		}
+
+		@Override
+		JsonObject cancellationData(Minecraft client) {
+			return checkpointData("cancelled");
+		}
+
+		private static boolean familyMatches(Family family, String id) {
+			if (id == null) return false;
+			String candidateId = normalizeFamilyId(id);
+			for (String candidate : family.ids()) {
+				if (normalizeFamilyId(candidate).equals(candidateId)) return true;
+				if (OrePerception.matches(normalizeFamilyId(candidate), candidateId)) return true;
+			}
+			return false;
+		}
+
+		private static String normalizeFamilyId(String id) {
+			if (id == null) return "";
+			return id.contains(":") ? id : "minecraft:" + id;
+		}
+
+		private static int countMatches(LocalPlayer player, List<String> ids) {
+			int total = 0;
+			for (String id : ids) total += countItem(player, id);
+			return total;
+		}
+
+		private static boolean contains(JsonArray array, String value) {
+			for (var element : array) {
+				if (element.isJsonPrimitive() && value.equals(element.getAsString())) return true;
+			}
+			return false;
+		}
+
+		private static int countItem(LocalPlayer player, String itemId) {
+			if (player == null) return 0;
+			String normalized = normalizeFamilyId(itemId);
+			int total = 0;
+			for (int slot = 0; slot < Inventory.INVENTORY_SIZE; slot++) {
+				ItemStack stack = player.getInventory().getItem(slot);
+				if (stack.isEmpty()) continue;
+				String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+				if (normalized.equals(id)) total += stack.getCount();
+			}
+			return total;
 		}
 	}
 
@@ -3419,7 +4102,7 @@ public final class GameActions {
 				return;
 			}
 			CameraController.steerTo(client.player, look);
-			settledTicks = CameraController.settled(2.0f) ? settledTicks + 1 : 0;
+			settledTicks = CameraController.settled(client.player, 2.0f) ? settledTicks + 1 : 0;
 			if (settledTicks >= 3) {
 				CameraController.retain();
 				JsonObject evidence = new JsonObject();
@@ -3493,6 +4176,9 @@ public final class GameActions {
 			new java.util.ArrayDeque<>();
 		private static final int EXPLORE_TRAIL = 3;
 		private static final double OSCILLATION_RADIUS = 8.0;
+		/** Exact targets that just exhausted the route budget. */
+		private static final UnreachableTargets UNREACHABLE =
+			new UnreachableTargets(60_000);
 		/**
 		 * A bounded A* search often stops at a ravine or a chunk edge after a
 		 * safe eight-block leg. Finishing the whole command there made the
@@ -4305,6 +4991,18 @@ public final class GameActions {
 		 * with an empty waypoint list.
 		 */
 		private void planRoute(Minecraft client) {
+			if (
+				!acceptPartial &&
+				UNREACHABLE.blocked(requestKey(client), System.currentTimeMillis())
+			) {
+				finish(
+					id,
+					"failed",
+					"E_UNREACHABLE",
+					"target is in the unreachable blacklist; re-observe before retrying"
+				);
+				return;
+			}
 			Route route = firstSafeRoute(client, client.player);
 			if (route == null || !routeMovesBody(route, client.player)) {
 				if (mode.isWalk()) {
@@ -4393,6 +5091,9 @@ public final class GameActions {
 			String detail
 		) {
 			stop(client);
+			if (!acceptPartial) {
+				UNREACHABLE.block(requestKey(client), System.currentTimeMillis());
+			}
 			boolean enclosed = enclosedRecoverySite(client, player);
 			JsonObject data = new JsonObject();
 			data.addProperty("mode", mode.wireName());
@@ -4412,6 +5113,13 @@ public final class GameActions {
 				detail,
 				data
 			);
+		}
+
+		private long requestKey(Minecraft client) {
+			long dimension = client.level == null
+				? 0L
+				: client.level.dimension().location().toString().hashCode();
+			return BlockPos.containing(requests.get(0)).asLong() ^ (dimension << 32);
 		}
 
 		private static boolean enclosedRecoverySite(
@@ -7982,10 +8690,56 @@ public final class GameActions {
 						|| (mode.isWalk() && wadeableAt(client, pos));
 				},
 				traversal(client),
+				pathCost(client),
 				maxNodes,
 				maxRadius,
 				maxVertical
 			);
+		}
+
+		/**
+		 * Prices the hazards the plain standability grid cannot express. Risk
+		 * dominates distance: a longer dry route beats walking through lava,
+		 * water or an active hazard. Dig/recover steps also carry a bounded
+		 * hardness cost so a route that needs less breaking wins ties.
+		 */
+		private BoundedPathfinder.StepCost pathCost(Minecraft client) {
+			return (from, to) -> {
+				double cost = BoundedPathfinder.StepCost.DEFAULT.cost(from, to);
+				BlockPos feet = new BlockPos(to.x(), to.y(), to.z());
+				BlockState foot = client.level.getBlockState(feet);
+				BlockState head = client.level.getBlockState(feet.above());
+				if (foot.getFluidState().is(FluidTags.WATER)) cost += 2.0;
+				if (head.getFluidState().is(FluidTags.WATER)) cost += 0.5;
+				if (to.y() < from.y()) cost += 1.5 * (from.y() - to.y());
+				if (to.y() > from.y()) cost += 0.5 * (to.y() - from.y());
+				if (hazardNear(client, feet)) cost += 4.0;
+				if (mode.mayDig()) {
+					float hardness = Math.max(
+						0.0f,
+						Math.min(8.0f, foot.getDestroySpeed(client.level, feet))
+					);
+					cost += hardness * 0.2 + 0.2;
+				}
+				return cost;
+			};
+		}
+
+		private static boolean hazardNear(Minecraft client, BlockPos feet) {
+			for (Direction direction : Direction.values()) {
+				BlockState state = client.level.getBlockState(feet.relative(direction));
+				if (
+					state.is(Blocks.LAVA)
+						|| state.is(Blocks.FIRE)
+						|| state.is(Blocks.SOUL_FIRE)
+						|| state.is(Blocks.MAGMA_BLOCK)
+						|| state.is(Blocks.CACTUS)
+						|| state.is(Blocks.POWDER_SNOW)
+				) {
+					return true;
+				}
+			}
+			return false;
 		}
 
 		private Route routeFrom(
@@ -8198,6 +8952,9 @@ public final class GameActions {
 
 		@Override
 		void start(Minecraft client) {
+			if (!anyLog && isOreId(blockId)) {
+				requestOreSurvey(id, blockId, "observed", Integer.MAX_VALUE);
+			}
 			send.accept(progress(id, "finding", 0, count));
 			if (!selectTool(client)) {
 				if (equipToolFromInventory(client)) {
@@ -9629,6 +10386,8 @@ public final class GameActions {
 
 		private boolean matchesTarget(BlockState state) {
 			if (anyLog) return state.is(BlockTags.LOGS);
+			String observed = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+			if (OrePerception.matches(blockId, observed)) return true;
 			return state.is(BuiltInRegistries.BLOCK.get(ResourceLocation.tryParse(blockId)));
 		}
 
@@ -9760,6 +10519,7 @@ public final class GameActions {
 			CameraController.release();
 			collectingPickup = false;
 			pickupTarget = null;
+			releaseOreSurvey(id);
 		}
 
 		private static boolean canReach(Minecraft client, LocalPlayer player, BlockPos target) {
@@ -17347,6 +18107,9 @@ public final class GameActions {
 			// enough in that window to change what the planner should face.
 			summary.addProperty("distance", round(eye.distanceTo(center)));
 			summary.addProperty("bearing", round(bearing(player, eye, center)));
+			summary.addProperty("exposed", ore.exposed());
+			summary.addProperty("reachable", ore.reachable());
+			if (ore.reason() != null) summary.addProperty("reason", ore.reason());
 			summary.addProperty(
 				"visible",
 				visibleOreKeys.contains(ore.x() + ":" + ore.y() + ":" + ore.z())
@@ -17370,25 +18133,31 @@ public final class GameActions {
 			nearbyCountsOrigin == null ? -1.0 : nearbyCountsOrigin.distSqr(origin),
 			2 * 2
 		);
-		if (fresh) return nearbyCounts;
+		// A phased ore scan is already sliced by its own 6ms budget. Waiting
+		// for the ordinary five-tick count cache between slices made a guard
+		// wait look like an unresponsive survey, so let it advance each tick.
+		if (fresh && oreScan == null) return nearbyCounts;
 
 		Map<String, Integer> counts = new java.util.TreeMap<>();
-		List<OreTarget> oreCandidates = new ArrayList<>();
+		List<OreTarget> smallOreCandidates = new ArrayList<>();
 		for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-8, -4, -8), origin.offset(8, 4, 8))) {
 			BlockState state = client.level.getBlockState(pos);
 			if (state.isAir()) continue;
 			String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
 			counts.merge(id, 1, Integer::sum);
 			if (isOreId(id)) {
-				oreCandidates.add(
-					new OreTarget(
-						id,
-						pos.getX(),
-						pos.getY(),
-						pos.getZ(),
-						Math.sqrt(pos.distSqr(origin))
-					)
-				);
+				if (smallOreCandidates.size() < OreScan.MAX_CANDIDATES) {
+					smallOreCandidates.add(
+						observedOre(
+							client,
+							player,
+							id,
+							pos,
+							origin,
+							smallOreCandidates.size() < 4
+						)
+					);
+				}
 			}
 		}
 		List<NearbyCount> next = counts.entrySet().stream()
@@ -17407,26 +18176,280 @@ public final class GameActions {
 			.limit(32)
 			.map(entry -> new NearbyCount(entry.getKey(), entry.getValue()))
 			.toList();
-		localOres = oreCandidates.stream()
-			.sorted((left, right) -> Double.compare(left.distance(), right.distance()))
-			.limit(16)
-			.toList();
-		visibleOres = localOres.stream()
-			.filter((ore) -> {
-				BlockPos position = new BlockPos(ore.x(), ore.y(), ore.z());
-				return hasVisibleFace(client, position)
-					&& canSee(client, player, player.getEyePosition(), position);
-			})
-			.limit(12)
-			.toList();
+		updateOreSurvey(client, player, origin, smallOreCandidates, now);
 		nearbyCountsTick = now;
 		nearbyCountsOrigin = origin.immutable();
 		nearbyCounts = next;
 		return nearbyCounts;
 	}
 
+	/**
+	 * Publishes a small-cube result immediately. Only when that cube observes
+	 * no ore of any family does an ore request start the wider, phased sweep.
+	 * This prevents a visible-but-encased or unreachable ore from triggering a
+	 * speculative scan that hides the real reason it was not planned.
+	 */
+	private static void updateOreSurvey(
+		Minecraft client,
+		LocalPlayer player,
+		BlockPos origin,
+		List<OreTarget> smallOreCandidates,
+		int now
+	) {
+		if (!agentInputAllowed) {
+			oreScan = null;
+			if (!localOres.isEmpty()) {
+				oreObservationReason = "operator owns input; keeping the previous ore survey";
+			}
+			return;
+		}
+		OreSurveyRequest request = activeOreRequest();
+		if (
+			request != null &&
+			smallOreCandidates.stream().anyMatch(ore -> satisfies(ore, request))
+		) {
+			oreScan = null;
+			oreScanOrigin = origin.immutable();
+			oreScanTick = now;
+			publishOres(client, smallOreCandidates, request);
+			return;
+		}
+		boolean stale =
+			oreScanOrigin == null ||
+			oreScanOrigin.distSqr(origin) > 8 * 8 ||
+			now - oreScanTick > 20 * 5 ||
+			(request != null && request.createdTick > oreScanTick);
+		if (request == null) {
+			if (!smallOreCandidates.isEmpty()) {
+				publishOres(client, smallOreCandidates, null);
+				oreScanOrigin = origin.immutable();
+				oreScanTick = now;
+				return;
+			}
+			// Keep the last complete result for diagnostics, but do not pay for
+			// a cave sweep when no ore target is being planned.
+			if (stale && localOres.isEmpty()) {
+				oreObservationStatus = OrePerception.NOT_OBSERVED;
+				oreObservationReason = "no ore request and none in the small cube";
+			}
+			return;
+		}
+		if (oreScan != null) {
+			if (
+				oreScan.origin.distSqr(origin) > 8 * 8 ||
+				now - oreScan.startedTick > 20 * 15
+			) {
+				oreScan = null;
+			} else {
+				advanceOreScan(client, player, oreScan, now);
+				return;
+			}
+		}
+		if (stale) {
+			// Retain localOres while the next scan is built.
+			oreScan = new OreScan(origin.immutable(), now, request);
+			advanceOreScan(client, player, oreScan, now);
+		} else if (localOres.isEmpty() && request != null) {
+			oreObservationStatus = OrePerception.NOT_OBSERVED;
+			oreObservationReason = "bounded ore survey found no ore";
+			request.published = true;
+		}
+	}
+
+	/**
+	 * Six milliseconds of world reads per tick, with a hard candidate cap.
+	 * Every ore is classified as observed/exposed/visible/reachable so the
+	 * planner receives evidence rather than a bare "not found".
+	 */
+	private static void advanceOreScan(
+		Minecraft client,
+		LocalPlayer player,
+		OreScan scan,
+		int now
+	) {
+		long deadline = System.nanoTime() + OreScan.BUDGET_NANOS;
+		while (!scan.complete()) {
+			if (System.nanoTime() >= deadline) return;
+			BlockPos pos = scan.cursor
+				.set(
+					scan.origin.getX() + scan.nextDx,
+					scan.origin.getY() + scan.nextDy,
+					scan.origin.getZ() + scan.nextDz
+				)
+				.immutable();
+			BlockState state = client.level.getBlockState(pos);
+			if (!state.isAir()) {
+				String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+				if (isOreId(id) && scan.candidates.size() < OreScan.MAX_CANDIDATES) {
+					boolean probe = scan.reachabilityProbes < 6;
+					if (probe) scan.reachabilityProbes++;
+					scan.candidates.add(
+						observedOre(client, player, id, pos, scan.origin, probe)
+					);
+				}
+			}
+			scan.nextDy++;
+			if (scan.nextDy > OreScan.MAX_DY) {
+				scan.nextDy = OreScan.MIN_DY;
+				scan.nextDz++;
+				if (scan.nextDz > OreScan.RADIUS) {
+					scan.nextDz = -OreScan.RADIUS;
+					scan.nextDx++;
+				}
+			}
+		}
+		publishOres(client, scan.candidates, scan.request);
+		oreScan = null;
+		oreScanOrigin = scan.origin;
+		oreScanTick = now;
+	}
+
+	private static OreTarget observedOre(
+		Minecraft client,
+		LocalPlayer player,
+		String id,
+		BlockPos pos,
+		BlockPos origin,
+		boolean probeRoute
+	) {
+		BlockPos immutable = pos.immutable();
+		boolean exposed = BlockInteraction.hasExposedFace(client.level, immutable);
+		Direction face = exposed
+			? BlockInteraction.visibleExposedFace(
+				client.level,
+				player,
+				player.getEyePosition(),
+				immutable
+			)
+			: null;
+		boolean visible = face != null;
+		double distance = Math.sqrt(immutable.distSqr(origin));
+		// A* is the expensive part. Only visible ore within the wide survey's
+		// useful approach range is probed, and the candidate cap bounds it.
+		boolean reachable =
+			visible
+				&& (
+					distance > 8.0
+						|| (probeRoute && ApproachRoute.nearestReachable(client, immutable, 420, 28.0) != null)
+				);
+		String reason = !exposed
+			? "observed but fully encased; no exposed face"
+			: !visible
+				? "exposed face is not visible from the eye"
+				: !reachable
+					? "visible ore has no standable interaction route"
+					: "reachable exposed face";
+		return new OreTarget(
+			id,
+			immutable.getX(),
+			immutable.getY(),
+			immutable.getZ(),
+			distance,
+			exposed,
+			visible,
+			reachable,
+			reason
+		);
+	}
+
+	private static void publishOres(
+		Minecraft client,
+		List<OreTarget> candidates,
+		OreSurveyRequest request
+	) {
+		List<OreTarget> sorted = candidates.stream()
+			.sorted(
+				Comparator
+					.comparingDouble(OreTarget::distance)
+					.thenComparingInt(ore -> ore.reachable() ? 0 : 1)
+			)
+			.limit(OreScan.MAX_CANDIDATES)
+			.toList();
+		localOres = sorted;
+		visibleOres = sorted.stream()
+			.filter(OreTarget::visible)
+			.limit(OreScan.MAX_CANDIDATES)
+			.toList();
+		List<OreTarget> scope =
+			request == null
+				? sorted
+				: sorted.stream()
+					.filter(ore -> OrePerception.matches(request.blockId, ore.id()))
+					.toList();
+		int exposed = (int) scope.stream().filter(OreTarget::exposed).count();
+		int visible = (int) scope.stream().filter(OreTarget::visible).count();
+		int reachable = (int) scope.stream().filter(OreTarget::reachable).count();
+		oreObservationStatus = OrePerception.status(scope.size(), exposed, visible, reachable);
+		oreObservationReason = OrePerception.reason(scope.size(), exposed, visible, reachable);
+		if (request != null) request.published = true;
+	}
+
 	static boolean isOreId(String id) {
-		return id.endsWith("_ore") || id.equals("minecraft:ancient_debris");
+		return OrePerception.isOreId(id);
+	}
+
+	private static OreSurveyRequest activeOreRequest() {
+		OreSurveyRequest request = oreSurveyRequest;
+		if (request == null) return null;
+		if (clientTick > request.expiresTick) {
+			oreSurveyRequest = null;
+			return null;
+		}
+		return request;
+	}
+
+	/**
+	 * Requests observation of one ore family. Re-requesting the same need
+	 * refreshes its lease instead of restarting the survey, which keeps a
+	 * guard that is waiting for a multi-tick scan from invalidating it.
+	 */
+	private static OreSurveyRequest requestOreSurvey(
+		String owner,
+		String blockId,
+		String state,
+		int ttlTicks
+	) {
+		if (!isOreId(blockId)) return null;
+		long expiresTick = (long) clientTick + Math.max(1, ttlTicks);
+		OreSurveyRequest current = activeOreRequest();
+		if (
+			current != null &&
+			current.owner.equals(owner) &&
+			current.blockId.equals(blockId) &&
+			current.state.equals(state)
+		) {
+			current.expiresTick = expiresTick;
+			return current;
+		}
+		OreSurveyRequest request = new OreSurveyRequest(
+			owner,
+			blockId,
+			state,
+			clientTick,
+			expiresTick
+		);
+		oreSurveyRequest = request;
+		// The cached small-cube count predates this request. Force the next
+		// familyCount to reach updateOreSurvey instead of waiting up to five
+		// ticks for the ordinary cache TTL.
+		nearbyCountsTick = Integer.MIN_VALUE;
+		return request;
+	}
+
+	private static void releaseOreSurvey(String owner) {
+		OreSurveyRequest current = oreSurveyRequest;
+		if (current != null && current.owner.equals(owner)) oreSurveyRequest = null;
+	}
+
+	private static boolean satisfies(OreTarget ore, OreSurveyRequest request) {
+		if (request == null || !OrePerception.matches(request.blockId, ore.id())) {
+			return false;
+		}
+		return OrePerception.satisfies(ore.visible(), ore.reachable(), request.state);
+	}
+
+	static boolean oreFamilyMatches(String requested, String observed) {
+		return OrePerception.matches(requested, observed);
 	}
 
 	static int nearbyPriority(String id) {
@@ -17963,7 +18986,7 @@ public final class GameActions {
 
 	/**
 	 * Inventory is the observable side-effect ledger that is cheap to compare
-	 * at a job boundary. If it changed while a job was preempted, replaying a
+	 * at a plan boundary. If it changed while a plan was preempted, replaying a
 	 * half-finished craft could duplicate consumption; force a fresh plan.
 	 */
 	private static String inventorySignature(Minecraft client) {
