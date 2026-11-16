@@ -1784,6 +1784,81 @@ describe("survival planning", () => {
     assert.match(task.title, /新的储物点/u);
   });
 
+  test("a blocked camp chest without a spare chest is replaced by crafting one", () => {
+    const inventory = Array.from({ length: 31 }, (_, index) => ({
+      item: index === 0 ? "minecraft:raw_copper" : "minecraft:cobblestone",
+      count: 64,
+    }));
+    inventory.push(
+      { item: "minecraft:birch_planks", count: 8 },
+      { item: "minecraft:stone_sword", count: 1 },
+      { item: "minecraft:iron_pickaxe", count: 1 },
+      { item: "minecraft:torch", count: 4 },
+    );
+    const task = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        position: { x: 5.5, y: 63, z: 2.5 },
+        surfaceY: 63,
+        canSeeSky: true,
+        inventory,
+        craftingTableNearby: true,
+        craftingTableReachable: true,
+        craftingTablePlaced: true,
+        craftingTable: { x: 4, y: 63, z: 2 },
+        nearbyBlocks: [
+          { id: "minecraft:chest", count: 1 },
+          { id: "minecraft:crafting_table", count: 1 },
+          { id: "minecraft:furnace", count: 1 },
+        ],
+        chestPlaced: true,
+        chest: { x: 4, y: 63, z: 2 },
+        chestOpenable: false,
+      }),
+      newId: () => "blocked-chest-no-spare",
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "craft");
+    assert.equal(task.skill.args["item"], "minecraft:chest");
+  });
+
+  test("a full backpack walks to an underground chest instead of the bed anchor", () => {
+    const inventory = Array.from({ length: 29 }, () => ({
+      item: "minecraft:cobblestone",
+      count: 64,
+    }));
+    inventory.push(
+      { item: "minecraft:furnace", count: 1 },
+      { item: "minecraft:iron_pickaxe", count: 1 },
+      { item: "minecraft:torch", count: 4 },
+    );
+    const task = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        position: { x: 0.5, y: 66, z: 0.5 },
+        surfaceY: 70,
+        canSeeSky: false,
+        inventory,
+        craftingTableNearby: true,
+        craftingTableReachable: true,
+        nearbyBlocks: [{ id: "minecraft:furnace", count: 1 }],
+        chestPlaced: true,
+        chest: { x: 4, y: 56, z: 2 },
+        bed: { x: 14, y: 73, z: 2 },
+        bedPlaced: true,
+        furnace: { x: 4, y: 66, z: 2 },
+        furnacePlaced: true,
+        chestEmptySlots: 27,
+      }),
+      newId: () => "underground-chest",
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.equal(task.skill.name, "goto");
+    assert.deepEqual(task.skill.args["target"], { x: 5, y: 56, z: 2 });
+    assert.equal(task.skill.args["mode"], "recover");
+    assert.match(task.title, /箱子/u);
+  });
+
   test("a stale hut plan never outranks storing a full backpack", () => {
     const inventory = Array.from({ length: 32 }, () => ({
       item: "minecraft:dirt",

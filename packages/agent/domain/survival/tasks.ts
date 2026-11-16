@@ -2037,6 +2037,7 @@ export function gotoHomeTask(
   options: {
     readonly anchors?: readonly { readonly x: number; readonly y: number; readonly z: number }[];
     readonly title?: string;
+    readonly mode?: "walk" | "recover";
   } = {},
 ): Task | null {
   const position = facts.position;
@@ -2110,7 +2111,7 @@ export function gotoHomeTask(
    */
   const needsClimb =
     isUnderground(facts) || position.y + 2 < (ranked[0]?.y ?? position.y);
-  const travelMode = needsClimb ? "recover" : "walk";
+  const travelMode = options.mode ?? (needsClimb ? "recover" : "walk");
   const destination = ranked[0]!;
   /*
    * Long transfers are handled by the body, not by invented radial
@@ -3058,6 +3059,31 @@ function placeFieldChestTask(
   };
 }
 
+/**
+ * A blocked camp chest with no spare chest in the pack used to stop storage
+ * entirely: the mine task called the inventory full, and every deposit path
+ * returned null because it only knew how to place a chest that was already
+ * carried. Crafting a replacement is the action a player takes, and the body
+ * already has the table and wood in the live run.
+ */
+function replacementChestTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | BlockedTask | null {
+  const recipe = queryRecipe("minecraft:chest");
+  if (recipe === null) return null;
+  const table = ensureTable(facts, stage, newId);
+  if (table !== null) return table;
+  return craftWithPrerequisite(
+    recipe,
+    stage,
+    facts,
+    newId,
+    "制作替换箱子",
+  );
+}
+
 function placeBedTask(
   stage: GoalId,
   facts: WorldFacts,
@@ -3552,7 +3578,7 @@ function homeStorageTask(
   stage: GoalId,
   facts: WorldFacts,
   newId: () => string,
-): Task | null {
+): Task | BlockedTask | null {
   const chestNearby = nearbyHas(facts, /(^|:)chest$/u);
   const rememberedChest = anchorIsUnderground(facts, facts.chest ?? null)
     ? undefined
@@ -3620,13 +3646,33 @@ function homeStorageTask(
     if (carriedChest !== undefined) {
       return placeFieldChestTask(stage, facts, carriedChest.item, newId);
     }
-    return null;
+    return replacementChestTask(stage, facts, newId);
   }
   // A remembered chest may be one floor above the body. Euclidean distance
   // does not prove that it is reachable or that the body is standing at the
   // container, so travel home first when the chest is not on this level.
   if (container === undefined) {
     if (facts.chestPlaced !== true) return null;
+    /*
+     * A remembered chest below the surface is still the deposit target. The
+     * default home anchors skip it (`anchorIsUnderground`) and fall back to a
+     * bed on the hill, where a full backpack can only pace. Walk to the chest
+     * itself; recovery mode lets the body open a step down when the cache sits
+     * inside the shaft.
+     */
+    const remembered = facts.chest;
+    if (remembered !== undefined && remembered !== null) {
+      return gotoHomeTask(stage, facts, newId, {
+        anchors: [remembered],
+        title: "前往营地箱子存放物资",
+        mode:
+          position !== undefined &&
+          position !== null &&
+          Math.abs(position.y - remembered.y) > 2
+            ? "recover"
+            : "walk",
+      });
+    }
     return gotoHomeTask(stage, facts, newId);
   }
   if (
@@ -3650,13 +3696,27 @@ function homeStorageTask(
     ) {
       return null;
     }
-    return mineStepTask(
+    const descent = mineStepTask(
       stage,
       facts,
       container.y + 1,
       "沿复用矿道回营地",
       newId,
     );
+    if (descent !== null) return descent;
+    /*
+     * A surface body above an outpost chest often has no reusable stair
+     * blueprint pointing at it: the mine it remembers is somewhere else, or
+     * the chest was placed inside a rescue shaft. Returning null here left a
+     * full backpack with no storage action at all, and the mine stage then
+     * reported "backpack full" forever. Recovery mode lets the walker open a
+     * safe way down to the actual chest instead of parking at the surface.
+     */
+    return gotoHomeTask(stage, facts, newId, {
+      anchors: [container],
+      title: "下到营地箱子存放物资",
+      mode: "recover",
+    });
   }
   /*
    * A camp chest can sit on a shelf the walker cannot climb: the live body
