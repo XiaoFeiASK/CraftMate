@@ -28,6 +28,7 @@ export interface SnapshotView {
   readonly food?: number | null;
   readonly foodAcquired?: boolean | null;
   readonly foodConsumed?: boolean | null;
+  readonly pickaxeLost?: boolean | null;
   readonly dragonDefeated?: boolean | null;
   readonly craftingTableCrafted?: boolean | null;
   readonly craftingTablePlaced?: boolean | null;
@@ -78,6 +79,7 @@ export interface SnapshotView {
   readonly bed?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly furnace?: { readonly x: number; readonly y: number; readonly z: number } | null;
   readonly furnacePlaced?: boolean | null;
+  readonly furnaceReachable?: boolean | null;
   readonly furnaceAgeTicks?: number | null;
   readonly furnaceContents?: {
     readonly input?: string | null;
@@ -113,6 +115,12 @@ export interface SnapshotView {
     readonly durability?: number;
     readonly maxDurability?: number;
   }[];
+  readonly equippedArmor?: {
+    readonly helmet?: string;
+    readonly chestplate?: string;
+    readonly leggings?: string;
+    readonly boots?: string;
+  } | null;
   readonly hotbar?: readonly {
     readonly slot: number;
     readonly item: string;
@@ -128,6 +136,7 @@ export interface SnapshotView {
     readonly bearing?: number;
     readonly visible?: boolean;
     readonly exposed?: boolean;
+    readonly covered?: boolean;
     readonly reachable?: boolean;
     readonly reason?: string;
   }[];
@@ -139,6 +148,19 @@ export interface SnapshotView {
     readonly visible: number;
     readonly reachable: number;
     readonly surveying: boolean;
+  } | null;
+  readonly landmarks?: readonly {
+    readonly kind: string;
+    readonly label: string;
+    readonly x: number;
+    readonly y: number;
+    readonly z: number;
+    readonly detail?: string;
+    readonly confidence?: number;
+  }[];
+  readonly scan?: {
+    readonly scannedChunks: number;
+    readonly scanning: boolean;
   } | null;
   readonly reachableBlock?: {
     readonly id: string;
@@ -243,10 +265,19 @@ export function worldFactsFromSnapshot(
       targetLock = null;
     }
   }
-  const stations = inferStations(nearbyBlocks).filter(
-    (station) =>
-      station !== "crafting_table" || snapshot.craftingTableReachable !== false,
-  );
+  const stations = inferStations(nearbyBlocks).filter((station) => {
+    if (station === "crafting_table") {
+      return snapshot.craftingTableReachable !== false;
+    }
+    // A nearby-block summary proves the station exists somewhere in the
+    // observation cube, not that the body can open it. The bridge reports
+    // interaction reach separately; honoring it stops a furnace six blocks
+    // away from generating a smelt plan that can never start.
+    if (station === "furnace" || station === "blast_furnace") {
+      return snapshot.furnaceReachable !== false;
+    }
+    return true;
+  });
   const reachableBlock =
     snapshot.reachableBlock === undefined || snapshot.reachableBlock === null
       ? snapshot.reachableBlock
@@ -307,6 +338,9 @@ export function worldFactsFromSnapshot(
     ...(snapshot.orePerception === undefined || snapshot.orePerception === null
       ? {}
       : { orePerception: snapshot.orePerception }),
+    ...(snapshot.landmarks === undefined || snapshot.landmarks.length === 0
+      ? {}
+      : { landmarks: snapshot.landmarks }),
     ...(routeBlacklist.length === 0 ? {} : { routeBlacklist }),
     targetLock,
     now,
@@ -323,7 +357,9 @@ export function worldFactsFromSnapshot(
     food: snapshot.food,
     foodAcquired: snapshot.foodAcquired,
     foodConsumed: snapshot.foodConsumed,
+    pickaxeLost: snapshot.pickaxeLost,
     dragonDefeated: snapshot.dragonDefeated,
+    scan: snapshot.scan,
     craftingTableCrafted: snapshot.craftingTableCrafted,
     craftingTablePlaced: snapshot.craftingTablePlaced,
     craftingTableAgeTicks: snapshot.craftingTableAgeTicks,
@@ -342,6 +378,7 @@ export function worldFactsFromSnapshot(
     bed: snapshot.bed,
     furnace: snapshot.furnace,
     furnacePlaced: snapshot.furnacePlaced,
+    furnaceReachable: snapshot.furnaceReachable,
     furnaceAgeTicks: snapshot.furnaceAgeTicks,
     furnaceContents,
     craftingTableNearby: snapshot.craftingTableNearby,
@@ -393,7 +430,18 @@ export function inventoryItems(facts: WorldFacts): readonly string[] {
  * equivalent to counting used slots.
  */
 export function usedInventorySlots(facts: WorldFacts): number {
-  return facts.inventory.filter((slot) => slot.count > 0).length;
+  /*
+   * Worn armor and the offhand are not part of the 36-slot backpack. Counting
+   * them made a body with a full iron set believe it had four fewer free
+   * slots: the live run deposited copper and dirt, still saw "背包已满", and
+   * blocked its diamond descent while seven main slots were actually empty.
+   */
+  return facts.inventory.filter(
+    (slot) =>
+      slot.count > 0 &&
+      slot.section !== "armor" &&
+      slot.section !== "offhand",
+  ).length;
 }
 
 /**
@@ -406,7 +454,17 @@ export function hasInventoryCapacity(
   facts: WorldFacts,
   emptySlots = 4,
 ): boolean {
-  return usedInventorySlots(facts) < 36 - Math.max(0, emptySlots);
+  /*
+   * "Keep four slots free" means 32/36 is still a valid trip. The old strict
+   * `<` required a fifth empty slot, so the live body stood at camp at 32/36
+   * with only one loose dirt to store: mining said the pack was full, storage
+   * said the batch was too small, and the goal idled forever.
+   *
+   * A reserve of zero still means "room for the next drop", not "a full pack
+   * is fine", so the floor is one free slot.
+   */
+  const requiredFree = Math.max(1, emptySlots);
+  return usedInventorySlots(facts) <= 36 - requiredFree;
 }
 
 /** Items whose id matches any of the supplied tags, resolved from inventory. */
@@ -577,6 +635,32 @@ export function nearestEntity(
 }
 
 /**
+ * Nearest surveyed landmark of a kind. The survey reports raw observed blocks
+ * (a bell, a portal frame, a fortress fence), not a structure centre, so the
+ * planner treats this as a heading to verify rather than a solved objective.
+ */
+export function nearestLandmark(
+  facts: WorldFacts,
+  kind: string,
+): NonNullable<WorldFacts["landmarks"]>[number] | null {
+  const origin = facts.position;
+  let best: NonNullable<WorldFacts["landmarks"]>[number] | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const landmark of facts.landmarks ?? []) {
+    if (landmark.kind !== kind) continue;
+    const distance =
+      origin === undefined || origin === null
+        ? 0
+        : Math.hypot(landmark.x - origin.x, landmark.z - origin.z);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = landmark;
+    }
+  }
+  return best;
+}
+
+/**
  * A land mob can be inside the planar hunt window while standing on the
  * surface directly above a cave. The body's bounded walker cannot climb that
  * cliff, so issuing an attack only produces "no reachable route" and hides a
@@ -708,6 +792,10 @@ function normalizeBlocks(blocks: SnapshotView["nearbyBlocks"]): readonly NearbyB
     ...(block.distance === undefined ? {} : { distance: block.distance }),
     ...(block.bearing === undefined ? {} : { bearing: block.bearing }),
     ...(block.visible === undefined ? {} : { visible: block.visible }),
+    ...(block.exposed === undefined ? {} : { exposed: block.exposed }),
+    ...(block.covered === undefined ? {} : { covered: block.covered }),
+    ...(block.reachable === undefined ? {} : { reachable: block.reachable }),
+    ...(block.reason === undefined ? {} : { reason: block.reason }),
   }));
 }
 
@@ -757,7 +845,9 @@ function withOptionals(
     readonly food?: number | null | undefined;
     readonly foodAcquired?: boolean | null | undefined;
     readonly foodConsumed?: boolean | null | undefined;
+    readonly pickaxeLost?: boolean | null | undefined;
     readonly dragonDefeated?: boolean | null | undefined;
+    readonly scan?: WorldFacts["scan"];
     readonly craftingTableCrafted?: boolean | null | undefined;
     readonly craftingTablePlaced?: boolean | null | undefined;
     readonly craftingTableAgeTicks?: number | null | undefined;
@@ -776,6 +866,7 @@ function withOptionals(
     readonly bed?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
     readonly furnace?: { readonly x: number; readonly y: number; readonly z: number } | null | undefined;
     readonly furnacePlaced?: boolean | null | undefined;
+    readonly furnaceReachable?: boolean | null | undefined;
     readonly furnaceAgeTicks?: number | null | undefined;
     readonly furnaceContents?: WorldFacts["furnaceContents"] | undefined;
     readonly craftingTableNearby?: boolean | null | undefined;
@@ -812,6 +903,7 @@ function withOptionals(
     ...(optional.food === undefined ? {} : { food: optional.food }),
     ...(optional.foodAcquired === undefined ? {} : { foodAcquired: optional.foodAcquired }),
     ...(optional.foodConsumed === undefined ? {} : { foodConsumed: optional.foodConsumed }),
+    ...(optional.pickaxeLost === undefined ? {} : { pickaxeLost: optional.pickaxeLost }),
     ...(optional.dragonDefeated === undefined ? {} : { dragonDefeated: optional.dragonDefeated }),
     ...(optional.craftingTableCrafted === undefined ? {} : { craftingTableCrafted: optional.craftingTableCrafted }),
     ...(optional.craftingTablePlaced === undefined ? {} : { craftingTablePlaced: optional.craftingTablePlaced }),
@@ -831,6 +923,7 @@ function withOptionals(
     ...(optional.bed === undefined ? {} : { bed: optional.bed }),
     ...(optional.furnace === undefined ? {} : { furnace: optional.furnace }),
     ...(optional.furnacePlaced === undefined ? {} : { furnacePlaced: optional.furnacePlaced }),
+    ...(optional.furnaceReachable === undefined ? {} : { furnaceReachable: optional.furnaceReachable }),
     ...(optional.furnaceAgeTicks === undefined ? {} : { furnaceAgeTicks: optional.furnaceAgeTicks }),
     ...(optional.furnaceContents === undefined ? {} : { furnaceContents: optional.furnaceContents }),
     ...(optional.craftingTableNearby === undefined ? {} : { craftingTableNearby: optional.craftingTableNearby }),

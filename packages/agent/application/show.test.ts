@@ -255,7 +255,7 @@ describe("show model planning", () => {
       text: "请说：大肥鱼已经进入世界了。",
     });
     assert.ok(scored);
-    assert.equal(scored.decision, "QUEUE");
+    assert.equal(scored.decision, "ACK_ONLY");
     const planned = await show.plan(scored);
     assert.deepEqual(requests, ["world:请说：大肥鱼已经进入世界了。"]);
     assert.equal(planned.stage, "planned");

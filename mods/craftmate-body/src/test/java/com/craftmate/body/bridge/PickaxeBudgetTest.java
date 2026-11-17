@@ -47,4 +47,25 @@ class PickaxeBudgetTest {
 
 		assertEquals(5, chosen.slot());
 	}
+
+	@Test
+	void aToolBelowTheRescueReserveStopsTheDescentForReplacement() {
+		PickaxeBudget.Candidate worn = new PickaxeBudget.Candidate(
+			0,
+			"minecraft:stone_pickaxe",
+			8,
+			4.0f,
+			2
+		);
+		PickaxeBudget.Candidate usable = new PickaxeBudget.Candidate(
+			1,
+			"minecraft:stone_pickaxe",
+			12,
+			4.0f,
+			2
+		);
+
+		assertEquals(false, PickaxeBudget.hasRescueReserve(worn, 12));
+		assertEquals(true, PickaxeBudget.hasRescueReserve(usable, 12));
+	}
 }

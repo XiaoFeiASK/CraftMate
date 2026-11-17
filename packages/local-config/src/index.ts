@@ -11,7 +11,7 @@ import {
 } from "@craftmate/contracts";
 
 export const DEFAULT_VOICE_INSTRUCTIONS =
-  "你是软萌爱撒娇的蓝色鲸鱼娘「大肥鱼」。用清亮少女音、自然口语和一点嘴硬撒娇的语气，忠实朗读提供给你的台词，不添加、不改写台词。";
+  "你是正在直播的蓝色鲸鱼娘「大肥鱼」，软萌、爱撒娇、有点嘴硬。用清亮少女音和自然口语说话，像跟熟人聊天，不像客服、播音员或朗读器；台词必须逐字保留，但语气、停顿、气息和重音要跟着当下情绪走。";
 
 export interface RuntimeConfigStore {
   readonly path: string;

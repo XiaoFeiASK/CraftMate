@@ -145,6 +145,22 @@ final class ApproachRoute {
 		int maxNodes,
 		double maxRadius
 	) {
+		return nearestReachable(client, target, maxNodes, maxRadius, Integer.MAX_VALUE);
+	}
+
+	/**
+	 * A retry after a partial multi-goal search must stay bounded: probing
+	 * every standable cell around a chest with a fresh A* can take longer
+	 * than the walk itself. Callers that only need a second chance pass a
+	 * small probe limit.
+	 */
+	static Route nearestReachable(
+		Minecraft client,
+		BlockPos target,
+		int maxNodes,
+		double maxRadius,
+		int maxProbes
+	) {
 		BlockPos start = client.player.blockPosition();
 		List<BoundedPathfinder.Cell> candidates = openInteractionCells(client, target);
 		if (candidates.isEmpty()) {
@@ -160,7 +176,9 @@ final class ApproachRoute {
 				cell -> Math.hypot(cell.x() - startCell.x(), cell.z() - startCell.z())
 			)
 		);
+		int probes = 0;
 		for (BoundedPathfinder.Cell cell : candidates) {
+			if (probes++ >= maxProbes) break;
 			if (
 				Math.hypot(cell.x() - startCell.x(), cell.z() - startCell.z()) > maxRadius
 					|| Math.abs(cell.y() - startCell.y()) > 8

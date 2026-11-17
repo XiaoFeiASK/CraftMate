@@ -300,7 +300,11 @@ function retreatTask(
         target: candidates[0]!,
         candidates,
         acceptPartial: true,
-        mode: "walk",
+        // Underground a plain walk only fails into stone, and escalation
+        // turns the retreat into a pillar that cannot fit under a mine roof.
+        // `dig` keeps a real route when one exists and otherwise cuts a
+        // horizontal escape corridor.
+        mode: isUnderground(context.facts) ? "dig" : "walk",
         emergency: true,
       },
       idempotencyKey: context.newId(),

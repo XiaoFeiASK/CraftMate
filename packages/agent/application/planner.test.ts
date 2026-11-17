@@ -317,6 +317,76 @@ describe("stage C planner", () => {
     assert.equal(request.instructions.includes("minecraft:stone"), false);
   });
 
+  test("passes recent conversation and activity as data while teaching persona delivery", async () => {
+    let seen: PlanRequest | null = null;
+    const planner = new Planner({
+      provider: provider(async (request) => {
+        seen = request;
+        return {
+          speech: "小鲸鱼，我还在挖矿呢，别催啦。",
+          skill: null,
+          reason: "ok",
+          provider: "fake",
+          model: "fake-1",
+        };
+      }),
+    });
+    const withStyle: PersonaSummary = {
+      ...persona,
+      style: {
+        tone: "软萌可爱",
+        sentenceLength: "short",
+        verbalTics: ["唔", "哼"],
+        quirks: ["先嘴硬再关心"],
+      },
+      values: ["不吹牛"],
+      boundaries: ["没执行就不说自己做了"],
+    };
+    const conversation = [
+      { role: "audience" as const, speaker: "小鲸鱼", text: "你在干嘛呀" },
+      { role: "agent" as const, text: "我在挖矿呢。" },
+    ];
+
+    await planner.plan({
+      decision: decision({ text: "你挖到铁了吗" }),
+      goal: "盖房",
+      persona: withStyle,
+      conversation,
+      activity: "开挖矿道寻找铁矿石（本轮先到 y=35）",
+    });
+    const request = seen as PlanRequest | null;
+    assert.ok(request);
+    assert.deepEqual(request.conversation, conversation);
+    assert.equal(request.activity, "开挖矿道寻找铁矿石（本轮先到 y=35）");
+    assert.match(request.instructions, /语气词可以用：唔、哼/u);
+    assert.match(request.instructions, /口播只说 1～2 句/u);
+    assert.match(request.instructions, /不要报 y 坐标/u);
+    assert.equal(request.instructions.includes("你挖到铁了吗"), false);
+  });
+
+  test("chat survives a provider outage with a contextual in-character line", async () => {
+    const planner = new Planner({
+      provider: provider(async () => {
+        throw new Error("fetch failed");
+      }),
+    });
+    const planned = await planner.plan({
+      decision: decision({
+        text: "你在干嘛呀",
+        intent: "chat",
+        decision: "ACK_ONLY",
+        priority: "ambient",
+      }),
+      goal: "铁器与熔炉",
+      persona,
+      activity: "开挖矿道寻找铁矿石（本轮先到 y=35）",
+    });
+
+    assert.equal(planned.degraded, true);
+    assert.match(planned.speech, /挖矿找铁/u);
+    assert.doesNotMatch(planned.speech, /y=35|收到|记下/u);
+  });
+
   test("invalid skill args are rejected instead of reaching the bridge", async () => {
     const incidents: string[] = [];
     const planner = new Planner({

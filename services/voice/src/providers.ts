@@ -12,9 +12,24 @@ import type {
   TtsRequest,
   TtsStream,
 } from "./provider.ts";
+import {
+  deriveVoicePerformance,
+  performanceInstructions,
+} from "./performance.ts";
 
 export const DAFEIYU_REALTIME_INSTRUCTIONS =
+  "你是正在直播的蓝色鲸鱼娘「大肥鱼」，软萌、爱撒娇、有点嘴硬。用清亮少女音和自然口语说话，像跟熟人聊天，不像客服、播音员或朗读器；台词必须逐字保留，但语气、停顿、气息和重音要跟着当下情绪走。";
+
+/** Exact text shipped before the expressive rewrite; safe to migrate in place. */
+export const LEGACY_DAFEIYU_REALTIME_INSTRUCTIONS =
   "你是软萌爱撒娇的蓝色鲸鱼娘「大肥鱼」。用清亮少女音、自然口语和一点嘴硬撒娇的语气，忠实朗读提供给你的台词，不添加、不改写台词。";
+
+export function resolveRealtimeInstructions(value: string | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  return trimmed.length === 0 || trimmed === LEGACY_DAFEIYU_REALTIME_INSTRUCTIONS
+    ? DAFEIYU_REALTIME_INSTRUCTIONS
+    : trimmed;
+}
 
 const PCM_STREAM_PLAYER = fileURLToPath(
   new URL("./native/pcm-stream-player.swift", import.meta.url),
@@ -239,7 +254,7 @@ export class VolcengineRealtimeTtsProvider implements TtsProvider {
     this.url = options.url ?? "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue";
     this.model = options.model ?? "1.2.6.1";
     this.voice = options.voice ?? "zh_female_vv_uranus_bigtts";
-    this.instructions = options.instructions ?? DAFEIYU_REALTIME_INSTRUCTIONS;
+    this.instructions = resolveRealtimeInstructions(options.instructions);
     this.sampleRate = options.sampleRate ?? 24_000;
     this.timeoutMs = options.timeoutMs ?? 300_000;
     this.socketFactory =
@@ -263,6 +278,8 @@ export class VolcengineRealtimeTtsProvider implements TtsProvider {
     if (request.signal.aborted) {
       throw request.signal.reason ?? new Error("aborted");
     }
+    const performance =
+      request.performance ?? deriveVoicePerformance(request.text);
     const socket = this.socketFactory(this.url, { "X-Api-Key": this.apiKey });
     const chunks = new AsyncChunkQueue();
     let firstByteAt = 0;
@@ -334,14 +351,28 @@ export class VolcengineRealtimeTtsProvider implements TtsProvider {
             type: "session.create",
             session: {
               model: this.model,
-              instructions: this.instructions,
+              instructions: performanceInstructions(
+                this.instructions,
+                performance,
+              ),
               audio: {
                 input: { format: { type: "pcm", rate: 16_000 } },
                 output: {
                   // The API's bare `pcm` is 32-bit; request signed 16-bit PCM
                   // because the WAV wrapper and local playback path are s16le.
                   format: { type: "pcm_s16le", rate: this.sampleRate },
-                  speed: Math.round((request.voice.speed - 1) * 100),
+                  speed: Math.round(
+                    (Math.min(
+                      2,
+                      Math.max(
+                        0.5,
+                        request.voice.speed +
+                          performance.pace,
+                      ),
+                    ) -
+                      1) *
+                      100,
+                  ),
                   loudness: 0,
                   voice: this.voice,
                 },

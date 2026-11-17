@@ -93,17 +93,14 @@
 | 层 | 负责 | 不负责 |
 | --- | --- | --- |
 | Mission / Survival planner | 任务链方向、阶段、前置条件、合法任务 | 修改世界 |
-| GoalRuntime | 单任务在途、终态判定、退避、失败历史、目标切换 | 选择具体 Minecraft 操作 |
-| Bridge | 能力协商、队列、控制权、超时、终态回传 | 生存策略 |
-| Fabric Mod | tick 内执行、局部寻路、视角、原子动作和身体侧反射 | 模型调用、观众意图 |
+| GoalRuntime | 单任务在途、终态判定、退避、目标切换 | 选择具体 Minecraft 操作 |
+| Bridge | 能力、队列、控制权、超时、终态回传 | 生存策略 |
+| Fabric Mod | tick 内执行、局部寻路、反射、原子动作 | 模型调用、观众意图 |
 
-Mod 的低层自治只把已批准技能做得像人：
-
-- `BoundedPathfinder` 使用有界 A*，失败返回部分路径和原因。
-- `StairEscape`、`CanopyEscape`、`ShaftEscape`、自动垫桥处理局部卡死。
-- `CameraSpring` / `CameraController` 做最短弧转向和视角平滑，命中仍按真实射线。
-- `IdleWander` 仅在 Agent 持有控制权且无命令时观察、短距行走或捡掉落物。
-- `Reflexes` 先松手和闪避；去哪里由 Agent 决定。
+Mod 的低层自治只把已批准技能做得像人：`BoundedPathfinder` 负责有界 A*，地形恢复
+模块处理台阶/树冠/竖井/断口，`Reflexes` 只松手和原生逃生，`IdleWander` 只在无命令
+时活动。逐项技能与 Java 任务对应见
+[Agent 编排与游戏身体映射](../reference/agent-body-mapping.md)。
 
 ## 5. 反射与夜间
 

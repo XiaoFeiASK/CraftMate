@@ -182,33 +182,14 @@ craftmate/
 └─ stop.command           一键停止本机开发环境
 ```
 
-`services/supervisord/` 不存在，也不是当前实现。
-
 ## 文档地图
 
-先看这张表，再决定读哪一篇。每个主题只保留一个权威文档。
+完整索引见[文档地图](docs/README.md)，每个主题只保留一篇权威文档。最常用的入口：
 
-| 文档 | 回答什么问题 |
-| --- | --- |
-| [架构总览](docs/reference/architecture.md) | 系统怎么分层、边界在哪、哪些不变量不能破 |
-| [技术设计](docs/reference/technical-design.md) | 协议、参数、状态机、人格、记忆、存储的细节 |
-| [相关项目调研](docs/research/related-projects.md) | 同类项目有哪些值得持续观察的技术方案 |
-| [外部集成](docs/guides/integrations.md) | 模型、语音、抖音评论和游戏身体怎么接 |
-| [Bridge 设计](docs/reference/bridge.md) | `/bridge` 协议、队列、控制权与真机约束 |
-| [自主生存闭环](docs/operations/autonomy.md) | 目标模式怎么持续决策、Agent 与 Mod 如何分工、失败后怎么恢复 |
-| [场景回归](docs/operations/scenarios.md) | 从空手开局到危险反射、空场节拍、分段续跑的真机场景与证据写法 |
-| [验证清单](docs/operations/verification.md) | 现在能跑什么、哪些是部分实现、还缺什么 |
-| [运行手册](docs/operations/runbook.md) | 怎么启动、怎么验证、常见问题 |
-| [决策记录](docs/decisions/adr.md) | 已拍板的技术决策、后果与重新评估条件 |
-| [技术选型](docs/decisions/tech-stack.md) | 为什么用 TS / Tauri / Java，而不是 Python / Go / Electron |
-| [术语表](docs/reference/glossary.md) | 场次、仲裁、承诺、证据等词的精确定义 |
-| [数据模型](docs/reference/data-model.md) | 迁移、幂等、保留策略与 schema 校验 |
-
-三条推荐阅读路径：
-
-1. **第一次接触**：README → 架构总览 → 技术设计 §1 → 验证清单。
-2. **准备动手**：运行手册 → 验证清单 → 外部集成。
-3. **接外部系统**：外部集成 → Bridge 设计 → 技术设计 §2 → 决策记录。
+- [Agent 编排与游戏身体映射](docs/reference/agent-body-mapping.md)：技能、阶段和 Java 任务怎么对应。
+- [架构总览](docs/reference/architecture.md)：模块边界与不可妥协的约束。
+- [运行手册](docs/operations/runbook.md)：启动、端口、配置与排错。
+- [验证清单](docs/operations/verification.md)：已验证、未验收和证据边界。
 
 ## 参考与许可
 

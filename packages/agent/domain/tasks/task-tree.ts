@@ -149,6 +149,38 @@ export class TaskTree {
     return created;
   }
 
+  /**
+   * Records a planned AND/OR branch without moving the cursor. The body still
+   * receives one compiled job; the attached nodes explain its prerequisites
+   * and let a later settlement mark the whole branch as proven.
+   */
+  attach(parentId: string, inputs: readonly AddTaskInput[]): readonly TaskNode[] {
+    this.require(parentId);
+    return inputs.map((input) => this.create(input, parentId));
+  }
+
+  /** Completes one task and every planned child attached beneath it. */
+  completeBranch(id: string, evidence: readonly string[] = []): TaskNode {
+    const root = this.require(id);
+    if (root.successEvidence.length > 0 && evidence.length === 0) {
+      throw new Error(`task ${id} requires success evidence`);
+    }
+    const now = this.touch();
+    const update = (node: TaskNode): void => {
+      if (node.state === "invalidated") return;
+      this.nodes.set(node.id, {
+        ...node,
+        state: "succeeded",
+        successEvidence: [...new Set([...node.successEvidence, ...evidence])],
+        updatedAt: now,
+      });
+      for (const child of this.childrenOf(node.id)) update(child);
+    };
+    update(root);
+    this.advanceCursor(id);
+    return this.nodes.get(id)!;
+  }
+
   activate(id: string): TaskNode {
     const node = this.require(id);
     if (node.state === "succeeded" || node.state === "invalidated") {

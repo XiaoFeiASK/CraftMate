@@ -10,6 +10,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.CameraType;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.GameRules;
@@ -57,6 +58,19 @@ public final class CraftMateBodyClient implements ClientModInitializer {
 			CameraController.observe(client);
 			bridge.tick(client);
 			boolean agentControlled = bridge.agentControlled();
+			CameraController.setAudienceMode(agentControlled);
+			if (
+				agentControlled &&
+				client.options != null &&
+				client.options.getCameraType() != CameraType.THIRD_PERSON_BACK
+			) {
+				// The body is an on-stream character: give the audience the
+				// full-body framing for the whole agent session. The previous
+				// one-shot switch only ran on the takeover edge, so a saved
+				// first-person camera or a human F5 during a long task made
+				// the agent disappear from its own observation view.
+				client.options.setCameraType(CameraType.THIRD_PERSON_BACK);
+			}
 			if (agentOwnedLastTick && !agentControlled) {
 				// The body can outlive a dead orchestrator. Refuse to keep
 				// walking or mining after control is gone, even if the last

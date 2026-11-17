@@ -59,4 +59,20 @@ final class MineStair {
 		ordered[index] = new int[] { -mainDx, -mainDz };
 		return ordered;
 	}
+
+	/**
+	 * A deep stair with no next cell and no branch is a dead end, not an open
+	 * route. Keeping its entrance forever made the planner mine arbitrary
+	 * stone faces at the bottom of a flooded shaft; the body reported dozens
+	 * of one-block "successes" while the tunnel never advanced. A shallow
+	 * stair is still being started, and a stair with a branch has somewhere
+	 * useful to go.
+	 */
+	static boolean abandonableDeadEnd(
+		boolean hasPending,
+		int depth,
+		boolean hasBranch
+	) {
+		return !hasPending && !hasBranch && depth >= 4;
+	}
 }

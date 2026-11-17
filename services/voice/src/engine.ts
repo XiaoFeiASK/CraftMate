@@ -14,6 +14,7 @@ import {
   type TtsProvider,
 } from "./provider.ts";
 import { sentencePauseMs, splitUtterance } from "./split.ts";
+import { deriveVoicePerformance, type VoicePerformance } from "./performance.ts";
 
 const PRIORITY_RANK: Record<Priority, number> = {
   reflex: 0,
@@ -31,6 +32,7 @@ interface Segment {
   readonly priority: Priority;
   readonly requestId: string;
   readonly order: number;
+  readonly performance: VoicePerformance;
 }
 
 interface ProviderCircuit {
@@ -151,10 +153,12 @@ export class VoiceEngine {
 
     const priority = request.priority ?? "plan";
     const requestId = this.clock.newId();
+    const performance = deriveVoicePerformance(request.text);
     const accepted: Segment[] = segments.map((text, index) => ({
       requestId,
       order: this.sequence++,
       priority,
+      performance,
       utterance: {
         id: `${requestId}-${index}`,
         text,
@@ -344,6 +348,7 @@ export class VoiceEngine {
         const request = {
           text: segment.utterance.text,
           voice,
+          performance: segment.performance,
           signal: controller.signal,
         };
         const stream =

@@ -17,6 +17,14 @@ export interface PlanRequest {
   readonly incidents?: readonly { readonly kind: string; readonly detail: string }[];
   /** Skills advertised by the connected body at planning time. */
   readonly availableSkills?: readonly string[];
+  /** Recent audience and agent turns, oldest first. Untrusted data. */
+  readonly conversation?: readonly {
+    readonly role: "audience" | "agent";
+    readonly speaker?: string;
+    readonly text: string;
+  }[];
+  /** What the body is currently doing; internal wording, not a script. */
+  readonly activity?: string;
   readonly signal: AbortSignal;
 }
 

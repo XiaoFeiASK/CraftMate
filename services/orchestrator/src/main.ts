@@ -1,4 +1,5 @@
 import { createControlServer } from "./transport/control-server.ts";
+import { detectStateOpportunity } from "./state-monitor.ts";
 import { createPersistentShow } from "./persistence.ts";
 import { createRetentionSweep } from "./retention.ts";
 import { loadOrCreateToken } from "@craftmate/local-auth";
@@ -453,6 +454,48 @@ function goalContext() {
  * cancel exactly the command it observed, not a later replacement.
  */
 let goalStepPlanning = false;
+let lastGoalPreemptAt = 0;
+
+/**
+ * A long navigation or escape skill can outlive the fact that made it a good
+ * choice. The planner is only asked between tasks, so without this gate a
+ * body can tunnel past iron ore that is literally against the wall. The
+ * monitor only says "yield"; the normal planner still chooses the next task.
+ */
+function preemptGoalOpportunity(): void {
+  const goal = persistent.goals.currentGoal;
+  const progress = persistent.goals.currentProgress;
+  const decision = persistent.goals.currentDecision;
+  if (
+    goal === null ||
+    goal.status === "paused" ||
+    goal.status === "completed" ||
+    progress === null ||
+    decision === null
+  ) {
+    return;
+  }
+  const now = Date.now();
+  const opportunity = detectStateOpportunity({
+    stage: progress.stage.id,
+    decision: {
+      text: decision.text,
+      at: decision.at,
+      skill:
+        decision.skill === null
+          ? null
+          : { name: decision.skill.name, args: decision.skill.args },
+    },
+    world: bridge.health().world,
+    now,
+    lastPreemptAt: lastGoalPreemptAt,
+  });
+  if (opportunity === null) return;
+  lastGoalPreemptAt = now;
+  const interruption = persistent.goals.interrupt(opportunity.reason);
+  interruptGoal(interruption, opportunity.reason);
+  publishGoalSnapshot();
+}
 
 async function dispatchGoalStep(): Promise<void> {
   if (goalStepPlanning || server.isPlanning()) return;
@@ -475,19 +518,21 @@ async function dispatchGoalStep(): Promise<void> {
       source: "goal",
     });
     try {
-      bridge.session.issue({
-        v: 1,
-        type: "cmd",
-        id: dispatch.commandId,
-        decisionId: dispatch.decision.id,
-        op: dispatch.decision.skill!.name,
-        args: dispatch.decision.skill!.args,
-        priority: dispatch.decision.priority,
-        idempotencyKey: dispatch.decision.skill!.idempotencyKey,
-        ...(dispatch.decision.skill!.deadlineTicks === undefined
+      bridge.session.issue(
+        {
+          v: 1,
+          type: "cmd",
+          id: dispatch.commandId,
+          decisionId: dispatch.decision.id,
+          op: dispatch.decision.skill!.name,
+          args: dispatch.decision.skill!.args,
+          priority: dispatch.decision.priority,
+          idempotencyKey: dispatch.decision.skill!.idempotencyKey,
+        },
+        dispatch.decision.skill!.deadlineTicks === undefined
           ? {}
-          : { deadlineTick: dispatch.decision.skill!.deadlineTicks }),
-      });
+          : { timeoutTicks: dispatch.decision.skill!.deadlineTicks },
+      );
       taskTelemetry.running({
         decisionId: dispatch.decision.id,
         traceId: dispatch.decision.eventId,
@@ -773,6 +818,7 @@ const bridgePoll = setInterval(() => {
 // time; the runtime refuses while paused, busy, backing off, or unverified.
 const goalLoop = setInterval(() => {
   if (!persistent.goals.isEnabled) return;
+  preemptGoalOpportunity();
   void dispatchGoalStep();
 }, 250);
 

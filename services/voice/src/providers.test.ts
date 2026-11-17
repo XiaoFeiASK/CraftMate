@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { test } from "node:test";
-import { DAFEIYU_REALTIME_INSTRUCTIONS, VolcengineRealtimeTtsProvider } from "./providers.ts";
+import {
+  DAFEIYU_REALTIME_INSTRUCTIONS,
+  LEGACY_DAFEIYU_REALTIME_INSTRUCTIONS,
+  VolcengineRealtimeTtsProvider,
+  resolveRealtimeInstructions,
+} from "./providers.ts";
+import { deriveVoicePerformance } from "./performance.ts";
 
 class FakeRealtimeSocket extends EventEmitter {
   readonly sent: string[] = [];
@@ -38,9 +44,12 @@ test("Volcengine realtime provider creates a session and emits committed text", 
   assert.equal(requestHeaders["X-Api-Key"], "realtime-test-key");
   assert.equal(create.type, "session.create");
   assert.equal(create.session.model, "1.2.6.1");
-  assert.equal(create.session.instructions, DAFEIYU_REALTIME_INSTRUCTIONS);
+  assert.ok(
+    create.session.instructions.startsWith(DAFEIYU_REALTIME_INSTRUCTIONS),
+  );
+  assert.match(create.session.instructions, /这一句/u);
   assert.equal(create.session.audio.output.voice, "zh_female_vv_uranus_bigtts");
-  assert.equal(create.session.audio.output.speed, 5);
+  assert.equal(create.session.audio.output.speed, 7);
   assert.equal(create.session.audio.output.format.type, "pcm_s16le");
   assert.equal(create.session.audio.output.format.rate, 24_000);
 
@@ -58,6 +67,45 @@ test("Volcengine realtime provider creates a session and emits committed text", 
   assert.equal(audio.mediaType, "audio/wav");
   assert.equal(Buffer.from(audio.bytes).subarray(0, 4).toString(), "RIFF");
   assert.deepEqual([...Buffer.from(audio.bytes).subarray(44)], [1, 2, 3, 4]);
+});
+
+test("an excited line gets a smile in the delivery and a small pace lift", async () => {
+  const socket = new FakeRealtimeSocket();
+  const provider = new VolcengineRealtimeTtsProvider({
+    apiKey: "realtime-test-key",
+    socketFactory: () => socket,
+  });
+  const pending = provider.stream({
+    text: "挖到了！真的有铁！",
+    voice: { provider: "volcengine-realtime", voiceId: "dafeiyu", speed: 1.05 },
+    performance: deriveVoicePerformance("挖到了！真的有铁！"),
+    signal: new AbortController().signal,
+  });
+  socket.emit("open");
+  const create = JSON.parse(socket.sent[0] ?? "{}");
+  assert.match(create.session.instructions, /声音带笑/u);
+  assert.equal(create.session.audio.output.speed, 10);
+  socket.emit(
+    "message",
+    JSON.stringify({ type: "session.created", session: { id: "dialog-1" } }),
+  );
+  socket.emit(
+    "message",
+    JSON.stringify({
+      type: "response.output_audio.delta",
+      delta: Buffer.from([1]).toString("base64"),
+    }),
+  );
+  socket.emit("message", JSON.stringify({ type: "response.output_audio.done" }));
+  await pending;
+});
+
+test("the previous flat read-aloud instruction is migrated in place", () => {
+  assert.equal(
+    resolveRealtimeInstructions(LEGACY_DAFEIYU_REALTIME_INSTRUCTIONS),
+    DAFEIYU_REALTIME_INSTRUCTIONS,
+  );
+  assert.equal(resolveRealtimeInstructions("我的自定义提示"), "我的自定义提示");
 });
 
 test("Volcengine realtime provider exposes PCM before the upstream completes", async () => {

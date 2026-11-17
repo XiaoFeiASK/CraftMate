@@ -9,7 +9,6 @@ import {
   inventoryCount,
   planMission,
   planSurvival,
-  queryRecipe,
   taskSignature,
   worldFactsFromSnapshot,
   type GoalId,
@@ -17,6 +16,10 @@ import {
   type Task,
   type WorldFacts,
 } from "../domain/index.ts";
+import {
+  compileAcquisitionBatch,
+  compileAcquisitionChain,
+} from "./acquisition-planner.ts";
 import {
   SurvivalGoalPlanner,
   applyFailureRecovery,
@@ -26,7 +29,7 @@ import {
   type GoalPlanningInput,
   type GoalTask,
 } from "./goal-runtime.ts";
-import { PlanCompiler, boundedId, guardsForSkill } from "./plan-compiler.ts";
+import { PlanCompiler, boundedId } from "./plan-compiler.ts";
 
 /**
  * Production planner: one deterministic mission spine compiles the current
@@ -195,19 +198,24 @@ function applyMission(plan: GoalPlan, mission: MissionDecision): GoalPlan {
 }
 
 /**
- * A smelt that produces enough ingots for carried recipes is one job: the
- * furnace work and the following table work should not be separated by an
- * idle replan. Nodes whose non-ingot ingredients are not already present are
- * deliberately omitted; the next observation can compile them safely.
+ * A smelt that produces enough ingots for carried recipes is one job. The
+ * step list comes from the knowledge graph's recipe inputs, not a hand-written
+ * iron table: unaffordable pieces are skipped and their ingredients stay
+ * reserved for the ones that fit.
  */
 function withCompiledJob(plan: GoalPlan, facts: WorldFacts): GoalPlan {
   const task = plan.nextTask;
-  if (task === null || plan.stage.id !== "iron") return plan;
-  if (task.skill.name !== "smelt") return plan;
+  if (task === null) return plan;
+  if (task.skill.name === "craft") {
+    return compileSingleCraft(plan, task, facts);
+  }
+  if (plan.stage.id !== "iron" || task.skill.name !== "smelt") return plan;
   const output = String(task.skill.args["output"] ?? "");
   if (output !== "minecraft:iron_ingot") return plan;
   const count = Number(task.skill.args["count"] ?? 1);
   if (!Number.isFinite(count) || count < 1) return plan;
+  let compileFacts = facts;
+  const preflight: PlanStep[] = [];
   const position = facts.position;
   const rememberedTable = facts.craftingTable;
   const tableInReach =
@@ -223,102 +231,101 @@ function withCompiledJob(plan: GoalPlan, facts: WorldFacts): GoalPlan {
         rememberedTable.z - position.z,
       ) <= 4.5);
   const carriedTable = inventoryCount(facts, "minecraft:crafting_table") > 0;
-  if (!tableInReach && !carriedTable) return plan;
-
-  let ingots = inventoryCount(facts, "minecraft:iron_ingot") + count;
-  let sticks = inventoryCount(facts, "minecraft:stick");
-  const steps: PlanStep[] = [];
   if (!tableInReach && carriedTable) {
     // The craft node uses a placed station. A remembered table fifty blocks
     // away made the job fail with "no safe route to the crafting table" while
     // the backpack already held three tables.
-    steps.push({
-      id: "place-table",
+    preflight.push({
+      id: "acq:place:crafting_table",
       skill: "place_block",
       args: { block: "minecraft:crafting_table", count: 1 },
       label: "放置工作台",
       guards: [],
       evidence: ["nearbyBlocks contains crafting_table"],
     });
+    compileFacts = {
+      ...facts,
+      stations: [...new Set([...(facts.stations ?? []), "crafting_table" as const])],
+    };
   }
-  steps.push({
-    id: "smelt-ingots",
-    skill: "smelt",
-    args: {
-      ...task.skill.args,
-      count,
-    },
-    label: "熔炼铁锭",
-    guards: [...guardsForSkill("smelt", { ...task.skill.args, count }, facts)],
-    evidence: ["inventory gain: minecraft:iron_ingot"],
-  });
-  for (const gear of IRON_SET) {
-    if (hasItem(facts, gear.item) || ingots <= 0) continue;
-    const recipe = queryRecipe(gear.item);
-    if (recipe === null) continue;
-    let affordable = true;
-    const needed = recipe.ingredients.map((ingredient) => ({
-      ingredient,
-      available: ingredient.choices.reduce(
-        (best, choice) => Math.max(best, inventoryCount(facts, choice)),
-        0,
-      ),
-    }));
-    for (const entry of needed) {
-      const ingot = entry.ingredient.choices.includes("minecraft:iron_ingot");
-      if (ingot) {
-        if (ingots < entry.ingredient.count) affordable = false;
-      } else if (
-        entry.ingredient.choices.includes("minecraft:stick") &&
-        sticks < entry.ingredient.count
-      ) {
-        affordable = false;
-      } else if (!ingot && entry.available < entry.ingredient.count) {
-        affordable = false;
-      }
-    }
-    if (!affordable) continue;
-    for (const entry of needed) {
-      if (entry.ingredient.choices.includes("minecraft:iron_ingot")) {
-        ingots -= entry.ingredient.count;
-      } else if (entry.ingredient.choices.includes("minecraft:stick")) {
-        sticks -= entry.ingredient.count;
-      }
-    }
-    steps.push({
-      id: `craft:${gear.item}`,
-      skill: "craft",
-      args: { item: gear.item, count: 1 },
-      label: `制作${gear.item}`,
-      guards: [...guardsForSkill("craft", { item: gear.item, count: 1 }, facts)],
-      ...(tableInReach ? {} : { targetFamilyId: "station:crafting_table" }),
-      evidence: [`inventory gain: ${gear.item}`],
+  const targets = IRON_SET
+    .filter((gear) => !hasItem(facts, gear.item))
+    .map((gear) => ({ item: gear.item, count: 1 }));
+  const compiled =
+    compileAcquisitionBatch(targets, compileFacts, {
+      maxSteps: 14,
+      skipUnavailable: true,
+    }) ??
+    compileAcquisitionChain("minecraft:iron_ingot", count, compileFacts, {
+      maxSteps: 14,
     });
-  }
+  if (compiled === null) return plan;
+  const steps = [...preflight, ...compiled.steps];
   if (steps.length < 2) return plan;
   const missing = IRON_SET.find((gear) => !hasItem(facts, gear.item))?.item ?? "none";
   const compiler = new PlanCompiler();
   const skill = compiler.compileSequence({
     task,
     facts,
-    planId: `iron-set:${missing.replace(/^minecraft:/u, "")}:${count}`,
+    planId:
+      `iron-set:${missing.replace(/^minecraft:/u, "")}:` +
+      `${count}:${steps.length}`,
     entryNodeId: boundedId(task.taskId ?? "task:iron-set", 100),
     goalFamily: "iron-set",
     steps,
-    targetFamilies: tableInReach
+    targetFamilies: tableInReach || !carriedTable
       ? []
       : [{ id: "station:crafting_table", kind: "station", ids: ["minecraft:crafting_table"] }],
     expectedEvidence: steps.flatMap((step) => step.evidence),
-    maxDurationSeconds: 180,
+    maxDurationSeconds: Math.min(180, 90 + steps.length * 45),
     worldVersion: facts.worldVersion ?? null,
   });
   const nextTask: GoalTask = {
     ...task,
     text: "连续熔炼并制作铁套",
-    reason: "材料与工作台已具备，用一个受守卫计划完成熔炼和后续制作，避免节点之间空闲重排",
+    reason:
+      "材料与工作台已具备，知识图按 AND/OR 依赖编译成一条受守卫计划，" +
+      "避免节点之间空闲重排",
     skill,
+    ...(compiled.tree === null ? {} : { acquisition: compiled.tree }),
   };
   return { ...plan, nextTask, strategyKey: `strategy:iron-job:${missing}` };
+}
+
+function compileSingleCraft(
+  plan: GoalPlan,
+  task: NonNullable<GoalPlan["nextTask"]>,
+  facts: WorldFacts,
+): GoalPlan {
+  const item = String(task.skill.args["item"] ?? "");
+  const count = Number(task.skill.args["count"] ?? 1);
+  if (item === "" || !Number.isFinite(count) || count < 1) return plan;
+  const compiled = compileAcquisitionChain(item, count, facts, { maxSteps: 10 });
+  if (compiled === null || compiled.steps.length <= 1) return plan;
+  const compiler = new PlanCompiler();
+  const skill = compiler.compileSequence({
+    task,
+    facts,
+    planId: `acquisition:${item.replace(/^minecraft:/u, "")}:${count}`,
+    entryNodeId: boundedId(task.taskId ?? `task:${item}`, 100),
+    goalFamily: plan.stage.id,
+    steps: compiled.steps,
+    targetFamilies: compiler.familiesFor(compiled.steps, facts),
+    expectedEvidence: compiled.steps.flatMap((step) => step.evidence),
+    maxDurationSeconds: Math.min(180, 90 + compiled.steps.length * 45),
+    worldVersion: facts.worldVersion ?? null,
+  });
+  return {
+    ...plan,
+    nextTask: {
+      ...task,
+      text: `连续制作 ${item.replace(/^minecraft:/u, "")}`,
+      reason: "原料已在背包，知识图把中间合成与最终目标编译成一个连续计划",
+      skill,
+      ...(compiled.tree === null ? {} : { acquisition: compiled.tree }),
+    },
+    strategyKey: `strategy:acquisition:${item}:${count}`,
+  };
 }
 
 function stageRank(stage: string): number {

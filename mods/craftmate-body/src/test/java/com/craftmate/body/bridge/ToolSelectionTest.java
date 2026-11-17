@@ -65,4 +65,43 @@ class ToolSelectionTest {
 			)
 		);
 	}
+
+	@Test
+	void aFreshReplacementBeatsTheWornToolOfTheSameTier() {
+		assertEquals(
+			2,
+			ToolSelection.chooseBest(
+				new boolean[] { true, true, true, false, false, false, false, false, false },
+				new float[] { 8.0f, 8.0f, 8.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f },
+				new int[] { 3, 40, 131, 0, 0, 0, 0, 0, 0 },
+				0
+			)
+		);
+	}
+
+	@Test
+	void aHealthyCurrentToolDoesNotFlickerBetweenEqualTools() {
+		assertEquals(
+			1,
+			ToolSelection.chooseBest(
+				new boolean[] { true, true, false, false, false, false, false, false, false },
+				new float[] { 8.0f, 8.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f },
+				new int[] { 110, 100, 0, 0, 0, 0, 0, 0, 0 },
+				1
+			)
+		);
+	}
+
+	@Test
+	void aNearlyBrokenFasterToolLosesToAFreshSlowerTool() {
+		assertEquals(
+			1,
+			ToolSelection.chooseBest(
+				new boolean[] { true, true, false, false, false, false, false, false, false },
+				new float[] { 6.0f, 4.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f },
+				new int[] { 2, 131, 0, 0, 0, 0, 0, 0, 0 },
+				0
+			)
+		);
+	}
 }

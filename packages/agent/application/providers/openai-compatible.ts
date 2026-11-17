@@ -129,6 +129,8 @@ export class OpenAICompatibleProvider implements ModelProvider {
               world: request.world ?? null,
               incidents: request.incidents ?? [],
               availableSkills: request.availableSkills ?? null,
+              conversation: request.conversation ?? [],
+              activity: request.activity ?? "",
             }),
           },
         ],

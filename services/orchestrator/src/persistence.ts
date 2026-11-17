@@ -289,10 +289,49 @@ export function createPersistentShow(options: {
       try {
         const stage = show.currentGoal()?.stage.id ?? "unknown";
         const snapshot = options.world?.() as
-          | { readonly world?: string | null | undefined }
+          | {
+              readonly world?: string | null | undefined;
+              readonly landmarks?: readonly {
+                readonly kind: string;
+                readonly label: string;
+                readonly x: number;
+                readonly y: number;
+                readonly z: number;
+                readonly detail?: string;
+                readonly confidence?: number;
+              }[];
+            }
           | null
           | undefined;
         const dimension = canonicalDimension(snapshot?.world);
+        /*
+         * The chunk survey is the only observer that can see a structure
+         * before the body is close enough to touch it. Persisting a landmark
+         * is what makes the next session start with a heading instead of
+         * another random sweep. The store deduplicates by place.
+         */
+        for (const landmark of snapshot?.landmarks ?? []) {
+          worldMemory.observe({
+            kind:
+              landmark.kind === "portal" || landmark.kind === "end_portal"
+                ? "portal"
+                : "resource",
+            label: `${landmark.label}（区块扫描）`,
+            dimension,
+            x: landmark.x,
+            y: landmark.y,
+            z: landmark.z,
+            payload: {
+              kind: landmark.kind,
+              detail: landmark.detail ?? null,
+              confidence: landmark.confidence ?? null,
+            },
+            confidence: Math.min(1, Math.max(0.3, landmark.confidence ?? 0.6)),
+            source: "body",
+            observedAt: event.at,
+            expiresAt: null,
+          });
+        }
         /*
          * Death and safety handoffs end the skill without judging the
          * strategy. Recording them as failures would teach the strategy

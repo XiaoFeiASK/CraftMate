@@ -122,11 +122,15 @@ export class Arbiter {
 
   private decideKind(score: number, quorum: number, intent: Intent): DecisionKind {
     if (intent === "danger" && this.persona.weights.risk < 0.8) return "REFUSE";
+    // Ordinary conversation is not a queued chore. It still deserves a reply,
+    // so route it through the model-worthy ACK_ONLY path instead of making the
+    // character announce that it wrote the viewer's sentence into a task list.
+    if (intent === "chat") return "ACK_ONLY";
     if (quorum >= this.quorumCount) return "QUEUE";
     if (score >= SCORE_THRESHOLDS.execute) return "EXECUTE";
     if (score >= SCORE_THRESHOLDS.acknowledge) return "ACK_ONLY";
     if (score >= SCORE_THRESHOLDS.queue) return "QUEUE";
-    return intent === "chat" ? "OBSERVE" : "IGNORE";
+    return "IGNORE";
   }
 
   private explain(kind: DecisionKind, intent: Intent, quorum: number): string {
@@ -137,7 +141,7 @@ export class Arbiter {
       case "EXECUTE":
         return "可行、合人格、有节目效果";
       case "ACK_ONLY":
-        return "先回应，暂不执行";
+        return intent === "chat" ? "自然对话，不做动作" : "先回应，暂不执行";
       case "QUEUE":
         return "排进目标队列";
       case "OBSERVE":

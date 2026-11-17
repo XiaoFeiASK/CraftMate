@@ -47,6 +47,8 @@ export interface NearbyBlock {
   readonly visible?: boolean;
   /** An exposed, clickable face exists; not the same as line of sight. */
   readonly exposed?: boolean;
+  /** One mineable layer between the tunnel face and this ore. */
+  readonly covered?: boolean;
   /** A standable interaction route to this candidate was proven. */
   readonly reachable?: boolean;
   readonly reason?: string;
@@ -100,6 +102,8 @@ export interface WorldFacts {
   readonly foodAcquired?: boolean | null;
   /** True once this body session confirmed eating a food item. */
   readonly foodConsumed?: boolean | null;
+  /** True after a carried pickaxe broke and no replacement has been picked up. */
+  readonly pickaxeLost?: boolean | null;
   /** True once the body observed the ender dragon death event. */
   readonly dragonDefeated?: boolean | null;
   /** True once this body session crafted a crafting table. */
@@ -139,6 +143,8 @@ export interface WorldFacts {
   readonly mine?: {
     readonly entrance: Position;
     readonly direction: "north" | "south" | "east" | "west";
+    /** Keep this entrance for the climb out, but stop descending it. */
+    readonly deadEnd?: boolean | null;
     readonly stair?: {
       readonly stand: Position;
       readonly depth: number;
@@ -175,6 +181,8 @@ export interface WorldFacts {
   readonly furnace?: { readonly x: number; readonly y: number; readonly z: number } | null;
   /** True once this body session placed a furnace in the world. */
   readonly furnacePlaced?: boolean | null;
+  /** True only when a furnace is inside interaction reach right now. */
+  readonly furnaceReachable?: boolean | null;
   /** Ticks since the remembered furnace was placed. */
   readonly furnaceAgeTicks?: number | null;
   /** Ore or finished output still inside the remembered furnace. */
@@ -230,6 +238,23 @@ export interface WorldFacts {
     readonly surveying: boolean;
   } | null;
   readonly entities?: readonly NearbyEntity[];
+  /**
+   * Structure signatures proven by the body's chunk survey. These are
+   * observed blocks, not guessed structure centres.
+   */
+  readonly landmarks?: readonly {
+    readonly kind: string;
+    readonly label: string;
+    readonly x: number;
+    readonly y: number;
+    readonly z: number;
+    readonly detail?: string;
+    readonly confidence?: number;
+  }[];
+  readonly scan?: {
+    readonly scannedChunks: number;
+    readonly scanning: boolean;
+  } | null;
   /** Active route refusals relevant to this body snapshot. */
   readonly routeBlacklist?: readonly RouteBlacklist[];
   /** Planner-selected entity/explore target, already checked for expiry. */

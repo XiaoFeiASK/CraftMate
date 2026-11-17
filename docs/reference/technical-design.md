@@ -77,17 +77,21 @@
 ### 模块
 
 ```text
-core       协议、状态机、预算，禁止 Minecraft 类型
-api        WorldView / PlayerOps / CameraOps / HudOps / EventSource
-compat     Mixin、映射和版本差异
-sensor     tick 采样并聚合
-reflex     安全规则，最高优先级
-behavior   可取消长任务
-actuator   单 tick 原子操作
-nav        寻路计算与提交
-camera/hud 演出与状态
-control    Agent / Operator / None 三态仲裁
+CraftMateBodyClient   Mod 入口、tick 循环、失焦与 keepInventory
+bridge/BridgeClient   WebSocket、握手、心跳、控制权、命令投递
+bridge/GameActions    技能任务表、任务状态机、世界快照
+bridge/Reflexes       每 tick 安全反射，先于所有任务
+bridge/PlanTask       run_plan 顺序执行、guard、检查点
+bridge/BoundedPathfinder / NavGoal / ApproachRoute   有界寻路与接近
+bridge/MineStair / ShaftEscape / StairEscape / CanopyEscape   地形恢复
+bridge/OrePerception / ChunkIndex / StationMemory     感知与地标
+bridge/*Evidence      合成、容器、拾取、交互、睡眠完成证据
+mixin/                相机、光照、渲染兼容
+stream/FrameServer    可选本机录制/调试抓流
 ```
+
+技能 ID、Java 任务类和辅助模块的逐项对应见
+[Agent 编排与游戏身体映射](agent-body-mapping.md#4-技能到身体实现的映射)。
 
 ### 硬规则
 

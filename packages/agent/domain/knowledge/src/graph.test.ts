@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   KNOWLEDGE_GRAPH,
+  acquisitionTree,
   acquisitionActions,
   acquisitionPath,
   allIronAcceptancePaths,
@@ -62,4 +63,47 @@ test("a path resolves through action inputs instead of a flat lookup", () => {
   assert.ok(path);
   assert.ok(path!.action.includes("craft") || path!.action.includes("trade"));
   assert.ok(path!.inputs.length > 0);
+});
+
+test("AND inputs are all present, while OR alternatives choose one branch", () => {
+  const path = acquisitionPath("minecraft:iron_pickaxe");
+  assert.ok(path);
+  const items = path!.inputs.map((input) => input.item).sort();
+  assert.ok(items.includes("minecraft:iron_ingot"));
+  assert.ok(items.includes("minecraft:stick"));
+
+  const stick = acquisitionPath("minecraft:stick");
+  assert.ok(stick);
+  assert.equal(stick!.inputs.length, 1);
+  assert.match(stick!.inputs[0]!.item, /_planks$/u);
+});
+
+test("the acquisition tree prefers a stocked OR alternative", () => {
+  const tree = acquisitionTree("minecraft:stick", 4, {
+    available: (item) => (item === "minecraft:oak_planks" ? 4 : 0),
+  });
+  assert.ok(tree);
+  const planks = tree!.children.find(
+    (child) => child.key.startsWith("item:") && child.target.endsWith("_planks"),
+  );
+  assert.equal(planks?.target, "minecraft:oak_planks");
+  assert.deepEqual(planks?.children, []);
+});
+
+test("the tree follows the stocked raw-iron smelt branch", () => {
+  const stock = new Map([
+    ["minecraft:raw_iron", 3],
+    ["minecraft:coal", 2],
+    ["minecraft:stick", 2],
+  ]);
+  const tree = acquisitionTree("minecraft:iron_pickaxe", 1, {
+    available: (item) => stock.get(item) ?? 0,
+  });
+  assert.ok(tree);
+  assert.ok(
+    tree!.children.some((child) => child.target.includes(":smelt:")),
+  );
+  assert.ok(
+    !tree!.children.some((child) => child.target.includes("iron_block")),
+  );
 });

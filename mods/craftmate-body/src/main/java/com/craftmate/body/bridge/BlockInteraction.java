@@ -8,6 +8,8 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
  * Builds the hit packet for a known block without routing the action through
@@ -16,6 +18,14 @@ import net.minecraft.world.phys.Vec3;
  */
 final class BlockInteraction {
 	private static final double FACE_INSET = 0.02;
+	/**
+	 * A tunnel wall exposes only part of an ore face: the centre ray can clip
+	 * the corner of the stair above it while the lower half is plainly
+	 * visible. Sampling the face instead of trusting one point keeps a close
+	 * ore from being labelled "encased" or "not visible" in exactly the
+	 * vertical shafts the body mines.
+	 */
+	private static final double[] FACE_SAMPLES = { 0.18, 0.5, 0.82 };
 
 	private BlockInteraction() {
 	}
@@ -67,7 +77,11 @@ final class BlockInteraction {
 	 * interaction packets grounded in the block's actual geometry instead of
 	 * the direction the rendered camera happens to be pointing.
 	 */
-	static BlockHitResult nearestExposedHit(Level level, Vec3 eye, BlockPos target) {
+	static BlockHitResult nearestExposedHit(
+		net.minecraft.world.level.BlockGetter level,
+		Vec3 eye,
+		BlockPos target
+	) {
 		Direction best = nearestExposedFace(level, eye, target);
 		if (best != null) return hit(target, best);
 		return hit(eye, target);
@@ -82,13 +96,13 @@ final class BlockInteraction {
 	 * opened.
 	 */
 	static BlockHitResult visibleExposedHit(
-		Level level,
+		net.minecraft.world.level.BlockGetter level,
 		Entity viewer,
 		Vec3 eye,
 		BlockPos target
 	) {
-		Direction visible = visibleExposedFace(level, viewer, eye, target);
-		if (visible != null) return hit(target, visible);
+		BlockHitResult visible = visibleExposedSample(level, viewer, eye, target);
+		if (visible != null) return visible;
 		return nearestExposedHit(level, eye, target);
 	}
 
@@ -98,47 +112,88 @@ final class BlockInteraction {
 	 * ray are both insufficient for a block with several faces.
 	 */
 	static Direction visibleExposedFace(
-		Level level,
+		net.minecraft.world.level.BlockGetter level,
 		Entity viewer,
 		Vec3 eye,
 		BlockPos target
 	) {
-		Direction visible = null;
+		BlockHitResult visible = visibleExposedSample(level, viewer, eye, target);
+		return visible == null ? null : visible.getDirection();
+	}
+
+	private static BlockHitResult visibleExposedSample(
+		net.minecraft.world.level.BlockGetter level,
+		Entity viewer,
+		Vec3 eye,
+		BlockPos target
+	) {
+		BlockHitResult visible = null;
 		double bestDistance = Double.POSITIVE_INFINITY;
 		for (Direction direction : Direction.values()) {
 			BlockPos neighbour = target.relative(direction);
 			if (!openForInteraction(level.getBlockState(neighbour))) continue;
-			Vec3 point = facePoint(target, direction);
-			BlockHitResult clip = level.clip(new ClipContext(
-				eye,
-				point,
-				ClipContext.Block.VISUAL,
-				ClipContext.Fluid.NONE,
-				viewer
-			));
-			/*
-			 * The ray must enter the target block through this exact face.
-			 * A miss means the sampled point is not on the block's surface at
-			 * all (the old bottom-face point of an embedded chest sat inside
-			 * the wall next to it), so it cannot be a visible face.
-			 */
-			if (
-				clip.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK ||
-				!clip.getBlockPos().equals(target) ||
-				clip.getDirection() != direction
-			) {
-				continue;
-			}
-			double distance = eye.distanceToSqr(point);
-			if (distance < bestDistance) {
-				bestDistance = distance;
-				visible = direction;
+			for (double u : FACE_SAMPLES) {
+				for (double v : FACE_SAMPLES) {
+					Vec3 point = faceSample(target, direction, u, v);
+					BlockHitResult clip = clip(level, viewer, eye, point);
+					/*
+					 * Any hit on the target proves that a point of this
+					 * exposed block is visible. The returned hit carries the
+					 * face the ray actually entered, so callers never send a
+					 * synthetic hit for the hidden sample point.
+					 */
+					if (
+						clip.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK ||
+						!clip.getBlockPos().equals(target)
+					) {
+						continue;
+					}
+					double distance = eye.distanceToSqr(point);
+					if (distance < bestDistance) {
+						bestDistance = distance;
+						visible = clip;
+					}
+				}
 			}
 		}
 		return visible;
 	}
 
-	static Direction nearestExposedFace(Level level, Vec3 eye, BlockPos target) {
+	private static BlockHitResult clip(
+		net.minecraft.world.level.BlockGetter level,
+		Entity viewer,
+		Vec3 from,
+		Vec3 to
+	) {
+		CollisionContext context =
+			viewer == null ? CollisionContext.empty() : CollisionContext.of(viewer);
+		return net.minecraft.world.level.BlockGetter.traverseBlocks(
+			from,
+			to,
+			context,
+			(collision, pos) -> {
+				BlockState state = level.getBlockState(pos);
+				VoxelShape shape = ClipContext.Block.VISUAL.get(
+					state,
+					level,
+					pos,
+					collision
+				);
+				return shape.isEmpty() ? null : shape.clip(from, to, pos);
+			},
+			collision -> BlockHitResult.miss(
+				to,
+				Direction.UP,
+				BlockPos.containing(to)
+			)
+		);
+	}
+
+	static Direction nearestExposedFace(
+		net.minecraft.world.level.BlockGetter level,
+		Vec3 eye,
+		BlockPos target
+	) {
 		Direction best = null;
 		double bestDistance = Double.POSITIVE_INFINITY;
 		for (Direction direction : Direction.values()) {
@@ -182,16 +237,46 @@ final class BlockInteraction {
 	}
 
 	static Vec3 facePoint(BlockPos target, Direction face) {
-		double x = target.getX() + 0.5;
-		double y = target.getY() + 0.5;
-		double z = target.getZ() + 0.5;
+		return faceSample(target, face, 0.5, 0.5);
+	}
+
+	private static Vec3 faceSample(
+		BlockPos target,
+		Direction face,
+		double u,
+		double v
+	) {
 		return switch (face) {
-			case UP -> new Vec3(x, target.getY() + 1.0 - FACE_INSET, z);
-			case DOWN -> new Vec3(x, target.getY() + FACE_INSET, z);
-			case EAST -> new Vec3(target.getX() + 1.0 - FACE_INSET, y, z);
-			case WEST -> new Vec3(target.getX() + FACE_INSET, y, z);
-			case SOUTH -> new Vec3(x, y, target.getZ() + 1.0 - FACE_INSET);
-			case NORTH -> new Vec3(x, y, target.getZ() + FACE_INSET);
+			case UP -> new Vec3(
+				target.getX() + u,
+				target.getY() + 1.0 - FACE_INSET,
+				target.getZ() + v
+			);
+			case DOWN -> new Vec3(
+				target.getX() + u,
+				target.getY() + FACE_INSET,
+				target.getZ() + v
+			);
+			case EAST -> new Vec3(
+				target.getX() + 1.0 - FACE_INSET,
+				target.getY() + u,
+				target.getZ() + v
+			);
+			case WEST -> new Vec3(
+				target.getX() + FACE_INSET,
+				target.getY() + u,
+				target.getZ() + v
+			);
+			case SOUTH -> new Vec3(
+				target.getX() + u,
+				target.getY() + v,
+				target.getZ() + 1.0 - FACE_INSET
+			);
+			case NORTH -> new Vec3(
+				target.getX() + u,
+				target.getY() + v,
+				target.getZ() + FACE_INSET
+			);
 		};
 	}
 }

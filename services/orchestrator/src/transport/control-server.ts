@@ -1216,7 +1216,8 @@ function disabledIntegrations(): IntegrationSettingsView {
       url: "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
       voiceId: "zh_female_vv_uranus_bigtts",
       apiKeyConfigured: false,
-      instructions: "忠实朗读提供给你的台词。",
+      instructions:
+        "你是正在直播的蓝色鲸鱼娘「大肥鱼」，用自然口语说话，像跟熟人聊天；台词逐字保留，语气和停顿跟着情绪走。",
       timeoutMs: 300_000,
     },
     douyin: { roomId: "", dyhubUrl: "ws://127.0.0.1:8757" },

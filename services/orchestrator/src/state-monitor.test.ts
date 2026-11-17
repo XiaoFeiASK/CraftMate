@@ -49,6 +49,41 @@ test("a visible iron ore preempts travel to a distant mine", () => {
   assert.equal(opportunity?.key, "visible-iron");
 });
 
+test("ore against the current tunnel wall preempts a return-to-surface task", () => {
+  const opportunity = detectStateOpportunity({
+    stage: "iron",
+    decision: decision("goto", "先回到自己的矿道台阶（还差 42 格到地表）"),
+    now,
+    lastPreemptAt: 0,
+    world: {
+      inWorld: true,
+      position: { x: 164.7, y: 46, z: -156.7 },
+      inventory: [
+        {
+          item: "minecraft:stone_pickaxe",
+          count: 1,
+          durability: 80,
+          slot: 0,
+          section: "hotbar" as const,
+        },
+      ],
+      nearbyBlocks: [
+        {
+          id: "minecraft:iron_ore",
+          x: 164,
+          y: 48,
+          z: -157,
+          distance: 0.93,
+          visible: true,
+          reachable: true,
+          exposed: true,
+        },
+      ],
+    },
+  });
+  assert.equal(opportunity?.key, "visible-iron");
+});
+
 test("a lost pickaxe cancels a storage trip before it mines bare-handed", () => {
   const opportunity = detectStateOpportunity({
     stage: "stone-tools",

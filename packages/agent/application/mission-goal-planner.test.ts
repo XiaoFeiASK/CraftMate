@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type {
-  GoalProgress,
-  RouteBlacklist,
-  SeasonGoal,
-  WorldSnapshot,
+import {
+  parseSkillArgs,
+  type GoalProgress,
+  type RouteBlacklist,
+  type SeasonGoal,
+  type WorldSnapshot,
 } from "@craftmate/contracts";
 import { MissionGoalPlanner } from "./mission-goal-planner.ts";
 import type {
@@ -54,6 +55,7 @@ function input(world: Record<string, unknown>): GoalPlanningInput {
       skills: [
         "goto",
         "mine_block",
+        "mine_tunnel",
         "craft",
         "smelt",
         "place_block",
@@ -98,11 +100,15 @@ test("mission planner compiles one continuous smelt+craft job", () => {
     ],
   }));
   assert.equal(plan?.nextTask?.skill.name, "run_plan");
+  // The bridge default is 30 seconds; a real furnace batch plus crafting
+  // needs the plan's own 180-second budget.
+  assert.ok((plan?.nextTask?.skill.deadlineTicks ?? 0) >= 180 * 20);
   const steps = plan?.nextTask?.skill.args["steps"];
   assert.ok(Array.isArray(steps));
   assert.equal(steps[0]?.skill, "smelt");
   assert.equal(steps[1]?.skill, "craft");
   assert.equal(steps[1]?.args.item, "minecraft:iron_pickaxe");
+  assert.ok(plan?.nextTask?.acquisition);
 });
 
 test("a carried table is placed before the job's craft node", () => {
@@ -135,6 +141,41 @@ test("a carried table is placed before the job's craft node", () => {
   assert.equal(steps[0]?.args.block, "minecraft:crafting_table");
   assert.equal(steps[1]?.skill, "smelt");
   assert.equal(steps[2]?.skill, "craft");
+  // The later craft step names the table it placed itself. The plan must
+  // declare that family, otherwise the body rejects the whole run_plan.
+  assert.ok(parseSkillArgs("run_plan", plan?.nextTask?.skill.args));
+});
+
+test("an unreachable remembered furnace is approached before compiling a smelt", () => {
+  const plan = new MissionGoalPlanner().plan(input({
+    inWorld: true,
+    world: "minecraft:overworld",
+    position: { x: 0.5, y: 64, z: 0.5 },
+    surfaceY: 64,
+    canSeeSky: true,
+    health: 20,
+    food: 20,
+    inventory: [
+      { item: "minecraft:stone_pickaxe", count: 1, durability: 100 },
+      { item: "minecraft:raw_iron", count: 3 },
+      { item: "minecraft:coal", count: 3 },
+      { item: "minecraft:cobblestone", count: 8 },
+      { item: "minecraft:stick", count: 2 },
+      { item: "minecraft:torch", count: 4 },
+    ],
+    chestPlaced: true,
+    bedPlaced: true,
+    furnacePlaced: true,
+    furnaceReachable: false,
+    furnace: { x: 20, y: 64, z: 0 },
+    // The aggregate observation proves a furnace exists somewhere nearby,
+    // but not that its interaction face is in reach.
+    nearbyBlocks: [{ id: "minecraft:furnace", count: 1 }],
+  }));
+  assert.ok(plan?.nextTask !== null && plan?.nextTask !== undefined);
+  assert.equal(plan.nextTask.skill.name, "goto");
+  assert.match(plan.nextTask.text, /熔炉/u);
+  assert.doesNotMatch(plan.nextTask.text, /连续熔炼/u);
 });
 
 test("three diamonds end the acceptance mission", () => {

@@ -204,6 +204,18 @@ function CurrentWorkCard({
             当前节点 {goal.taskTree.currentNodeIntent ?? "无"} · 检查点{" "}
             {Math.floor(goal.taskTree.checkpointAgeMs / 1000)}s 前
           </span>
+          {goal.taskTree.branches.length > 0 ? (
+            <span>
+              计划分支{" "}
+              {goal.taskTree.branches
+                .slice(0, 4)
+                .map((node) => humanizeRuntimeText(node.intent))
+                .join(" · ")}
+              {goal.taskTree.branches.length > 4
+                ? ` 等 ${goal.taskTree.branches.length} 项`
+                : ""}
+            </span>
+          ) : null}
           {goal.taskTree.blockedReason ? (
             <span>阻塞原因 {humanizeRuntimeText(goal.taskTree.blockedReason)}</span>
           ) : null}

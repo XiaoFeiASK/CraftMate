@@ -7,7 +7,11 @@ import type {
   ShowSnapshot,
   TelemetrySnapshot,
 } from "@craftmate/contracts";
-import { buildAgentChat, humanizeRuntimeText } from "./agent-chat-view.ts";
+import {
+  buildAgentChat,
+  humanizeAgentSpeech,
+  humanizeRuntimeText,
+} from "./agent-chat-view.ts";
 
 const decision = (overrides: Partial<Decision> = {}): Decision => ({
   id: "decision-1",
@@ -101,7 +105,7 @@ describe("agent chat projection", () => {
     assert.match(turns[0]?.kind === "system" ? turns[0].text : "", /溺水/);
   });
 
-  test("a completed action is described as completed instead of waiting", () => {
+  test("a completed action keeps the spoken line and puts the outcome in evidence", () => {
     const turns = buildAgentChat(
       snapshot([
         decision({
@@ -124,7 +128,7 @@ describe("agent chat projection", () => {
     );
     const agent = turns.find((turn) => turn.kind === "agent");
 
-    assert.equal(agent?.text, "挖到了，材料已经收进背包。");
+    assert.equal(agent?.text, "好，我去砍树。");
     assert.equal(
       agent?.meta.some((item) => item.label === "结果" && item.value.includes("1 处变化")),
       true,
@@ -217,5 +221,43 @@ describe("agent chat projection", () => {
       humanizeRuntimeText("决定执行 chop_tree，然后 mine_block"),
       "决定执行 砍树，然后 挖方块",
     );
+  });
+
+  test("stale internal planning detail is removed from persisted speech", () => {
+    assert.equal(
+      humanizeAgentSpeech("我先开挖矿道寻找铁矿石（本轮先到 y=35）（复用矿道第 24 阶）。"),
+      "我先开挖矿道寻找铁矿石。",
+    );
+  });
+
+  test("goal-mode narration follows the voice cadence instead of every task tick", () => {
+    const goal = (id: string, at: number, speech: string): Decision =>
+      decision({
+        id,
+        eventId: `goal:${id}`,
+        nickname: "目标运行时",
+        text: speech,
+        speech,
+        at,
+      });
+    const turns = buildAgentChat(
+      snapshot([
+        goal("g1", 1_000, "再往下挖一点，铁应该快出来了。"),
+        goal("g2", 3_000, "这条矿道还能走，我接着挖。"),
+        goal("g3", 5_000, "换个面挖挖看。"),
+        goal("g4", 14_000, "唔，还没见着铁……再挖几格。"),
+        decision({ id: "c1", eventId: "comment-2", at: 15_000 }),
+      ]),
+      telemetry(),
+    );
+    const agentTexts = turns
+      .filter((turn) => turn.kind === "agent")
+      .map((turn) => (turn.kind === "agent" ? turn.text : ""));
+
+    assert.deepEqual(agentTexts, [
+      "再往下挖一点，铁应该快出来了。",
+      "唔，还没见着铁……再挖几格。",
+      "好，我去砍树。",
+    ]);
   });
 });

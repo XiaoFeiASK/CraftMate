@@ -24,6 +24,7 @@ import {
   nearbyHas,
   nearestEntity,
   nearestEntityWithinHeight,
+  nearestLandmark,
   pickaxeTier,
   pickaxeUses,
   usedInventorySlots,
@@ -55,9 +56,11 @@ export interface TaskContext {
 
 const WOOD_ITEMS = /(^|:)[a-z_]+_(log|wood|stem|hyphae)$/u;
 const PLANK_ITEMS = /(^|:)[a-z_]+_planks$/u;
+const STICK_ITEMS = /(^|:)(?:[a-z_]+_stick|stick)$/u;
 const BED_ITEMS = /(^|:)[a-z_]+_bed$/u;
 const WOOL_ITEMS = /(^|:)[a-z_]+_wool$/u;
 const IRON_ORE = /(^|:)iron_ore$/u;
+const DIAMOND_ORE = /(^|:)diamond_ore$/u;
 const FOOD_ITEMS =
   /(^|:)apple$|(^|:)baked_potato$|(^|:)bread$|(^|:)carrot$|(^|:)potato$|(^|:)beetroot$|(^|:)sweet_berries$|(^|:)melon_slice$|(^|:)cookie$|(^|:)golden_apple$|(^|:)golden_carrot$|(^|:)pumpkin_pie$|(^|:)honey_bottle$|(^|:)(cooked_)?(beef|chicken|cod|mutton|porkchop|rabbit|salmon)$/u;
 /**
@@ -182,6 +185,28 @@ const MAX_WALK_TABLE_VERTICAL = 12;
  */
 const WALK_BACK_TABLE_DISTANCE = 64;
 /**
+ * A pickaxe that is nearly spent must be replaced while the body still has
+ * materials and a bench. Waiting for durability zero made the live run punch
+ * the next stone block with an empty hand after the last swing.
+ */
+const PICKAXE_RESCUE_USES = 12;
+/**
+ * A descent starts with six plank-units of wood: four for a replacement
+ * table, two for sticks. Two loose planks only cover one of those jobs; a
+ * portable table does not make them a reserve once it is placed or lost.
+ * The live run entered the shaft with two planks, no logs and no sticks,
+ * because the old formula treated those two planks as a full reserve.
+ */
+const MINING_WOOD_PLANK_UNITS = 6;
+/**
+ * Vanilla needs ten seconds per item and the goal runtime treats a task with
+ * no terminal state as unhealthy after roughly two minutes. Eight ore is one
+ * honest furnace session that still finishes comfortably; the next planning
+ * tick immediately loads the remainder instead of pretending three ingots
+ * were the whole backpack.
+ */
+const MAX_SMELT_BATCH = 8;
+/**
  * A table is only "the one this body just placed" when it is still within a
  * short walk. A remembered table 20+ blocks away is not a local station even
  * if the place flag is still set; treating it as usable made the planner skip
@@ -213,17 +238,20 @@ export function nextTaskForStage(context: TaskContext): Task | BlockedTask | nul
      */
     const criticalMeal = criticalHealthFoodTask(stage, facts, newId);
     if (criticalMeal !== null) return criticalMeal;
+    // A broken pickaxe is a hard capability loss, not a storage problem. When
+    // the backpack is full the old order walked home first, then tried to mine
+    // a staircase bare-handed. Restore the tool (or make a safe local table)
+    // before any long transfer or exploration. This also has to outrank the
+    // night bed trip: a body stranded at the bottom of a shaft with a nearby
+    // table and enough stone used to walk toward a bed it could not reach
+    // instead of crafting the stone pickaxe in its own pack.
+    const toolRescue = essentialPickaxeTask(stage, facts, newId);
+    if (toolRescue !== null) return toolRescue;
     // Night and a full backpack are cross-stage needs too. Going home must win
     // over a mining or exploration task, and offloading bulk items has to win
     // before a full inventory silently blocks every pickup.
     const nightHome = nightHomeTask(stage, facts, newId);
     if (nightHome !== null) return nightHome;
-    // A broken pickaxe is a hard capability loss, not a storage problem. When
-    // the backpack is full the old order walked home first, then tried to mine
-    // a staircase bare-handed. Restore the tool (or make a safe local table)
-    // before any long transfer or exploration.
-    const toolRescue = essentialPickaxeTask(stage, facts, newId);
-    if (toolRescue !== null) return toolRescue;
     // A pickaxe is not a weapon. The first live night produced nine deaths in
     // twenty minutes because the body carried cobblestone and sticks but kept
     // running from zombies bare-handed. Craft the basic sword while daylight
@@ -236,6 +264,18 @@ export function nextTaskForStage(context: TaskContext): Task | BlockedTask | nul
     if (campBed !== null) return campBed;
     const overflow = overflowStorageTask(stage, facts, newId);
     if (overflow !== null) return overflow;
+    /*
+     * A block of iron against the tunnel wall is not a detour, and no long
+     * recovery trip should make the body walk past it. This gate sits above
+     * storage and the return-to-surface task on purpose: the live run started
+     * a thirty-eight block walk back to its own staircase while two reachable
+     * iron ores sat inside arm's reach. The stage task already targets ore at
+     * arm's length, but storage/tool recovery outranked it.
+     */
+    const handDiamond = immediateDiamondOpportunity(stage, facts, newId);
+    if (handDiamond !== null) return handDiamond;
+    const handOre = immediateIronOpportunity(stage, facts, newId);
+    if (handOre !== null) return handOre;
     /*
      * A full pack must not preempt work whose ingredients are already in the
      * pack. The live iron run smelted three ingots, then walked to the chest
@@ -290,7 +330,12 @@ export function nextTaskForStage(context: TaskContext): Task | BlockedTask | nul
     const visibleIron = crossStageIronOpportunity(stage, facts, newId);
     if (visibleIron !== null) return visibleIron;
   }
-  const resolved = stageTask(stage, facts, newId);
+  const resolved = ensureCraftStation(
+    stageTask(stage, facts, newId),
+    stage,
+    facts,
+    newId,
+  );
   if (resolved === null || /探索|搜索/u.test(resolved.title)) {
     const fullCamp = fullBackpackCampTask(stage, facts, newId);
     if (fullCamp !== null) return fullCamp;
@@ -532,6 +577,7 @@ function immediateSafetyTask(
   const wounded = health < RETREAT_HEALTH;
   const critical = health < 8;
   const ranged = RANGED_HOSTILES.test(threat.type);
+  const underground = isUnderground(facts);
   /*
    * Melee threats are only urgent when they can actually reach the body.
    * A wounded miner keeps working while a spider is ten blocks down the
@@ -592,7 +638,15 @@ function immediateSafetyTask(
         target: candidates[3]!,
         candidates,
         acceptPartial: true,
-        mode: "walk",
+        /*
+         * A blind walk underground either hits a wall or gets escalated to
+         * `recover`, which builds a pillar into the tunnel roof. The live
+         * run spent its last seconds centred under a ceiling while a zombie
+         * closed in, then reported E_STUCK/E_ENCLOSED. `dig` still takes a
+         * real route when one exists, but can open a horizontal escape
+         * corridor instead of stacking blocks in a one-block mine.
+         */
+        mode: underground ? "dig" : "walk",
         // This retreat is the planner's answer to the threat. Without the
         // flag the coordinator preempted it on the next threat report and
         // reissued a different doomed retreat from the same spot, which is
@@ -756,7 +810,17 @@ function craftWithPrerequisite(
   if (missing.length === 0) return craftTask(recipe, stage, facts, newId);
   const prerequisite = preparationTask(recipe, stage, facts, newId, 0);
   if (prerequisite !== null) return prerequisite;
+  /*
+   * Only turn "missing wood" into an expedition when wood is the remaining
+   * blocker. A diamond pickaxe can be missing both diamonds and sticks; the
+   * caller's mining branch must own that case, otherwise the body abandons a
+   * perfectly good diamond descent to look for a tree at the surface.
+   */
+  const woodOnly = missing.every(
+    (entry) => entry.kind !== "material" || isWoodDerived(entry.item),
+  );
   if (
+    woodOnly &&
     recipe.ingredients.some((ingredient) =>
       ingredient.choices.some((choice) => isWoodDerived(choice)),
     )
@@ -788,7 +852,7 @@ function preparationTask(
   const directMaterialsReady = missing.every(
     (entry) =>
       entry.kind !== "material" ||
-      /_stick$/u.test(entry.item ?? ""),
+      STICK_ITEMS.test(entry.item ?? ""),
   );
   const orderedIngredients = directMaterialsReady
     ? [...recipe.ingredients].sort((left, right) => {
@@ -817,7 +881,7 @@ function preparationTask(
 
 function isWoodDerived(item: string | undefined): boolean {
   if (item === undefined) return false;
-  return WOOD_ITEMS.test(item) || /_planks$|_stick$/u.test(item);
+  return WOOD_ITEMS.test(item) || PLANK_ITEMS.test(item) || STICK_ITEMS.test(item);
 }
 
 /**
@@ -905,6 +969,236 @@ export function woodGatherTask(
     ],
     verify: () => true,
   };
+}
+
+/**
+ * A mining trip needs more than a field table. Four planks make the table,
+ * and another two make sticks for a replacement pickaxe or sword. The live
+ * y=12 run carried one log, spent it on planks, sticks and torches, then
+ * reached the ore layer with no way to rebuild the table it had left behind.
+ */
+/**
+ * The reserve exists so a trip can rebuild its field table. When a table is
+ * already portable there is nothing to reserve for it; a placed table at the
+ * surface is not portable once the body descends. The binding reserve still
+ * applies because a replacement pickaxe needs two sticks.
+ */
+function woodTripReserve(facts: WorldFacts): number {
+  const carriedTable = hasItem(facts, "minecraft:crafting_table");
+  const sticks = inventoryCount(facts, "minecraft:stick");
+  const tablePlanks = carriedTable ? 0 : 4;
+  /*
+   * A portable table is not a reason to carry zero wood. Once it is placed
+   * underground the body still needs planks for a replacement tool and
+   * sticks for torches. The old formula returned zero with a carried table
+   * plus two sticks, so the live run entered the shaft with no reserve and
+   * had nothing to withdraw later.
+   */
+  const bindingPlanks = sticks >= 4 ? 0 : 2;
+  return Math.max(
+    MINING_WOOD_PLANK_UNITS,
+    tablePlanks + bindingPlanks,
+  );
+}
+
+function woodPlankUnits(facts: WorldFacts): number {
+  const planks = facts.inventory
+    .filter((slot) => PLANK_ITEMS.test(slot.item))
+    .reduce((total, slot) => total + slot.count, 0);
+  return logCount(facts) * 4 + planks;
+}
+
+/**
+ * A mining trip without wood cannot place a field table or replace a broken
+ * tool. The camp chest usually holds the body's own surplus logs, so check it
+ * before walking into a shaft empty-handed. If the chest is above the body,
+ * chopping a tree is cheaper than repeating an unreachable chest approach.
+ */
+function woodTripReserveTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  const reserve = woodTripReserve(facts);
+  if (reserve === 0 || woodPlankUnits(facts) >= reserve) return null;
+  /*
+   * Only spend a trip when a wood source is actually known: the camp chest,
+   * a visible tree, or the partial planks the body already carries. A
+   * synthetic mine fixture with no chest and no tree should keep exercising
+   * its staircase instead of inventing an unbounded forest search.
+   */
+  if (
+    (facts.chest === undefined || facts.chest === null) &&
+    nearbyHas(facts, WOOD_ITEMS) === null
+  ) {
+    return null;
+  }
+  const chest = facts.chest ?? null;
+  const position = facts.position ?? null;
+  const chestDistance =
+    chest !== null && position !== null ? distanceTo(position, chest) : null;
+  const atChest =
+    chest !== null &&
+    position !== null &&
+    chestDistance !== null &&
+    chestDistance <= 6 &&
+    Math.abs(position.y - chest.y) <= 2;
+  if (atChest && facts.chestOpenable !== false) {
+    return {
+      id: `task:${newId()}`,
+      stage,
+      kind: "gather",
+      title: "从营地箱子取木头，准备下矿",
+      skill: skill("withdraw", {
+        category: "wood",
+        container: chest,
+        maxStacks: 2,
+      }, newId),
+      preconditions: ["the camp chest is openable", "stored wood may be available"],
+      expectedEvidence: ["logs or planks enter the inventory"],
+      verify: (next) => woodPlankUnits(next) > woodPlankUnits(facts),
+    };
+  }
+  /*
+   * A tree beside the mine entrance is a better wood source than a chest
+   * sixty blocks up a hillside. The old order always walked home first, and
+   * the live run spent its whole approach budget on a 66-block goto that
+   * ended in E_STUCK while visible oaks stood within seven blocks.
+   */
+  const gather = woodGatherTask(facts, stage, "下矿前补充木头", newId, 2);
+  if (gather !== null && (chestDistance === null || chestDistance > 24)) {
+    return gather;
+  }
+  if (
+    chest !== null &&
+    position !== null &&
+    chestDistance !== null &&
+    chestDistance <= 48 &&
+    position.y >= chest.y - 2 &&
+    facts.chestOpenable !== false
+  ) {
+    return gotoHomeTask(stage, facts, newId, {
+      anchors: [chest],
+      title: "下矿前回营地取木头",
+    });
+  }
+  if (gather !== null) return gather;
+  /*
+   * Deep underground there are no trees. Once the wood reserve is gone the
+   * only honest fix is to leave the shaft, not to keep mining and discover
+   * the loss when the first table or replacement tool is needed.
+   */
+  const surface = returnToSurfaceTask(stage, facts, newId);
+  if (surface !== null) return surface;
+  return explore(
+    facts,
+    stage,
+    "寻找树木补充下矿木头",
+    "原木",
+    2,
+    newId,
+    32,
+    48,
+    true,
+  );
+}
+
+/**
+ * Recovery path when every probed chest is out of wood. The body must leave
+ * for a tree instead of reopening the same camp chest; a chest probe that
+ * found no logs is a content verdict, not a transient menu failure.
+ */
+export function woodSourceFallbackTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  const gather = woodGatherTask(
+    facts,
+    stage,
+    "箱子无木，去砍树补充",
+    newId,
+    2,
+  );
+  if (gather !== null) return gather;
+  return explore(
+    facts,
+    stage,
+    "寻找树木补充木头",
+    "原木",
+    2,
+    newId,
+    24,
+    40,
+    true,
+  );
+}
+
+/**
+ * A missing pickaxe is not only a crafting problem. When the body has no
+ * sticks or planks, it must first get raw material from its own chest or a
+ * tree instead of declaring the stage blocked. This is the live failure where
+ * a broken pickaxe sat in the pack, the camp chest held logs, and the iron
+ * plan kept complaining about the tool without ever opening that chest.
+ */
+function pickaxeMaterialSupplyTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  const position = facts.position;
+  if (position === undefined || position === null) return null;
+  if (isUnderground(facts)) {
+    return returnToSurfaceTask(stage, facts, newId);
+  }
+  const chest = facts.chest ?? null;
+  if (
+    chest !== null &&
+    facts.chestOpenable !== false &&
+    !anchorIsUnderground(facts, chest)
+  ) {
+    const atChest =
+      distanceTo(position, chest) <= 6 &&
+      Math.abs(position.y - chest.y) <= 2;
+    if (atChest) {
+      return {
+        id: `task:${newId()}`,
+        stage,
+        kind: "gather",
+        title: "从营地箱子取木头补镐",
+        skill: skill("withdraw", {
+          category: "wood",
+          container: chest,
+          maxStacks: 1,
+        }, newId),
+        preconditions: [
+          "the camp chest is openable",
+          "the body has no usable pickaxe or spare material",
+        ],
+        expectedEvidence: ["logs or planks enter the inventory"],
+        verify: (next) => woodPlankUnits(next) > woodPlankUnits(facts),
+      };
+    }
+    if (distanceTo(position, chest) <= 64) {
+      return gotoHomeTask(stage, facts, newId, {
+        anchors: [chest],
+        title: "回营地箱子取木头补镐",
+      });
+    }
+  }
+  const gather = woodGatherTask(facts, stage, "砍树补镐", newId, 2);
+  if (gather !== null) return gather;
+  return explore(
+    facts,
+    stage,
+    "寻找树木补镐",
+    "原木",
+    2,
+    newId,
+    24,
+    40,
+    true,
+  );
 }
 
 /**
@@ -1114,10 +1408,25 @@ function essentialPickaxeTask(
     stageIndex < STAGE_ORDER.indexOf("stone-tools") ||
     stageIndex > STAGE_ORDER.indexOf("diamond-gear") ||
     ((stage === "food" || stage === "shelter") && !isUnderground(facts)) ||
-    hasUsablePickaxe(facts) ||
-    !canRecoverPickaxeFromCarriedMaterials(facts)
+    hasUsablePickaxe(facts, 1, PICKAXE_RESCUE_USES)
   ) {
     return null;
+  }
+  if (!canRecoverPickaxeFromCarriedMaterials(facts)) {
+    // The material-supply detour is about a pickaxe breaking during work. A
+    // body in the first tool stage is owned by that stage's normal craft
+    // ladder. From iron onward, a broken pickaxe may have vanished from the
+    // inventory; the body-reported loss flag is the durable evidence that
+    // this happened, not a missing item in the current slot list.
+    if (
+      stage === "stone-tools" ||
+      (!facts.pickaxeLost &&
+        !facts.inventory.some((slot) => /_pickaxe$/u.test(slot.item)))
+    ) {
+      return null;
+    }
+    const supply = pickaxeMaterialSupplyTask(stage, facts, newId);
+    return supply === null ? null : asCritical(supply);
   }
   const recipe = replacementPickaxeRecipe(facts);
   if (recipe === null) return null;
@@ -1178,6 +1487,138 @@ function crossStageIronOpportunity(
     return null;
   }
   return opportunity;
+}
+
+/**
+ * An ore is actionable in three cases: a proven exposed face, the bridge's
+ * one-layer `covered` flag (cut the shield, then the vein), and old snapshots
+ * that only reported `visible`. The explicit `exposed=false` without
+ * `covered` still wins, so a fully encased ore never starts a blind tunnel.
+ */
+function oreActionable(block: NearbyBlock): boolean {
+  if (block.exposed === true) return block.reachable !== false;
+  if (block.covered === true) return true;
+  return block.exposed === undefined && block.visible === true && block.reachable !== false;
+}
+
+/**
+ * Iron that can be hit from the current standing cell. Unlike the wider
+ * cross-stage scan this does not need a route: the body is already close
+ * enough, so the cheapest correct action is one mine_block before any walk.
+ */
+function immediateIronOpportunity(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  const stageIndex = STAGE_ORDER.indexOf(stage);
+  const position = facts.position;
+  if (
+    stageIndex < STAGE_ORDER.indexOf("stone-tools") ||
+    !hasUsablePickaxe(facts, 2) ||
+    facts.inWater === true ||
+    !hasInventoryCapacity(facts, 0) ||
+    position === undefined ||
+    position === null
+  ) {
+    return null;
+  }
+  const ore = (facts.nearbyBlocks ?? [])
+    .filter(
+      (block) =>
+        IRON_ORE.test(block.id) &&
+        oreActionable(block) &&
+        blockHasLocation(block) &&
+        (block.distance ?? Number.POSITIVE_INFINITY) <= 6 &&
+        Math.abs(block.y! - position.y) <= 4 &&
+        (block.covered === true || withinInteractionReach(facts, block)),
+    )
+    .sort(
+      (left, right) =>
+        (left.distance ?? Number.POSITIVE_INFINITY) -
+        (right.distance ?? Number.POSITIVE_INFINITY),
+    )[0];
+  if (ore === undefined) return null;
+  return {
+    id: `task:${newId()}`,
+    stage: "iron",
+    kind: "mine",
+    title: "顺手挖掉眼前的铁矿石",
+    skill: skill("mine_block", {
+      block: ore.id,
+      count: 1,
+      at: { x: ore.x!, y: ore.y!, z: ore.z! },
+    }, newId),
+    preconditions: [
+      "stone pickaxe or better",
+      "a visible iron ore is inside interaction reach",
+      "at least one inventory slot can accept the drop",
+    ],
+    expectedEvidence: ["raw_iron count increases by 1"],
+    verify: (next) =>
+      inventoryCount(next, "minecraft:raw_iron") >
+      inventoryCount(facts, "minecraft:raw_iron"),
+  };
+}
+
+/**
+ * Diamond is the reason the body is deep underground. A reachable exposed
+ * diamond is a one-block action even when the stair blueprint points at the
+ * next stone cell; leaving it for a later branch trip is how the live run
+ * walked past the only diamond face it had already opened.
+ */
+function immediateDiamondOpportunity(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  const position = facts.position;
+  if (
+    stage !== "diamond-gear" ||
+    !hasUsablePickaxe(facts, 3) ||
+    facts.inWater === true ||
+    !hasInventoryCapacity(facts, 0) ||
+    position === undefined ||
+    position === null
+  ) {
+    return null;
+  }
+  const ore = (facts.nearbyBlocks ?? [])
+    .filter(
+      (block) =>
+        DIAMOND_ORE.test(block.id) &&
+        oreActionable(block) &&
+        blockHasLocation(block) &&
+        (block.distance ?? Number.POSITIVE_INFINITY) <= 6 &&
+        Math.abs(block.y! - position.y) <= 4 &&
+        (block.covered === true || withinInteractionReach(facts, block)),
+    )
+    .sort(
+      (left, right) =>
+        (left.distance ?? Number.POSITIVE_INFINITY) -
+        (right.distance ?? Number.POSITIVE_INFINITY),
+    )[0];
+  if (ore === undefined) return null;
+  return {
+    id: `task:${newId()}`,
+    stage: "diamond-gear",
+    kind: "mine",
+    title: "顺手挖掉眼前的钻石矿石",
+    skill: skill("mine_block", {
+      block: ore.id,
+      count: 1,
+      at: { x: ore.x!, y: ore.y!, z: ore.z! },
+    }, newId),
+    preconditions: [
+      "iron pickaxe or better",
+      "an exposed diamond ore is inside interaction reach",
+      "at least one inventory slot can accept the drop",
+    ],
+    expectedEvidence: ["diamond count increases by 1"],
+    verify: (next) =>
+      inventoryCount(next, "minecraft:diamond") >
+      inventoryCount(facts, "minecraft:diamond"),
+  };
 }
 
 /**
@@ -1284,6 +1725,26 @@ function reachableStone(facts: WorldFacts): NearbyBlock | null {
 
 function blockHasLocation(block: NearbyBlock): boolean {
   return block.x !== undefined && block.y !== undefined && block.z !== undefined;
+}
+
+const PILLAR_BLOCK = /(^|:)(cobblestone|cobbled_deepslate|stone|dirt|grass_block|andesite|granite|diorite|gravel|sand|red_sand|sandstone|netherrack|basalt|blackstone|tuff|calcite|deepslate|dripstone_block|[a-z_]+_planks|[a-z_]+_log|[a-z_]+_wood|[a-z_]+_stem|[a-z_]+_hyphae|[a-z_]+_wool)$/u;
+
+/**
+ * A tool-free climb needs a full block the body can place under itself.
+ * Torches and other replaceable BlockItems are intentionally excluded.
+ */
+function pillarBuildingBlock(facts: WorldFacts): string | null {
+  const usable = facts.inventory.filter(
+    (slot) => slot.count > 0 && PILLAR_BLOCK.test(slot.item),
+  );
+  // Spend dirt, cobblestone and other bulk fill before the wood reserve that
+  // a replacement pickaxe or field table still needs.
+  const bulk = usable.find((slot) =>
+    /(cobblestone|cobbled_deepslate|stone|dirt|andesite|granite|diorite|gravel|sand|netherrack|tuff|calcite|deepslate)/u.test(
+      slot.item,
+    ),
+  );
+  return (bulk ?? usable[0])?.item ?? null;
 }
 
 /**
@@ -2184,6 +2645,42 @@ export function returnToSurfaceTask(
   const remaining = surfaceTargetY - currentY;
   if (remaining <= 0) return null;
   /*
+   * A body with no pickaxe and no wood cannot cut its way back to the
+   * remembered stair. Reissuing that horizontal goto produced the live
+   * six-second loop: the bridge refused the route, the planner retried the
+   * same stand, and the body never climbed. Pillaring straight up with any
+   * carried building block is the only tool-free exit.
+   */
+  const building = pillarBuildingBlock(facts);
+  const stand = facts.mine?.stair?.stand;
+  const standFar =
+    stand !== undefined &&
+    (distanceTo(position, stand) > 4 || routePointBlacklisted(facts, stand));
+  if (!hasUsablePickaxe(facts) && building !== null && standFar) {
+    const height = Math.min(16, Math.max(1, remaining));
+    return {
+      id: `task:${newId()}`,
+      stage,
+      kind: "navigate",
+      title: "没有镐子，垫方块爬出矿洞",
+      skill: skill("pillar_up", {
+        block: building,
+        height,
+      }, newId),
+      preconditions: [
+        "the body is underground",
+        "no usable pickaxe is carried",
+        "the remembered stair is too far to reach without mining",
+        "a solid building block is carried",
+      ],
+      expectedEvidence: ["the body rises at least one block"],
+      verify: (next) =>
+        next.position !== undefined &&
+        next.position !== null &&
+        next.position.y > position.y + 0.5,
+    };
+  }
+  /*
    * The body already dug a walkable route on the way down. A `goto` to a cell
    * twelve blocks straight above the body is almost never on that route: the
    * recover planner then cuts a fresh vertical shaft, burns the pickaxe it was
@@ -2197,7 +2694,52 @@ export function returnToSurfaceTask(
   if (
     entrance !== null &&
     facts.mine?.stair !== undefined &&
-    nearMineStair(facts)
+    !climbingMineStair(facts) &&
+    facts.position !== undefined &&
+    facts.position !== null &&
+    /*
+     * Only walk back down to the deepest recorded step when the body is at
+     * that level or below it. A body six blocks above the stand is already
+     * partway up the staircase; sending it back down produced the live
+     * y=52 <-> y=58 ping-pong. Above the stand, let the staged climb (or the
+     * stair-step branch) continue upward.
+     */
+    facts.position.y >= facts.mine.stair.stand.y - 6 &&
+    facts.position.y <= facts.mine.stair.stand.y + 2
+  ) {
+    /*
+     * A cave detour can leave the body far from its own stair. The staged
+     * straight-up goto then asks the bridge to pillar through a ceiling in a
+     * flooded cavern and fails, or drifts horizontally into more caves. Walk
+     * back to the remembered stair stand first; the open staircase is the
+     * only route that is known to reach the surface.
+     */
+    const stand = facts.mine.stair.stand;
+    return {
+      id: `task:${newId()}`,
+      stage,
+      kind: "navigate",
+      title: `先回到自己的矿道台阶（还差 ${remaining} 格到地表）`,
+      skill: skill("goto", {
+        target: stand,
+        mode: "recover",
+      }, newId),
+      preconditions: [
+        "the body is underground",
+        "the remembered stair is the only known route up",
+        "the body is not standing on that stair",
+      ],
+      expectedEvidence: ["the body reaches its former stair stand"],
+      verify: (next) =>
+        next.position !== undefined &&
+        next.position !== null &&
+        distanceTo(next.position, stand) <= 5,
+    };
+  }
+  if (
+    entrance !== null &&
+    facts.mine?.stair !== undefined &&
+    climbingMineStair(facts)
   ) {
     /*
      * A long `goto` target asks the walker to solve the whole staircase at
@@ -2341,8 +2883,13 @@ function miningReturnTask(
     return returnToSurfaceTask(stage, facts, newId);
   }
   const depth = depthBelowSurface(facts) ?? 0;
-  if (depth < 12) return null;
-  const uses = pickaxeUses(facts, Math.max(1, pickaxeTier(facts)));
+  /*
+   * A nearly spent iron pickaxe is not a reason to abandon the mine while a
+   * full stone pickaxe is still in the pack. The live body had an 8-use iron
+   * pickaxe and a 131-use stone pickaxe, but this check only looked at the
+   * highest tier and shuttled it to the surface after every block.
+   */
+  const uses = pickaxeUses(facts, 1);
   const inventoryFull = !hasTripCapacity(stage, facts);
   const lowFood = (facts.food ?? 20) < 8;
   // Leaving the mine cannot heal anything by itself: eating is the remedy,
@@ -2354,10 +2901,172 @@ function miningReturnTask(
   // Walking back up the staircase does not consume the pickaxe. Reserve only
   // enough uses to finish the current cut and handle one blocked step.
   const exhausted = uses !== null && uses < 16;
-  if (!inventoryFull && !lowFood && !lowHealth && !exhausted) {
+  /*
+   * A full pack, an empty hunger bar or critical health ends the trip at any
+   * depth. The old twelve-block floor assumed a shallow body could still walk
+   * to camp, but the live diamond run stalled eleven blocks down its own
+   * tunnel: mining refused to start because the pack was full, while this
+   * helper also refused to climb out because the body was not "deep enough".
+   * The goal then parked on "backpack full" forever.
+   */
+  const mustLeave = inventoryFull || lowFood || lowHealth;
+  if (!mustLeave && !exhausted) return null;
+  if (!mustLeave && depth < 12) return null;
+  // A body already on the surface does not need another staircase. Storage or
+  // the stage task owns the next step from there.
+  if (depth <= 2 && facts.canSeeSky === true) return null;
+  return returnToSurfaceTask(stage, facts, newId);
+}
+
+/**
+ * One continuous excavation segment. The body already owns stair and branch
+ * geometry, but issuing one `mine_block` per cell made it stop, re-plan and
+ * walk again every two seconds. This action keeps the pickaxe and movement
+ * key held while it opens a short stretch; the next observation remains the
+ * authority on what was actually exposed.
+ */
+function mineTunnelTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  targetY: number,
+  branchLength: number,
+  direction: "north" | "south" | "east" | "west" | undefined,
+  title: string,
+  newId: () => string,
+): Task {
+  const position = facts.position;
+  const currentY = position?.y ?? targetY;
+  const descending = targetY < Math.round(currentY);
+  const depthBefore = facts.mine?.stair?.depth ?? 0;
+  const branchBefore = facts.mine?.branch?.distance ?? 0;
+  const stairStep = facts.mine?.stair?.depth;
+  const branchDistance = facts.mine?.branch?.distance;
+  const continuousTitle = descending
+    ? `${title}（${stairStep === undefined ? "" : `复用矿道第 ${stairStep + 1} 阶起`}连续下挖 ${Math.max(1, Math.round(currentY) - targetY)} 格）`
+    : `${title}（${branchDistance === undefined ? "" : `复用矿道支线 ${branchDistance + 1} 格起`}连挖 ${Math.max(1, branchLength)} 格）`;
+  const args = descending
+    ? { targetY, length: 0, rememberMine: true }
+    : {
+        length: Math.max(1, branchLength),
+        ...(direction === undefined ? {} : { direction }),
+        rememberMine: false,
+      };
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "mine",
+    title: continuousTitle,
+    skill: skill("mine_tunnel", args, newId),
+    preconditions: [
+      "a pickaxe can harvest the next stone cells",
+      "the stair keeps a solid landing floor and dry branch floor",
+    ],
+    expectedEvidence: descending
+      ? ["the body descends continuously", "the mine stair depth increases"]
+      : ["the branch distance increases", "fresh stone faces are opened"],
+    verify: (next) => {
+      if (descending) {
+        return (
+          (next.position?.y ?? currentY) < currentY - 0.75 ||
+          (next.mine?.stair?.depth ?? depthBefore) > depthBefore
+        );
+      }
+      return (
+        (next.mine?.branch?.distance ?? branchBefore) > branchBefore ||
+        (next.mine?.stair?.depth ?? depthBefore) > depthBefore
+      );
+    },
+  };
+}
+
+/**
+ * Last-resort exit from a dead-end shaft that has no dry descent or branch.
+ * This is deliberately separate from ordinary mining: it is only selected
+ * after `mine_tunnel` reports "no safe mining direction", so it cannot make
+ * the body ignore an iron or diamond face just because the ceiling is closer.
+ */
+export function deadEndEscapeTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  const position = facts.position;
+  if (
+    !isUnderground(facts) ||
+    position === undefined ||
+    position === null ||
+    facts.inWater === true ||
+    !hasUsablePickaxe(facts)
+  ) {
     return null;
   }
-  return returnToSurfaceTask(stage, facts, newId);
+  const ceiling = facts.reachableBlock;
+  if (
+    ceiling !== undefined &&
+    ceiling !== null &&
+    ceiling.y > Math.round(position.y) &&
+    Math.hypot(ceiling.x - position.x, ceiling.z - position.z) <= 2.5 &&
+    /(^|:)(stone|andesite|diorite|granite|deepslate|tuff|calcite|dirt|gravel|sand|sandstone|[a-z_]+_ore)$/u.test(
+      ceiling.id,
+    )
+  ) {
+    return {
+      id: `task:${newId()}`,
+      stage,
+      kind: "mine",
+      title: "矿道死端：挖开头顶脱困",
+      skill: skill("mine_block", {
+        block: ceiling.id,
+        count: 1,
+        at: { x: ceiling.x, y: ceiling.y, z: ceiling.z },
+        requireDrop: false,
+      }, newId),
+      preconditions: [
+        "the stair has no safe descent or branch",
+        "the overhead face is inside interaction reach",
+      ],
+      expectedEvidence: ["the overhead cell becomes air", "the body gains headroom"],
+      verify: (next) =>
+        next.reachableBlock === undefined ||
+        next.reachableBlock === null ||
+        next.reachableBlock.x !== ceiling.x ||
+        next.reachableBlock.y !== ceiling.y ||
+        next.reachableBlock.z !== ceiling.z,
+    };
+  }
+  const building = pillarBuildingBlock(facts);
+  if (building === null) return null;
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "navigate",
+    title: "矿道死端：垫方块向上脱困",
+    skill: skill("pillar_up", {
+      block: building,
+      height: 2,
+    }, newId),
+    preconditions: [
+      "the stair has no safe descent or branch",
+      "a solid building block is carried",
+      "the body has headroom to jump",
+    ],
+    expectedEvidence: ["the body rises at least one block"],
+    verify: (next) =>
+      next.position !== undefined &&
+      next.position !== null &&
+      next.position.y > position.y + 0.5,
+  };
+}
+
+/** Cardinal heading from a stand to the exact cell in front of it. */
+function cardinalDirection(
+  from: { readonly x: number; readonly z: number },
+  to: { readonly x: number; readonly z: number },
+): "north" | "south" | "east" | "west" {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  if (Math.abs(dx) >= Math.abs(dz)) return dx >= 0 ? "east" : "west";
+  return dz >= 0 ? "south" : "north";
 }
 
 /**
@@ -2373,6 +3082,8 @@ function mineStepTask(
   title: string,
   newId: () => string,
   allowBranchAtDepth = false,
+  continuous = false,
+  continuousBranchLength = 0,
 ): Task | null {
   const mine = facts.mine;
   const position = facts.position;
@@ -2398,12 +3109,78 @@ function mineStepTask(
     isUnderground(facts) &&
     mine.stair !== undefined &&
     position.y < mine.stair.stand.y - 2;
+  /*
+   * Reusing a branch is only useful at the depth it was opened. A body that
+   * left an old mine through a cave can stand sixty blocks above a diamond
+   * target while the remembered stair is still above it; the branch guard
+   * then treated every horizontal cell as "at depth" and opened tunnels at
+   * y=60 forever. Cut a fresh descending segment from the body's own level
+   * until it reaches the target layer.
+   */
+  if (
+    targetY < Math.round(position.y) - 40 &&
+    stairAbove
+  ) {
+    return mineTunnelTask(
+      stage,
+      facts,
+      Math.max(targetY, Math.round(position.y) - 18),
+      0,
+      undefined,
+      title,
+      newId,
+    );
+  }
+  /*
+   * A dead-end stair has a stand but no pending cell: the next landing is a
+   * drop, water or lava. On a deep trip that is a place to start the next
+   * descending segment, not a reason to fall through to "return to the
+   * surface". The live diamond run reached exactly this state at y=49 and
+   * spent every retry on an enclosed goto back to the entrance, climbing and
+   * re-entering the same flooded stair. A remembered branch below the body
+   * is still preferred, so this guard only fires when no branch blueprint
+   * exists.
+   */
+  const stairDeadEnd =
+    mine.stair !== undefined &&
+    mine.stair.pending === undefined &&
+    mine.branch === undefined;
+  const reachableFluid =
+    facts.reachableBlock !== undefined &&
+    facts.reachableBlock !== null &&
+    /(^|:)(water|lava)$/u.test(facts.reachableBlock.id);
+  if (
+    targetY < Math.round(position.y) - 40 &&
+    stairDeadEnd &&
+    facts.inWater !== true &&
+    !reachableFluid
+  ) {
+    return mineTunnelTask(
+      stage,
+      facts,
+      Math.max(targetY, Math.round(position.y) - 18),
+      0,
+      undefined,
+      title,
+      newId,
+    );
+  }
   const branchAtDepth =
     allowBranchAtDepth &&
     mine.branch !== undefined &&
     (stairAbove || (descending && mine.stair?.pending === undefined));
   const onBranch = !descending || branchAtDepth;
-  const step = onBranch ? mine.branch : mine.stair;
+  /*
+   * Reaching the planned layer is not a reason to climb out. The bridge can
+   * omit `branch` for a frame (or until the first side face is opened), so
+   * `onBranch` stayed true while `step` became undefined, the planner fell
+   * through to `returnToSurfaceTask`, and the next snapshot pulled the body
+   * straight back down to the same stair stand. The live y=16 <-> y=18
+   * ping-pong repeated every three seconds without ever opening a branch.
+   * The stair's pending cell is already a horizontal face at that layer, so
+   * use it as the branch face instead of abandoning the mine.
+   */
+  const step = (onBranch ? mine.branch : undefined) ?? mine.stair;
 	if (step === undefined) {
 		/*
 		 * A surface body can stand beside a remembered entrance whose stair is
@@ -2466,6 +3243,74 @@ function mineStepTask(
     return null;
   }
   /*
+   * The remembered blueprint may name an open stand dozens of blocks below
+   * the surface. Walking directly to that stand from camp has no route: the
+   * staircase is a one-block shaft, not a path the walker can enter from
+   * above. The live run therefore climbed, tried the deep stand, failed, and
+   * immediately mined upward again. Return to the fixed entrance and let the
+   * continuous descent skill reuse the open stair from its top.
+   */
+  /*
+   * Only a body still on the surface should walk back to the entrance. Once
+   * it is already inside the shaft (even a couple of blocks below the lip),
+   * sending it back up is the live climb/descend loop that wasted whole
+   * mining trips. Also leave a blacklisted entrance to the recovery planner:
+   * reissuing the refused point as a plain walk stalls the whole stage.
+   */
+  const entrance = mine.entrance;
+  const entranceBlocked = routePointBlacklisted(facts, entrance);
+  const surfaceBody = position.y >= entrance.y - 2;
+  const deepStandBelow = position.y > stand.y + 8;
+  const stairAhead =
+    descending &&
+    surfaceBody &&
+    deepStandBelow &&
+    !entranceBlocked &&
+    (distanceTo(position, stand) > 2 || Math.abs(position.y - stand.y) > 1);
+  if (stairAhead) {
+    if (
+      !isUnderground(facts) &&
+      distanceTo(position, entrance) > 3
+    ) {
+      return {
+        id: `task:${newId()}`,
+        stage,
+        kind: "navigate",
+        title: "先走到矿道入口再下潜",
+        skill: skill(
+          "goto",
+          {
+            target: entrance,
+            mode: entranceBlocked ? "recover" : "walk",
+          },
+          newId,
+        ),
+        preconditions: [
+          "the body remembers its fixed mine entrance",
+          "the remembered stair starts below the surface",
+        ],
+        expectedEvidence: ["the body reaches the fixed mine entrance"],
+        verify: (next) =>
+          next.position !== undefined &&
+          next.position !== null &&
+          distanceTo(next.position, entrance) <= 3,
+      };
+    }
+    const segmentTarget = Math.max(
+      targetY,
+      Math.round(position.y) - 18,
+    );
+    return mineTunnelTask(
+      stage,
+      facts,
+      segmentTarget,
+      0,
+      undefined,
+      title,
+      newId,
+    );
+  }
+  /*
    * A body that climbed a vertical rescue shaft can end up above its stair
    * with no walk route down. Reconnect to the stair step at the body's own
    * level first: the horizontal gap gives the recover planner a direction to
@@ -2496,18 +3341,18 @@ function mineStepTask(
     }
   }
   /*
-   * The blacklist records "the body could not walk to this cell from where
-   * it stood", not "the shaft is invalid". Treating it as a dead end parked
-   * the whole iron stage: the body's own stair stand was blacklisted after a
-   * creeper death, every later plan returned no task, and the goal idled.
-   * Keep the mine actionable and escalate the approach to recovery mode so
-   * the body may mine or bridge the last step instead of repeating a walk.
+   * A blacklisted stand is a route the bridge already refused. Reissuing it
+   * in recovery mode made the live body retry the same waterlogged stair cell
+   * every few seconds (E_UNREACHABLE/E_ENCLOSED) while the ore face beside it
+   * was never mined. Return null so the caller can cut a fresh face at the
+   * body's current depth instead of repeating a known-bad navigation leg.
    */
   const standBlocked = routePointBlacklisted(facts, stand);
   if (
     !staleStandPending &&
     (distanceTo(position, stand) > 2 || Math.abs(position.y - stand.y) > 1)
   ) {
+    if (standBlocked && isUnderground(facts)) return null;
     return {
       id: `task:${newId()}`,
       stage,
@@ -2531,6 +3376,32 @@ function mineStepTask(
   }
   const pending = step.pending;
   if (pending === undefined) return null;
+  if (continuous && !/^minecraft:(deepslate_)?[a-z_]+_ore$/u.test(pending.id)) {
+    const direction = cardinalDirection(stand, pending);
+    if (onBranch && continuousBranchLength > 0) {
+      return mineTunnelTask(
+        stage,
+        facts,
+        Math.round(position.y),
+        Math.min(4, continuousBranchLength),
+        direction,
+        title,
+        newId,
+      );
+    }
+    if (descending) {
+      const segmentTarget = Math.max(targetY, Math.round(position.y) - 18);
+      return mineTunnelTask(
+        stage,
+        facts,
+        segmentTarget,
+        0,
+        direction,
+        title,
+        newId,
+      );
+    }
+  }
   /*
    * A staircase cell is tunnel excavation, not resource gathering. The drop
    * often lands in the pit the body just opened and is no longer reachable
@@ -2538,8 +3409,14 @@ function mineStepTask(
    * cell forever. Ores are different: their drop is the reason for the trip,
    * so only non-ore stair cells may complete on block-break evidence alone.
    */
-  const requireDrop =
-    onBranch || /(_ore$|ancient_debris$)/u.test(pending.id);
+  /*
+   * A branch tunnel exists to expose ore, not to collect every cobblestone.
+   * Requiring the stone drop made an inaccessible item at the bottom of the
+   * freshly cut shaft fail the cell, blacklist the generic tunnel strategy
+   * for eight minutes, and leave the body digging sideways. Only an ore drop
+   * is the reason for the trip.
+   */
+  const requireDrop = /(_ore$|ancient_debris$)/u.test(pending.id);
   return {
     id: `task:${newId()}`,
     stage,
@@ -2592,6 +3469,32 @@ function nearMineStair(facts: WorldFacts): boolean {
     return false;
   }
   return Math.abs(position.y - stand.y) <= 2 && distanceTo(position, stand) <= 5;
+}
+
+/**
+ * The surface-return planner may already be several steps above the deepest
+ * recorded stand. Count that upward run as the same staircase, but keep the
+ * stricter `nearMineStair` for descent and branch-mining decisions where a
+ * nearby cave must not be mistaken for the shaft.
+ */
+function climbingMineStair(facts: WorldFacts): boolean {
+  if (nearMineStair(facts)) return true;
+  const position = facts.position;
+  const stand = facts.mine?.stair?.stand;
+  if (
+    position === undefined ||
+    position === null ||
+    stand === undefined ||
+    stand === null
+  ) {
+    return false;
+  }
+  const horizontal = Math.hypot(position.x - stand.x, position.z - stand.z);
+  return (
+    horizontal <= 8 &&
+    position.y >= stand.y - 1 &&
+    position.y <= stand.y + 10
+  );
 }
 
 /**
@@ -2698,8 +3601,29 @@ function replacementPickaxeTask(
     stickSupply >= 2 &&
     (planks >= 3 || logs >= 1);
   if (!stone && !wooden) return null;
-  const table = ensureTable(facts, stage, newId);
-  if (table !== null) return table;
+  /*
+   * One log cannot buy both a new four-plank table and the two sticks the
+   * replacement pickaxe needs. The live y=53 body had 161 cobblestone and one
+   * birch log; ensureTable spent that log on a portable bench, then the next
+   * plan had no binding and reported the mine blocked with 23 pickaxe uses
+   * left. A remembered table within the walk budget is already the station
+   * the craft skill can use, so keep the wood for sticks.
+   */
+  const station = facts.craftingTable;
+  const position = facts.position;
+  const rememberedTableNearby =
+    station !== undefined &&
+    station !== null &&
+    position !== undefined &&
+    position !== null &&
+    distanceTo(position, station) <= WALK_BACK_TABLE_DISTANCE;
+  const woodUnits = planks + logs * 4;
+  const tableWouldStarveBinding =
+    inventoryCount(facts, "minecraft:stick") < 2 && woodUnits < 6;
+  if (!(rememberedTableNearby && tableWouldStarveBinding)) {
+    const table = ensureTable(facts, stage, newId);
+    if (table !== null) return table;
+  }
   const recipe = queryRecipe(
     stone ? "minecraft:stone_pickaxe" : "minecraft:wooden_pickaxe",
   );
@@ -2864,6 +3788,8 @@ function fieldFurnaceTask(
   if (missingMaterials.length > 0) return null;
   const benchTask = fieldTableTask(stage, facts, newId);
   if (benchTask !== null) return benchTask;
+  const station = ensureTable(facts, stage, newId);
+  if (station !== null) return station;
   return craftTask(recipe, stage, facts, newId);
 }
 
@@ -2919,11 +3845,7 @@ function gotoFurnaceTask(
   facts: WorldFacts,
   newId: () => string,
 ): Task | null {
-  const furnaceInReach =
-    (facts.stations ?? []).includes("furnace") ||
-    (facts.nearbyBlocks ?? []).some((block) =>
-      /(^|:)furnace$|(^|:)blast_furnace$/u.test(block.id),
-    );
+  const furnaceInReach = hasStation(facts, "furnace");
   if (furnaceInReach) return null;
   const furnace = facts.furnace;
   if (furnace === undefined || furnace === null) {
@@ -2953,15 +3875,27 @@ function gotoFurnaceTask(
     { x: furnace.x, y: level, z: furnace.z + 1 },
     { x: furnace.x, y: level, z: furnace.z - 1 },
   ]).slice(0, 8);
+  /*
+   * A station the body already failed to reach is not reissued every cycle.
+   * The bridge rejects a blacklisted target immediately ("re-observe before
+   * retrying"), but each plan created a fresh task id, so failure history
+   * never counted a repeat and the body retried the same furnace forever
+   * while standing twenty blocks above it. Drop the blocked approach cells;
+   * with none left, let the caller place a field furnace or keep mining.
+   */
+  const open = candidates.filter(
+    (candidate) => !routePointBlacklisted(facts, candidate),
+  );
+  if (open.length === 0) return null;
   return {
     id: `task:${newId()}`,
     stage,
     kind: "navigate",
     title: "走回熔炉",
     skill: skill("goto", {
-      target: candidates[0],
-      candidates,
-      acceptPartial: transferAcceptsPartial(facts, candidates[0]!),
+      target: open[0],
+      candidates: open,
+      acceptPartial: transferAcceptsPartial(facts, open[0]!),
       mode: "walk",
     }, newId),
     preconditions: ["a placed furnace is remembered", "a route to the station exists"],
@@ -2969,7 +3903,7 @@ function gotoFurnaceTask(
     verify: (next) =>
       next.position !== undefined &&
       next.position !== null &&
-      candidates.some((candidate) => distanceTo(next.position!, candidate) <= 2),
+      open.some((candidate) => distanceTo(next.position!, candidate) <= 2),
   };
 }
 
@@ -3249,6 +4183,30 @@ function nightHomeTask(
     }
     return placeBedTask(stage, facts, bedItem.item, newId);
   }
+  /*
+   * A camp can contain several stations spread over a terrace. Measuring
+   * "home" against the nearest one (usually the chest) made the body stop
+   * beside the chest while its remembered bed was twenty-seven blocks away:
+   * night work then walked it back to the mine, and the next plan walked it
+   * to the chest again. The bed has its own floor and must be the destination
+   * once it is the reason for going home.
+   */
+  if (
+    facts.bedPlaced === true &&
+    facts.bed !== undefined &&
+    facts.bed !== null &&
+    !deepUnderground(facts)
+  ) {
+    const position = facts.position;
+    if (
+      position !== undefined &&
+      position !== null &&
+      distanceTo(position, facts.bed) > 2
+    ) {
+      const approach = gotoBedTask(stage, facts, facts.bed, newId);
+      if (approach !== null) return approach;
+    }
+  }
   if (
     facts.bedPlaced === true &&
     campDistance !== null &&
@@ -3482,7 +4440,9 @@ function nightCraftTask(
  * `maxStacks: 1`, so the reserve survives while one slot is freed for food.
  */
 const STORAGE_ITEMS =
-  /(^|:)(raw_copper|dirt|oak_sapling|gravel|andesite|diorite|granite|tuff|deepslate|netherrack|cobblestone)$/u;
+  /(^|:)(raw_copper|dirt|oak_sapling|gravel|andesite|diorite|granite|tuff|deepslate|cobbled_deepslate|netherrack|cobblestone)$/u;
+/** A chest visit is only worth its menu latency once this much junk exists. */
+const MIN_STORAGE_BATCH_ITEMS = 8;
 const COBBLESTONE_RESERVE = 32;
 const COBBLESTONE_DEPOSIT_STACK = 64;
 /*
@@ -3493,7 +4453,13 @@ const COBBLESTONE_DEPOSIT_STACK = 64;
  * the next tool/crafting job, not every spare block.
  */
 const STORAGE_EXCESS: readonly (readonly [RegExp, number])[] = [
-  [/(^|:)[a-z_]+_log$/u, 16],
+  /*
+   * A diamond descent needs one carried stack of logs for a field table,
+   * replacement pickaxes and torch sticks. Depositing down to sixteen logs
+   * and then withdrawing a full stack two seconds later was a visible
+   * open-close-open chest cycle with no progress.
+   */
+  [/(^|:)[a-z_]+_log$/u, 48],
   [/(^|:)[a-z_]+_wood$/u, 8],
   [/(^|:)sand$/u, 8],
   [/(^|:)sandstone$/u, 8],
@@ -3518,7 +4484,13 @@ function storageExcess(facts: WorldFacts, item: string): number | null {
   return limit === undefined ? null : inventoryCount(facts, item) - limit[1];
 }
 
-function storageChoice(facts: WorldFacts): string | null {
+/**
+ * A chest visit is expensive: the body walks there, opens the menu, transfers
+ * and closes it. The old plan stored exactly one item type per visit, so a
+ * pack with dirt, gravel and cobblestone produced three separate open/close
+ * cycles. Batch the overflow into one menu session instead.
+ */
+function storageChoices(facts: WorldFacts, limit: number): string[] {
   const cobblestone = inventoryCount(facts, "minecraft:cobblestone");
   const candidates = facts.inventory
     .filter(
@@ -3530,20 +4502,25 @@ function storageChoice(facts: WorldFacts): string | null {
           : (storageExcess(facts, slot.item) ?? 0) > 0),
     )
     .sort((left, right) => right.count - left.count);
-  const preferred = candidates[0];
-  if (preferred !== undefined) return preferred.item;
+  const preferred: string[] = [];
+  for (const slot of candidates) {
+    if (!preferred.includes(slot.item)) preferred.push(slot.item);
+    if (preferred.length >= Math.max(1, limit)) break;
+  }
+  if (preferred.length > 0) return preferred;
   /*
    * At 36/36 there is no slot to pick up the next drop, so freeing even a
    * reserved bulk stack is better than refusing to deposit. The reserve exists
    * to keep building material during normal trips, not to deadlock a full
    * pack at camp.
    */
-  if (usedInventorySlots(facts) < 36) return null;
-  return (
+  if (usedInventorySlots(facts) < 36) return [];
+  const emergency = (
     facts.inventory
       .filter((slot) => STORAGE_ITEMS.test(slot.item) && slot.count > 0)
       .sort((left, right) => right.count - left.count)[0]?.item ?? null
   );
+  return emergency === null ? [] : [emergency];
 }
 
 /**
@@ -3642,8 +4619,25 @@ function homeStorageTask(
    * store, returned to the mine entrance, and repeated. Check the inventory
    * before spending the walk instead of discovering the empty result at camp.
    */
-  const item = storageChoice(facts);
-  if (item === null) return null;
+  const items = storageChoices(facts, 6);
+  if (items.length === 0) return null;
+  const pendingItems = items.reduce(
+    (total, item) => total + inventoryCount(facts, item),
+    0,
+  );
+  /*
+   * A nearly full pack beside the chest used to deposit one loose dirt after
+   * every pickup, opening and closing the same chest every four seconds. The
+   * transfer itself was already batched; the planner was simply scheduling a
+   * new visit per tiny stack. Wait for a meaningful batch unless every slot
+   * is occupied and the body genuinely needs one freed now.
+   */
+  if (
+    usedInventorySlots(facts) < 36 &&
+    pendingItems < MIN_STORAGE_BATCH_ITEMS
+  ) {
+    return null;
+  }
   const carriedChest = facts.inventory.find((slot) =>
     /(^|:)chest$/u.test(slot.item),
   );
@@ -3761,15 +4755,25 @@ function homeStorageTask(
     id: `task:${newId()}`,
     stage,
     kind: "gather",
-    title: `把 ${shortName(item)} 存进家里箱子`,
+    title: `把 ${items.map(shortName).join("、")} 存进家里箱子`,
     skill: skill("deposit", {
-      item,
+      // Keep the single-item field for older consumers; `items` drives the batch.
+      ...(items[0] === undefined ? {} : { item: items[0] }),
+      items,
       container,
-      maxStacks: 1,
+      /*
+       * One chest visit should drain a full pack. Four or eight stacks per
+       * open still produced visible open/close cycles for a mixed 36-slot
+       * backpack, and the live run deposited the same cobblestone five times
+       * in six seconds. The bridge keeps the menu open and quick-moves each
+       * stack, so allow a whole inventory's worth in one visit.
+       */
+      maxStacks: 36,
     }, newId),
     preconditions: ["the camp chest is remembered", "a bulk material is filling the backpack"],
     expectedEvidence: ["the item count in the inventory decreases", "the chest receives the items"],
-    verify: (next) => inventoryCount(next, item) < inventoryCount(facts, item),
+    verify: (next) =>
+      items.some((item) => inventoryCount(next, item) < inventoryCount(facts, item)),
   };
 }
 
@@ -4079,26 +5083,28 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
   /** Metal still needed for the next equipment upgrade, not the whole season. */
   const neededMetal = nextGearItem === undefined ? 0 : ingredientCount(nextGearItem, "minecraft:iron_ingot");
   const metalDeficit = Math.max(0, neededMetal - availableIngots - availableRawIron);
-  const visibleOre = locatedNearby(facts, /iron_ore$/u);
-  const visibleOreTarget =
-    visibleOre !== null &&
+  const nearbyIron = locatedNearby(facts, /iron_ore$/u);
+  const reachableOreTarget =
+    nearbyIron !== null &&
     // A surveyed ore behind a wall has a location but no face the body can
-    // hit. Selecting it produced a repeating "approach made no progress"
-    // failure three blocks from the staircase, because no standable cell can
-    // interact with it. Only a real line-of-sight ore is a direct target; the
-    // rest stay useful as a reason to keep the mining branch advancing.
-    visibleOre.visible === true &&
+    // hit. An exposed face inside current reach is different: the body can
+    // send the destroy packet from where it stands even if the eye-ray sample
+    // is partially hidden by the stair above it. The old visibility-only gate
+    // produced the repeated "kept climbing past the iron" live failure.
+    (nearbyIron.exposed === true ||
+      (nearbyIron.exposed === undefined && nearbyIron.visible === true)) &&
+    nearbyIron.reachable !== false &&
     facts.inWater !== true &&
-    blockHasLocation(visibleOre) &&
-    withinInteractionReach(facts, visibleOre)
-      ? visibleOre
+    blockHasLocation(nearbyIron) &&
+    withinInteractionReach(facts, nearbyIron)
+      ? nearbyIron
       : null;
   // A visible ore three blocks away is the highest-value action in the iron
   // stage. Walking home to a furnace with one raw iron first produced a long,
   // failing climb while ten iron ores sat inside interaction range.
   if (
     metalDeficit > 0 &&
-    visibleOreTarget !== null &&
+    reachableOreTarget !== null &&
     hasUsablePickaxe(facts, 2)
   ) {
     return {
@@ -4107,9 +5113,9 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
       kind: "mine",
       title: "先挖眼前 1 块铁矿石",
       skill: skill("mine_block", {
-        block: visibleOreTarget.id,
+        block: reachableOreTarget.id,
         count: 1,
-        ...exactOpportunisticAt(visibleOreTarget, facts),
+        ...exactOpportunisticAt(reachableOreTarget, facts),
       }, newId),
       preconditions: [
         "stone pickaxe or better",
@@ -4248,7 +5254,7 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
   const toolPlan = (neededIngots: number): Task | BlockedTask | null => {
     const missingMetal = Math.max(0, neededIngots - availableIngots - availableRawIron);
     if (missingMetal > 0) {
-      if (visibleOreTarget === null) {
+      if (reachableOreTarget === null) {
         return miningLayerTask(
           "iron",
           facts,
@@ -4264,9 +5270,9 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
         kind: "mine",
         title: "挖 1 块铁矿石",
         skill: skill("mine_block", {
-          block: visibleOreTarget.id,
+        block: reachableOreTarget.id,
           count: 1,
-          ...exactOpportunisticAt(visibleOreTarget, facts),
+        ...exactOpportunisticAt(reachableOreTarget, facts),
         }, newId),
         preconditions: ["stone pickaxe or better", "iron ore nearby"],
         expectedEvidence: ["raw_iron count increases by 1"],
@@ -4285,18 +5291,14 @@ function iron(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
       }
       const furnaceTrip = gotoFurnaceTask("iron", facts, newId);
       if (furnaceTrip !== null) return furnaceTrip;
-      const batch = Math.max(
-        1,
-        Math.min(
-          neededIngots - ingots,
-          availableRawIron + storedIngots,
-        ),
-      );
+      const batch = availableRawIron > 0
+        ? Math.min(MAX_SMELT_BATCH, availableRawIron)
+        : storedIngots;
       return smeltTask(
         "iron",
         "minecraft:raw_iron",
         "minecraft:iron_ingot",
-        batch,
+        Math.max(1, batch),
         fuel,
         facts,
         newId,
@@ -4584,6 +5586,82 @@ export function miningLayerTask(
   branchLength: number,
   title: string,
 ): Task | BlockedTask {
+  /*
+   * Keep a dead-end stair in the snapshot until the body is out. It is the
+   * only remembered route up, and dropping it mid-shaft sent recovery into
+   * a ceiling pillar inside a flooded cave. Climb out; once the body is on
+   * the surface the bridge blacklists the entrance and selects a new site.
+   */
+  if (facts.mine?.deadEnd === true) {
+    if (isUnderground(facts)) {
+      const position = facts.position;
+      const reachableFluid =
+        facts.reachableBlock !== undefined &&
+        facts.reachableBlock !== null &&
+        /(^|:)(water|lava)$/u.test(facts.reachableBlock.id);
+      /*
+       * A deep trip whose stair ended on a dry dead end should cut a new
+       * segment from the body's own level. Climbing all the way out was the
+       * live y=49 loop: the enclosed goto to the entrance failed every few
+       * seconds, the next snapshot still remembered the same dead end, and
+       * the diamond target was never approached. Keep the climb-out rule for
+       * an actual flooded face; a dry wall is a branch site.
+       */
+      if (
+        position !== undefined &&
+        position !== null &&
+        !reachableFluid &&
+        facts.inWater !== true &&
+        hasUsablePickaxe(facts) &&
+        targetY < Math.round(position.y) - 40
+      ) {
+        return mineTunnelTask(
+          stage,
+          facts,
+          Math.max(targetY, Math.round(position.y) - 18),
+          0,
+          undefined,
+          `${title}（旧矿道尽头，另开新段）`,
+          newId,
+        );
+      }
+      const surfaceTask = returnToSurfaceTask(stage, facts, newId);
+      if (surfaceTask !== null) return surfaceTask;
+    }
+    const home = homeAnchor(facts);
+    if (
+      home !== null &&
+      facts.position !== undefined &&
+      facts.position !== null &&
+      distanceTo(facts.position, home) > 4
+    ) {
+      return (
+        gotoHomeTask(stage, facts, newId, {
+          anchors: [home],
+          title: "离开被水淹的矿道，回营地重新选址",
+        }) ??
+        blockedWith(stage, "mine", title, [
+          { kind: "safety", detail: "旧矿道尽头被水淹，需回营地重新选址" },
+        ])
+      );
+    }
+    return {
+      id: `task:${newId()}`,
+      stage,
+      kind: "interact",
+      title: "等桥接放弃被水淹的矿道",
+      skill: skill("wait", { ticks: 60 }, newId),
+      preconditions: [
+        "the stair bottom is flooded or open to a void",
+        "no dry branch exists at that depth",
+      ],
+      expectedEvidence: ["the bridge forgets the dead-end entrance"],
+      verify: (next) =>
+        next.mine === undefined ||
+        next.mine === null ||
+        next.mine.deadEnd !== true,
+    };
+  }
   const surface = facts.surfaceY ?? facts.position?.y ?? targetY;
   const depth = Math.max(0, surface - targetY);
   const tier = pickaxeTier(facts);
@@ -4605,6 +5683,75 @@ export function miningLayerTask(
     return blockedWith(stage, "mine", title, [
       { kind: "tool", item: "minecraft:iron_pickaxe", detail: "钻石层需要铁镐才能获得掉落" },
     ]);
+  }
+  /*
+   * A deep trip that starts without wood cannot build a field table or make
+   * sticks for a replacement pickaxe. Check near the mine entrance only:
+   * climbing back to the surface from y=20 for one log would waste the trip.
+   */
+  /*
+   * A stale or column-relative surface estimate hid the start of the live
+   * descent: the body stood at y=20 beside a tree, but `surfaceY` still
+   * described the old camp and the reserve check was skipped. Trust the
+   * direct sky flag and a shallow stair depth as well as the heightmap, but
+   * do not send an established deep shaft back up just because a later
+   * snapshot no longer shows the surface reading.
+   */
+  const observedDepth = depthBelowSurface(facts);
+  const nearSurface =
+    facts.canSeeSky === true ||
+    /*
+     * Eight blocks is a fresh descent. The old twenty-block window treated a
+     * body eleven blocks down its own shaft as if it were still packing at
+     * the entrance; a momentary missing mine blueprint then sent it climbing
+     * home for four table planks instead of making sticks for the worn
+     * pickaxe in its hand.
+     */
+    (observedDepth !== null && observedDepth <= 8);
+  const stairDepth = facts.mine?.stair?.depth ?? 0;
+  const startingDescent = facts.mine?.stair === undefined || stairDepth <= 4;
+  /*
+   * Reusing a deep stair still starts at the surface. Gating the reserve on
+   * `stairDepth <= 4` meant every later trip skipped the check, reached the
+   * ore layer with no logs, and could not rebuild a field table or a pickaxe.
+   * `!isUnderground` is the surface trip-start signal that survives an old
+   * stair blueprint; the other branch keeps a newly dug shaft from climbing
+   * back up just because a later snapshot lost the heightmap reading.
+   */
+  /*
+   * A shaft open to the sky can still be eight blocks underground. Require
+   * both the surface predicate and a shallow heightmap reading so a body
+   * already descending does not turn around for wood.
+   */
+  const atSurface =
+    !isUnderground(facts) &&
+    (observedDepth === null || observedDepth <= 4);
+  /*
+   * A body one step above its own stair stand is already descending, not
+   * beginning a trip. Its heightmap depth can be two blocks while the stand
+   * is at depth five; without this guard the reserve check walked it back to
+   * the trees halfway down its own shaft.
+   */
+  const stand = facts.mine?.stair?.stand;
+  const position = facts.position;
+  const atStairStand =
+    stand !== undefined &&
+    position !== undefined &&
+    position !== null &&
+    Math.abs(position.y - stand.y) <= 4 &&
+    Math.hypot(position.x - stand.x, position.z - stand.z) <= 6;
+  /*
+   * A reused deep stair reports its surface stand at the entrance. The old
+   * `!atStairStand` guard treated that exact position as "already descending"
+   * and skipped the reserve check on every later trip, so the body repeatedly
+   * entered the shaft with no wood. At the surface it is still a trip start;
+   * the guard only needs to protect a body already below the entrance.
+   */
+  const startingTrip =
+    atSurface || (nearSurface && startingDescent && !atStairStand);
+  if (depth >= 8 && startingTrip) {
+    const wood = woodTripReserveTask(stage, facts, newId);
+    if (wood !== null) return wood;
   }
   const spare = sparePickaxeTask(stage, facts, newId);
   if (spare !== null) return spare;
@@ -4652,6 +5799,8 @@ export function miningLayerTask(
     // before a long descent instead of declaring the mine blocked.
     const replacement = replacementPickaxeTask(stage, facts, newId);
     if (replacement !== null) return replacement;
+    const supply = pickaxeMaterialSupplyTask(stage, facts, newId);
+    if (supply !== null) return supply;
     return blockedWith(stage, "mine", title, [
       {
         kind: "tool",
@@ -4672,6 +5821,8 @@ export function miningLayerTask(
   ) {
     const replacement = replacementPickaxeTask(stage, facts, newId);
     if (replacement !== null) return replacement;
+    const supply = pickaxeMaterialSupplyTask(stage, facts, newId);
+    if (supply !== null) return supply;
     return blockedWith(stage, "mine", title, [
       {
         kind: "tool",
@@ -4739,6 +5890,26 @@ export function miningLayerTask(
     return gotoMineEntranceTask(stage, facts, entrance, newId);
   }
   if (depth > 24 && inventoryCount(facts, "minecraft:torch") < 4) {
+    /*
+     * A deep tunnel needs a reserve of four torches, but a body already at
+     * the ore layer with coal and wood in the pack does not need to climb
+     * back to the surface. The live diamond run stopped at y=-2 with three
+     * torches, nineteen coal and fifty-three logs, then idled because this
+     * branch only reported the missing material. Craft the reserve in place.
+     */
+    const coal =
+      inventoryCount(facts, "minecraft:coal") +
+      inventoryCount(facts, "minecraft:charcoal");
+    const torchRecipe = queryRecipe("minecraft:torch");
+    if (coal > 0 && torchRecipe !== null) {
+      return craftWithPrerequisite(
+        torchRecipe,
+        stage,
+        facts,
+        newId,
+        "补充深层矿道火把",
+      );
+    }
     return blockedWith(stage, "mine", title, [
       { kind: "material", item: "minecraft:torch", count: 4, detail: "深层矿道至少需要 4 支火把" },
     ]);
@@ -4750,11 +5921,22 @@ export function miningLayerTask(
    * the body; a player lights the tunnel every few blocks, so do the same.
    */
   const light = facts.lightLevel;
+  /*
+   * A torch already within the 17x9x17 survey means this stretch of tunnel
+   * was lit. Re-checking only the player's own feet made a body at the bottom
+   * of a sealed shaft place 99 torches into the neighbouring cave: every
+   * placement was real, but the wall between the two cells kept the feet
+   * light at 3, so the planner reissued the same task. Mining forward is the
+   * useful next step; another hidden torch is not.
+   */
+  const torchNearby =
+    nearbyHas(facts, /(^|:)(soul_)?(wall_)?torch$/u) !== null;
   if (
     light !== undefined &&
     light !== null &&
     light <= 3 &&
     isUnderground(facts) &&
+    !torchNearby &&
     inventoryCount(facts, "minecraft:torch") > 0
   ) {
     return {
@@ -4843,6 +6025,14 @@ export function miningLayerTask(
         block: reachable.id,
         count: 1,
         at: { x: reachable.x, y: reachable.y, z: reachable.z },
+        /*
+         * A tunnel face is excavation, not a cobblestone quota. The drop can
+         * fall into the hole the face just opened; treating that as a failed
+         * cell blacklisted the whole face strategy for minutes.
+         */
+        ...(/(_ore$|ancient_debris$)/u.test(reachable.id)
+          ? {}
+          : { requireDrop: false }),
       }, newId),
       preconditions: ["a pickaxe can harvest the reachable face", "the face is on the body's floor"],
       expectedEvidence: ["the face becomes air", "a new tunnel cell is walkable"],
@@ -4864,8 +6054,71 @@ export function miningLayerTask(
       : `${title}（本轮先到 y=${plannedTargetY}）`,
     newId,
     true,
+    true,
+    plannedBranchLength,
   );
   if (step !== null) return step;
+  /*
+   * A worn pickaxe can leave the planned branch length at zero even when the
+   * crosshair is on a stone at the body's floor. Use only that exact face,
+   * never a broad "nearest stone" rescan: the rescan mined arbitrary walls
+   * around a flooded stair for forty minutes without ever advancing the
+   * tunnel. When the face is water or absent, returning to the surface is
+   * honest work; the body abandons a deep dead-end stair and starts a new
+   * shaft instead of clearing a room at the bottom of the old one.
+   */
+  if (
+    isUnderground(facts) &&
+    hasUsablePickaxe(facts) &&
+    reachable !== undefined &&
+    reachable !== null &&
+    y !== undefined &&
+    y !== null &&
+    /*
+     * Only a face on the body's own floor, or a clearly lateral face one or
+     * two blocks up, is an excavation target. The old unconditional
+     * two-block window admitted the bottom face of the ceiling block above
+     * the head; the live body then mined straight up at y=49 while the
+     * diamond target was a hundred blocks below. A block directly overhead
+     * must stay out of this fallback.
+     */
+    (Math.abs(reachable.y - Math.round(y)) <= 1 ||
+      (Math.abs(reachable.y - Math.round(y)) <= 2 &&
+        Math.hypot(
+          reachable.x - (facts.position?.x ?? reachable.x),
+          reachable.z - (facts.position?.z ?? reachable.z),
+        ) >= 2.5)) &&
+    /(^|:)(stone|andesite|diorite|granite|deepslate|tuff|calcite)$/u.test(
+      reachable.id,
+    )
+  ) {
+    return {
+      id: `task:${newId()}`,
+      stage,
+      kind: "mine",
+      title: "挖开面前的岩面",
+      skill: skill("mine_block", {
+        block: reachable.id,
+        count: 1,
+        at: { x: reachable.x, y: reachable.y, z: reachable.z },
+        requireDrop: false,
+      }, newId),
+      preconditions: [
+        "a solid tunnel face is within reach",
+        "the face is at the body's floor level",
+      ],
+      expectedEvidence: [
+        "the named face becomes air",
+        "the reachable face changes away from the old cell",
+      ],
+      verify: (next) =>
+        next.reachableBlock === undefined ||
+        next.reachableBlock === null ||
+        next.reachableBlock.x !== reachable.x ||
+        next.reachableBlock.y !== reachable.y ||
+        next.reachableBlock.z !== reachable.z,
+    };
+  }
   /*
    * A body in a cave with no usable shaft is not out of options. Blocking
    * there left the goal idle after a night's sleep: it was too deep for the
@@ -5048,6 +6301,28 @@ function nether(facts: WorldFacts, newId: () => string): Task | BlockedTask | nu
   if (inventoryCount(facts, "minecraft:blaze_rod") < 6) {
     const blaze = nearestEntity(facts, /blaze$/u, 32);
     if (blaze === null) {
+      /*
+       * The chunk survey observes fortress fencing long before a blaze is in
+       * range. A known fortress is a heading, not a reason to declare the
+       * nether unreachable.
+       */
+      const fortress = nearestLandmark(facts, "fortress");
+      if (fortress !== null && dimension(facts) === "nether") {
+        return {
+          id: `task:${newId()}`,
+          stage: "nether",
+          kind: "navigate",
+          title: "前往已发现的下界要塞",
+          skill: skill(
+            "goto",
+            { target: { x: fortress.x, y: fortress.y, z: fortress.z }, radius: 6 },
+            newId,
+          ),
+          preconditions: ["chunk survey observed nether brick fencing"],
+          expectedEvidence: ["nearbyBlocks contains nether_brick_fence"],
+          verify: (next) => nearbyHas(next, /nether_brick_fence$/u) !== null,
+        };
+      }
       return blockedWith("nether", "combat", "寻找烈焰人", [
         { kind: "resource", detail: "附近没有烈焰人；需要寻找下界要塞" },
       ]);
@@ -5105,6 +6380,30 @@ function eyes(facts: WorldFacts, newId: () => string): Task | BlockedTask | null
 
 function stronghold(facts: WorldFacts, newId: () => string): Task | BlockedTask | null {
   if (nearbyHas(facts, /end_portal_frame$/u) !== null) return null;
+  /*
+   * The survey can see the portal frame long before the body is close enough
+   * to interact. Walking to the observed frame is the point of the survey;
+   * throwing another eye would redo a search the body already finished. This
+   * check deliberately precedes the eye requirement: a surveyed frame is
+   * proof the stronghold exists even when the backpack has no eyes left.
+   */
+  const site = nearestLandmark(facts, "stronghold");
+  if (site !== null) {
+    return {
+      id: `task:${newId()}`,
+      stage: "stronghold",
+      kind: "navigate",
+      title: "前往已发现的要塞传送门",
+      skill: skill(
+        "goto",
+        { target: { x: site.x, y: site.y, z: site.z }, radius: 6 },
+        newId,
+      ),
+      preconditions: ["chunk survey observed an end portal frame"],
+      expectedEvidence: ["nearbyBlocks contains end_portal_frame"],
+      verify: (next) => nearbyHas(next, /end_portal_frame$/u) !== null,
+    };
+  }
   if (!hasItem(facts, "minecraft:ender_eye")) {
     return blockedWith("stronghold", "interact", "使用末影之眼定位要塞", [
       { kind: "material", item: "minecraft:ender_eye", count: 12, detail: "背包没有末影之眼" },
@@ -5125,6 +6424,23 @@ function stronghold(facts: WorldFacts, newId: () => string): Task | BlockedTask 
 function dragon(facts: WorldFacts, newId: () => string): Task | BlockedTask | null {
   if (facts.dragonDefeated === true) return null;
   if (dimension(facts) !== "end") {
+    const portal = nearestLandmark(facts, "end_portal");
+    if (portal !== null) {
+      return {
+        id: `task:${newId()}`,
+        stage: "dragon",
+        kind: "navigate",
+        title: "前往已发现的末地传送门",
+        skill: skill(
+          "goto",
+          { target: { x: portal.x, y: portal.y, z: portal.z }, radius: 3 },
+          newId,
+        ),
+        preconditions: ["chunk survey observed an active end portal"],
+        expectedEvidence: ["nearbyBlocks contains end_portal"],
+        verify: (next) => nearbyHas(next, /end_portal$/u) !== null,
+      };
+    }
     return {
       id: `task:${newId()}`,
       stage: "dragon",
@@ -5395,6 +6711,12 @@ function hasStation(
   facts: WorldFacts,
   station: "crafting_table" | "furnace" | "blast_furnace" | "bed" | "portal",
 ): boolean {
+  if (
+    (station === "furnace" || station === "blast_furnace") &&
+    facts.furnaceReachable === false
+  ) {
+    return false;
+  }
   if ((facts.stations ?? []).includes(station)) return true;
   // A remembered furnace is *not* in reach. `gotoFurnaceTask` owns walking
   // back to it; reporting it here made the planner skip that trip and then
@@ -5410,6 +6732,82 @@ function hasStation(
     if (station === "bed") return BED_ITEMS.test(id);
     return id === "minecraft:nether_portal";
   });
+}
+
+/**
+ * A 3x3 recipe cannot fall back to the 2x2 inventory grid. Every planner
+ * branch must prove a usable table before emitting `craft`, otherwise the
+ * bridge rejects the request and the same failed task is retried until the
+ * strategy breaker parks the whole goal.
+ */
+function ensureCraftStation(
+  task: Task | BlockedTask | null,
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | BlockedTask | null {
+  if (task === null || !("skill" in task) || task.skill.name !== "craft") {
+    return task;
+  }
+  const item = String(task.skill.args["item"] ?? "");
+  const recipe = queryRecipe(item);
+  if (recipe?.station !== "crafting_table") return task;
+  const inReach =
+    hasStation(facts, "crafting_table") || facts.craftingTableNearby === true;
+  if (inReach && facts.craftingTableReachable !== false) return task;
+  const table = ensureTable(facts, stage, newId);
+  if (table !== null) return table;
+  /*
+   * `ensureTable` returning null means the remembered table is usable or the
+   * body is already carrying/standing beside one. A table the bridge observed
+   * as unreachable is neither: the craft skill's approach already failed, and
+   * narrating the same 3x3 craft only produces an E_PRECONDITION loop. Never
+   * fail open on an explicitly unreachable station.
+   */
+  const remembered = facts.craftingTable;
+  const position = facts.position;
+  const tableAbove =
+    remembered !== undefined &&
+    remembered !== null &&
+    position !== undefined &&
+    position !== null
+      ? remembered.y - position.y
+      : 0;
+  /*
+   * A same-floor table can still be approached by the craft skill even when
+   * the eye ray says "unreachable"; that flag only describes the current
+   * touchable face. Fail closed only for the live failure mode this guard was
+   * added for: a table above the body in the same mine that neither the
+   * approach skill nor the craft skill could reach.
+   */
+  if (
+    facts.craftingTableReachable === false &&
+    isUnderground(facts) &&
+    tableAbove >= 2 &&
+    tableAbove <= MAX_WALK_TABLE_VERTICAL
+  ) {
+    return blockedWith(stage, "craft", task.title, [
+      {
+        kind: "station",
+        item: "minecraft:crafting_table",
+        detail: "工作台当前不可到达；先走回工作台、重建工作台或返回地表",
+      },
+    ]);
+  }
+  if (
+    inReach ||
+    hasItem(facts, "minecraft:crafting_table") ||
+    (facts.craftingTable !== undefined && facts.craftingTable !== null)
+  ) {
+    return task;
+  }
+  return blockedWith(stage, "craft", task.title, [
+    {
+      kind: "station",
+      item: "minecraft:crafting_table",
+      detail: "3×3 配方需要可用工作台；当前没有可到达的工作台",
+    },
+  ]);
 }
 
 /**
@@ -5450,11 +6848,32 @@ function ensureTable(
       table !== undefined &&
       table !== null
     ) {
-      if (overworldUnderground && tableAbove > 8) {
+      const approach = gotoCraftingTableTask(stage, facts, newId);
+      if (approach !== null) return approach;
+      /*
+       * Every approach cell is covered by an active route refusal. Replaying
+       * one of them only earns another E_UNREACHABLE and restarts the same
+       * station loop. Replace the broken station locally from carried wood,
+       * or gather a nearby tree first; never emit a navigation task whose
+       * whole candidate set is already known to be unreachable.
+       */
+      const rescue = rescueTableTask(stage, facts, newId);
+      if (rescue !== null) return rescue;
+      if (overworldUnderground) {
         return returnToSurfaceTask(stage, facts, newId) ??
-          blocked(stage, "navigate", "返回地表");
+          blocked(stage, "navigate", "返回地表重建工作台");
       }
-      return gotoCraftingTableTask(stage, facts, newId);
+      return explore(
+        facts,
+        stage,
+        "寻找木材重建工作台",
+        "原木",
+        1,
+        newId,
+        32,
+        48,
+        true,
+      );
     }
     return null;
   }
@@ -5474,10 +6893,42 @@ function ensureTable(
   // remembered station is genuinely out of walking range.
   if (
     facts.craftingTableReachable === false &&
-    !placedTableWithinWalk(facts)
+    !placedTableWithinWalk(facts) &&
+    !rememberedTableWithinWalk(facts)
   ) {
     const rescue = rescueTableTask(stage, facts, newId);
     if (rescue !== null) return rescue;
+    /*
+     * `reachable=false` only describes the crosshair face. A table on the
+     * same floor a dozen blocks away is still a walkable station the craft
+     * skill can approach. Only when the rescue also failed and the table is
+     * genuinely far does the body need a surface station; falling through
+     * there was the live furnace bug that emitted an impossible 3x3 craft.
+     */
+    const farFromTable =
+      table === undefined ||
+      table === null ||
+      position === undefined ||
+      position === null ||
+      Math.hypot(table.x - position.x, table.z - position.z) >
+        WALK_BACK_TABLE_DISTANCE;
+    if (farFromTable) {
+      if (overworldUnderground) {
+        return returnToSurfaceTask(stage, facts, newId) ??
+          blocked(stage, "navigate", "返回地表重建工作台");
+      }
+      return explore(
+        facts,
+        stage,
+        "寻找木材重建工作台",
+        "原木",
+        1,
+        newId,
+        32,
+        48,
+        true,
+      );
+    }
   }
 
   // A lost pickaxe deep underground is a tool rescue, not a commute. When
@@ -5524,9 +6975,41 @@ function ensureTable(
     // approaches it itself. Only a genuinely distant station needs an
     // explicit navigation leg; either way, never craft a second table.
     if (distance === null || distance <= WALK_BACK_TABLE_DISTANCE) {
-      // The craft skill only walks. A surface table more than eight blocks
-      // above a mine needs the navigation skill's staircase escape first.
-      if (overworldUnderground && tableAbove > 8) {
+      /*
+       * `placed=true` only says this body built the table earlier; it does not
+       * make the block touchable now. The live diamond run had five diamonds
+       * and five sticks, a table eight blocks above in its own mine, and both
+       * `nearby=false` and `reachable=false`. Returning null here let the
+       * planner emit `craft diamond_helmet` over and over, and the bridge
+       * rejected every one with "no safe route to the crafting table".
+       */
+      const sameMineTableAbove =
+        tableAbove >= 2 && tableAbove <= MAX_WALK_TABLE_VERTICAL;
+      if (facts.craftingTableReachable === false && sameMineTableAbove) {
+        const approach = gotoCraftingTableTask(stage, facts, newId);
+        if (approach !== null) return approach;
+        const rescue = rescueTableTask(stage, facts, newId);
+        if (rescue !== null) return rescue;
+        if (overworldUnderground) {
+          return returnToSurfaceTask(stage, facts, newId) ??
+            blocked(stage, "navigate", "返回地表重建工作台");
+        }
+        return explore(
+          facts,
+          stage,
+          "寻找木材重建工作台",
+          "原木",
+          1,
+          newId,
+          32,
+          48,
+          true,
+        );
+      }
+      // The craft skill only walks. A table many blocks above a mine needs
+      // the navigation skill's staircase escape first; a recover goto above
+      // already handled the same-mine case.
+      if (overworldUnderground && tableAbove > MAX_WALK_TABLE_VERTICAL) {
         return returnToSurfaceTask(stage, facts, newId) ?? blocked(stage, "navigate", "返回地表");
       }
       return null;
@@ -5600,13 +7083,31 @@ function rescueTableTask(
   const planks = facts.inventory
     .filter((slot) => /(^|:)[a-z_]+_planks$/u.test(slot.item))
     .reduce((total, slot) => total + slot.count, 0);
-  if (planks < 4 && logCount(facts) < 1) return null;
+  if (
+    planks < 4 &&
+    logCount(facts) < 1 &&
+    nearbyHas(facts, WOOD_ITEMS) === null
+  ) {
+    return null;
+  }
   const recipe = queryRecipe("minecraft:crafting_table");
   if (recipe === null) return null;
   const missing = missingForRecipe(recipe, facts);
   if (missing.length === 0) return craftTask(recipe, stage, facts, newId);
-  const prerequisite = preparationTask(recipe, stage, facts, newId, 0);
-  return prerequisite;
+  /*
+   * The table recipe is four planks; starting from a carried or nearby log
+   * needs the same recursive wood path as the normal craft planner. Returning
+   * only `preparationTask` stopped at "needs planks" when the log still had to
+   * be harvested, so an unreachable station could never be replaced.
+   */
+  const prerequisite = craftWithPrerequisite(
+    recipe,
+    stage,
+    facts,
+    newId,
+    "重建工作台",
+  );
+  return "skill" in prerequisite ? prerequisite : null;
 }
 
 function gotoCraftingTableTask(
@@ -5616,12 +7117,16 @@ function gotoCraftingTableTask(
 ): Task | null {
   const table = facts.craftingTable;
   if (table === undefined || table === null) return null;
-  const candidates = [table.y + 1, table.y, table.y - 1].flatMap((level) => [
-    { x: table.x + 1, y: level, z: table.z },
-    { x: table.x - 1, y: level, z: table.z },
-    { x: table.x, y: level, z: table.z + 1 },
-    { x: table.x, y: level, z: table.z - 1 },
-  ]).slice(0, 8);
+  const candidates = [table.y + 1, table.y, table.y - 1]
+    .flatMap((level) => [
+      { x: table.x + 1, y: level, z: table.z },
+      { x: table.x - 1, y: level, z: table.z },
+      { x: table.x, y: level, z: table.z + 1 },
+      { x: table.x, y: level, z: table.z - 1 },
+    ])
+    .filter((candidate) => !routePointBlacklisted(facts, candidate))
+    .slice(0, 8);
+  if (candidates.length === 0) return null;
   return {
     id: `task:${newId()}`,
     stage,
@@ -5631,7 +7136,13 @@ function gotoCraftingTableTask(
       target: candidates[0],
       candidates,
       acceptPartial: transferAcceptsPartial(facts, candidates[0]!),
-      mode: "walk",
+      /*
+       * A table in the same mine can sit several stair steps above the body.
+       * `walk` refuses that climb and reports "no safe route", while the
+       * `recover` mode can use the staircase cells the body already dug. The
+       * same table is still a plain walk on the surface.
+       */
+      mode: isUnderground(facts) ? "recover" : "walk",
     }, newId),
     preconditions: ["a placed crafting table is remembered", "a route to the station exist"],
     expectedEvidence: ["the crafting table enters interaction range"],
@@ -5660,6 +7171,35 @@ function placedTableWithinWalk(facts: WorldFacts): boolean {
     return false;
   }
   if (Math.abs(table.y - position.y) > REPLACE_TABLE_VERTICAL) return false;
+  return (
+    Math.hypot(
+      table.x - position.x,
+      table.y - position.y,
+      table.z - position.z,
+    ) <= JUST_PLACED_TABLE_DISTANCE
+  );
+}
+
+/**
+ * `craftingTableReachable=false` only means the crosshair cannot touch a face;
+ * the craft skill can still walk to a remembered station. The live y=53 body
+ * had its only field table five blocks above and spent its last log building
+ * a second one, then had no sticks for the replacement pickaxe. A station
+ * within the same walk budget is worth one craft attempt.
+ */
+function rememberedTableWithinWalk(facts: WorldFacts): boolean {
+  const table = facts.craftingTable;
+  const position = facts.position;
+  if (
+    facts.craftingTablePlaced !== true ||
+    table === undefined ||
+    table === null ||
+    position === undefined ||
+    position === null
+  ) {
+    return false;
+  }
+  if (Math.abs(table.y - position.y) > MAX_WALK_TABLE_VERTICAL) return false;
   return (
     Math.hypot(
       table.x - position.x,

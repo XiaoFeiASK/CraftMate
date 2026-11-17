@@ -20,3 +20,4 @@ apps/desktop-shell/src-tauri/gen/
 
 # local game/log output
 logs/
+.hmcl/

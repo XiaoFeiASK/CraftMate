@@ -20,14 +20,17 @@ import {
 } from "@craftmate/contracts";
 import {
   classifyFailure,
+  deadEndEscapeTask,
   explore,
   nextTaskForStage,
   normalizedTaskId,
   planSurvival,
   recover,
   taskSignature,
+  TaskScheduler,
   TaskTree,
   worldFactsFromSnapshot,
+  type AcquisitionNode,
   type FailureCategory,
   type GoalId,
   type SurvivalPlan,
@@ -53,6 +56,8 @@ export interface GoalTask {
   readonly targetLock?: TargetLock | null;
   /** Domain task identity; `strategyKey` may change independently. */
   readonly taskId?: string;
+  /** Planned AND/OR prerequisite branch, recorded under the active task. */
+  readonly acquisition?: AcquisitionNode | null;
 }
 
 export interface GoalPlan {
@@ -315,6 +320,25 @@ export class GoalRuntime {
   private consecutiveFailures = 0;
   private retryAt = 0;
   private nextPlanAt = 0;
+  /**
+   * A station placement is a one-off world change. The body may report the
+   * success before the next world snapshot contains the new block, and
+   * re-planning in that window placed a second furnace on top of the first.
+   * Suppress an identical station placement briefly; torches and ordinary
+   * building blocks are intentionally not covered because a player does place
+   * several of them in a row.
+   */
+  private recentStationPlacement: { readonly block: string; readonly at: number } | null =
+    null;
+  /**
+   * A live body placed 99 torches in 100 seconds at the bottom of a sealed
+   * shaft. The body confirmed every world change, but the torch sat behind a
+   * wall, so the next snapshot still reported light 3 and the planner issued
+   * another one. The domain now skips lighting when a torch is already in its
+   * nearby survey; this short runtime guard covers the snapshot window before
+   * that survey catches up.
+   */
+  private recentTorchPlacementAt = Number.NEGATIVE_INFINITY;
   private restoredInFlight: string | null = null;
   private failures: TaskFailure[] = [];
   private failureWindow: { readonly fingerprint: string; readonly at: number }[] = [];
@@ -326,9 +350,11 @@ export class GoalRuntime {
   } | null = null;
   private taskTree: TaskTree | null = null;
   private taskRootId: string | null = null;
+  private taskMilestoneId: string | null = null;
   private taskNodeId: string | null = null;
   private taskTargetFamily: string | null = null;
   private taskEvidenceRefs: string[] = [];
+  private speechVariation = 0;
   private taskFailureRecord: {
     readonly category: FailureCategory;
     readonly detail: string;
@@ -384,6 +410,13 @@ export class GoalRuntime {
       }
     }
     this.taskNodeId = record.taskNode?.id ?? null;
+    this.taskMilestoneId =
+      this.taskNodeId === null
+        ? null
+        : this.taskTree?.get(this.taskNodeId)?.parentId ?? null;
+    if (this.taskMilestoneId !== null && this.taskMilestoneId === this.taskRootId) {
+      this.taskMilestoneId = null;
+    }
     this.taskTargetFamily = record.targetFamily ?? null;
     this.taskEvidenceRefs = [...(record.evidenceRefs ?? [])].slice(-16);
     this.taskFailureRecord = record.failureRecord ?? null;
@@ -418,6 +451,11 @@ export class GoalRuntime {
 
   get hasTaskInFlight(): boolean {
     return this.inFlight !== null;
+  }
+
+  /** The live command, for state monitors that may preempt long skills. */
+  get currentDecision(): Decision | null {
+    return this.inFlight?.decision ?? null;
   }
 
   get restoredDecisionId(): string | null {
@@ -468,6 +506,7 @@ export class GoalRuntime {
     this.retryAt = 0;
     this.taskTree = null;
     this.taskRootId = null;
+    this.taskMilestoneId = null;
     this.taskNodeId = null;
     this.taskTargetFamily = null;
     this.taskEvidenceRefs = [];
@@ -695,6 +734,20 @@ export class GoalRuntime {
       this.persist();
       return null;
     }
+    /*
+     * A transient pause (world snapshot missing during a bridge reconnect, a
+     * menu, a reflex hand-off) must not outlive its cause. Operator pauses
+     * set `goal.status` too, so only an active goal is auto-resumed here.
+     */
+    if (this.progress.status === "paused" && this.goal.status === "active") {
+      this.progress = {
+        ...this.progress,
+        status: this.resumedStatus(),
+        lastFailure: null,
+        updatedAt: this.clock.now(),
+      };
+      this.persist();
+    }
 
     return {
       goalId: this.goal.id,
@@ -842,6 +895,29 @@ export class GoalRuntime {
       );
       return null;
     }
+    if (
+      skill.data.name === "place_block" &&
+      this.recentStationPlacement !== null &&
+      this.recentStationPlacement.block === String(skill.data.args["block"] ?? "") &&
+      now - this.recentStationPlacement.at < 2_000
+    ) {
+      this.nextPlanAt = Math.max(
+        this.nextPlanAt,
+        this.recentStationPlacement.at + 2_000,
+      );
+      return null;
+    }
+    if (
+      skill.data.name === "place_block" &&
+      String(skill.data.args["block"] ?? "") === "minecraft:torch" &&
+      now - this.recentTorchPlacementAt < 6_000
+    ) {
+      this.nextPlanAt = Math.max(
+        this.nextPlanAt,
+        this.recentTorchPlacementAt + 6_000,
+      );
+      return null;
+    }
     if (!context.bridge?.skills.includes(skill.data.name)) {
       this.recordFailure(
         taskId,
@@ -878,7 +954,7 @@ export class GoalRuntime {
       score: 1,
       stage: "planned",
       skill: issuedSkill,
-      speech: goalSpeech(plan.nextTask),
+      speech: goalSpeech(plan.nextTask, this.speechVariation++),
       audienceRef: "",
       trace: null,
       ...(plan.cardId === undefined || plan.cardTitle === undefined
@@ -972,6 +1048,23 @@ export class GoalRuntime {
         return true;
       }
       this.noteTaskSettled(current.taskId, "completed", outcome);
+      if (
+        current.decision.skill?.name === "place_block" &&
+        STATION_PLACEMENT.test(
+          String(current.decision.skill.args["block"] ?? ""),
+        )
+      ) {
+        this.recentStationPlacement = {
+          block: String(current.decision.skill.args["block"] ?? ""),
+          at: outcome.at,
+        };
+      }
+      if (
+        current.decision.skill?.name === "place_block" &&
+        String(current.decision.skill.args["block"] ?? "") === "minecraft:torch"
+      ) {
+        this.recentTorchPlacementAt = outcome.at;
+      }
       this.consecutiveFailures = 0;
       this.lastFailure = null;
       this.lastFailureStrategy = null;
@@ -1138,6 +1231,17 @@ export class GoalRuntime {
           : this.taskFailureRecord?.detail ?? null,
       targetFamily: this.taskTargetFamily,
       evidenceRefs: this.taskEvidenceRefs.slice(-16),
+      branches: [...this.taskTree.snapshot().nodes]
+        .filter((node) => node.parentId !== null)
+        .sort((left, right) => left.createdAt - right.createdAt)
+        .slice(-32)
+        .map((node) => ({
+          id: node.id,
+          parentId: node.parentId,
+          intent: node.intent.slice(0, 120),
+          state: node.state,
+          targetFamily: node.targetFamily.slice(0, 120),
+        })),
     };
   }
 
@@ -1160,6 +1264,7 @@ export class GoalRuntime {
         sourceKey: `stage:${plan.stage.id}`,
       });
       this.taskRootId = root.id;
+      this.taskMilestoneId = null;
       this.taskTargetFamily = plan.stage.id;
     } else if (this.taskTree.snapshot().nodes.length > 64) {
       // Bounded history: committed evidence is preserved for the current
@@ -1173,17 +1278,58 @@ export class GoalRuntime {
         sourceKey: `stage:${stage}`,
       });
       this.taskRootId = root.id;
+      this.taskMilestoneId = null;
       this.taskTargetFamily = stage;
     }
-    const node = this.taskTree.add({
-      parentId: this.taskRootId,
+    /*
+     * Group dispatched actions under the milestone they serve. Attaching every
+     * task directly to the goal root produced a flat list in the live console
+     * that showed no relation between "gather wood", "craft a table" and the
+     * milestone they advance.
+     */
+    const milestoneKey =
+      `milestone:${plan.stage.id}:${plan.milestone.id || plan.milestone.title}`;
+    const existingMilestone = [...this.taskTree.snapshot().nodes].find(
+      (node) =>
+        node.parentId === this.taskRootId && node.sourceKey === milestoneKey,
+    );
+    if (existingMilestone !== undefined) {
+      this.taskMilestoneId = existingMilestone.id;
+    } else {
+      const [milestone] = this.taskTree.attach(this.taskRootId, [
+        {
+          intent: plan.milestone.title,
+          targetFamily: plan.stage.id,
+          priority: "goal",
+          sourceKey: milestoneKey,
+          successEvidence: [],
+        },
+      ]);
+      this.taskMilestoneId = milestone?.id ?? null;
+    }
+    const priority = plan.nextTask.critical === true ? "survival" : "goal";
+    const current = this.taskTree.current;
+    const scheduler = new TaskScheduler(() => this.clock.now());
+    const preempting =
+      current !== null &&
+      current.state === "active" &&
+      scheduler.preemptsByPriority(current.priority, priority);
+    const input = {
+      parentId: this.taskMilestoneId ?? this.taskRootId,
       intent: plan.nextTask.text,
       targetFamily: plan.stage.id,
-      priority: plan.nextTask.critical === true ? "survival" : "goal",
+      priority,
       sourceKey: taskId,
       successEvidence: [],
-    });
-    this.taskTree.activate(node.id);
+    } as const;
+    const node = preempting
+      ? this.taskTree.preempt(input)
+      : this.taskTree.add(input);
+    if (!preempting) this.taskTree.activate(node.id);
+    this.attachAcquisition(
+      node.id,
+      plan.nextTask.acquisition ?? null,
+    );
     this.taskNodeId = node.id;
     this.taskFailureRecord = null;
     this.progress =
@@ -1199,6 +1345,7 @@ export class GoalRuntime {
   ): void {
     if (this.taskTree === null || this.taskNodeId === null) return;
     const nodeId = this.taskNodeId;
+    const resuming = this.taskTree.snapshot().pausedCursorId !== null;
     const refs = (outcome.changes ?? [])
       .map((change) => `${change.kind}: ${change.detail}`.slice(0, 240))
       .filter((entry) => entry.length > 0);
@@ -1206,11 +1353,12 @@ export class GoalRuntime {
       const evidence = refs.length > 0 ? refs : [`settled: ${taskId}`.slice(0, 240)];
       this.taskEvidenceRefs = [...this.taskEvidenceRefs, ...evidence].slice(-16);
       try {
-        this.taskTree.complete(nodeId, evidence);
+        this.taskTree.completeBranch(nodeId, evidence);
       } catch {
         // A node already completed by recovery is not an execution failure.
       }
       this.taskNodeId = null;
+      if (resuming) this.taskTree.resumeAfterPreemption();
       return;
     }
     if (status === "cancelled" || status === "preempted") {
@@ -1218,6 +1366,7 @@ export class GoalRuntime {
       // A preempted task remains the active branch so a restart can explain
       // where it stopped; the next plan will activate a fresh node.
       this.taskNodeId = null;
+      if (resuming) this.taskTree.resumeAfterPreemption();
       return;
     }
     const category = taskFailureCategory(outcome.errorCode);
@@ -1230,6 +1379,46 @@ export class GoalRuntime {
       blacklistMs: 10 * 60_000,
     });
     this.taskNodeId = null;
+    if (resuming) this.taskTree.resumeAfterPreemption();
+  }
+
+  /**
+   * Attaches the graph's AND/OR prerequisite branch as pending nodes. This is
+   * deliberate context, not a second scheduler: the body still receives one
+   * compiled job, while `branches` is a bounded projection for the console.
+   */
+  private attachAcquisition(
+    parentId: string,
+    root: AcquisitionNode | null,
+  ): void {
+    if (root === null || this.taskTree === null) return;
+    let attached = 0;
+    const visit = (
+      parent: string,
+      node: AcquisitionNode,
+      depth: number,
+    ): void => {
+      if (depth > 5 || attached >= 24) return;
+      const created = this.taskTree!.attach(parent, [
+        {
+          intent: acquisitionIntent(node),
+          targetFamily:
+            node.kind === "item"
+              ? `item:${node.target}`
+              : node.kind === "station"
+                ? `station:${node.target}`
+                : `action:${node.target}`,
+          quantity: node.quantity,
+          priority: "goal",
+          sourceKey: `acq:${node.key}:${depth}`,
+          successEvidence: [],
+        },
+      ])[0];
+      if (created === undefined) return;
+      attached++;
+      for (const child of node.children) visit(created.id, child, depth + 1);
+    };
+    visit(parentId, root, 0);
   }
 
   private applyPlan(plan: GoalPlan): void {
@@ -1628,6 +1817,41 @@ export function applyFailureRecovery(
    * escalate to recovery, which may step, bridge or staircase out.
    */
   const failureClass = classifyFailure(failure);
+  /*
+   * `mine_tunnel` failing with "no safe mining direction" is not a transient
+   * movement miss. In a one-cell dry ledge it will fail identically on every
+   * retry, and the generic second-failure detour (explore) is itself blocked
+   * by the same water. Use the explicit overhead/pillar escape immediately.
+   */
+  const enclosedFailure =
+    failure.code === "E_ENCLOSED" ||
+    /enclosed|no safe route and no legal recovery step/iu.test(failure.detail);
+  if (
+    (normalizedCurrent.skill.name === "mine_tunnel" &&
+      /no safe mining direction|no safe mining|no direction/iu.test(
+        failure.detail,
+      )) ||
+    (normalizedCurrent.skill.name === "goto" && enclosedFailure)
+  ) {
+    const escape = deadEndEscapeTask(
+      plan.stage,
+      facts,
+      () => crypto.randomUUID(),
+    );
+    if (escape !== null) {
+      return {
+        plan,
+        resolved: projectPlan(
+          plan,
+          facts,
+          withStableTaskId(escape),
+          null,
+          plan.blocked,
+          true,
+        ),
+      };
+    }
+  }
   if (
     (failureClass === "NO_PATH" ||
       failureClass === "STATION_UNREACHABLE" ||
@@ -1660,6 +1884,36 @@ export function applyFailureRecovery(
       entry.stage === failure.stage &&
       normalizedTaskId(entry.taskId) === normalizedTaskId(currentKey),
   ).length;
+  /*
+   * A chest with no wood is a definitive content verdict. Do not spend the
+   * first retry (or open a 60-second strategy circuit) reopening it while a
+   * tree is visible: let domain recovery drop the chest and chop.
+   */
+  if (
+    currentKey === failureKey &&
+    normalizedCurrent.skill.name === "withdraw" &&
+    /no more matching items remain/iu.test(failure.detail)
+  ) {
+    const recovered = recover({
+      plan,
+      facts,
+      failure,
+      history: history.slice(0, -1),
+    });
+    if (recovered.task !== null) {
+      return {
+        plan,
+        resolved: projectPlan(
+          plan,
+          facts,
+          withStableTaskId(recovered.task),
+          null,
+          plan.blocked,
+          true,
+        ),
+      };
+    }
+  }
   if (currentKey === failureKey && failedCount >= 2) {
     const movementFailure =
       failureClass === "NO_PATH" ||
@@ -2005,6 +2259,8 @@ export class UnverifiedGoalPlanner implements GoalPlanner {
   }
 }
 
+const STATION_PLACEMENT = /(?:^|:)(crafting_table|furnace|chest|bed)$/u;
+
 /** In-memory store for tests and previews. */
 export class MemoryGoalRuntimeStore implements GoalRuntimeStore {
   private record: GoalRuntimeRecord | null = null;
@@ -2072,12 +2328,174 @@ function stableSkillKey(skill: SkillCall): string {
  * conversational promise path. A short first-person line is still useful to
  * the voice service and keeps the body from silently issuing skills forever.
  */
-function goalSpeech(task: GoalTask): string {
+/**
+ * Goal mode is deterministic and may issue a task every few seconds. Speaking
+ * the internal task title verbatim turned the voice channel into a build log,
+ * so translate the task into one short player line and rotate the phrasing.
+ */
+function goalSpeech(task: GoalTask, variation = 0): string {
   const authored = task.speech?.trim() ?? "";
   if (authored.length > 0) return authored.slice(0, 280);
-  const title = task.text.trim().replace(/[。！？!?]+$/u, "");
-  if (title.length === 0) return "";
-  return `我先${title}。`;
+  const title = cleanTaskTitle(task.text);
+  const candidates = goalSpeechCandidates(title, task.skill.name);
+  if (candidates.length === 0) return "";
+  return candidates[Math.abs(variation) % candidates.length] ?? "";
+}
+
+function cleanTaskTitle(value: string): string {
+  return value
+    .replace(
+      /[（(][^）)]*(?:[xyz]\s*=|坐标|第\s*\d+\s*阶|支线|复用|候选|分支)[^）)]*[）)]/giu,
+      "",
+    )
+    .replace(/\s*[×x]\s*\d+\s*$/iu, "")
+    .replace(/\s{2,}/gu, " ")
+    .replace(/[。！？!?]+$/u, "")
+    .trim();
+}
+
+function goalSpeechCandidates(title: string, skill: string): readonly string[] {
+  const text = `${title} ${skill}`;
+  if (/砍树|砍木|原木|木头|chop/iu.test(text)) {
+    return [
+      "先砍一根原木，手上正好缺材料。",
+      "这棵树不错，就它了。",
+      "砍点木头备着，待会儿要用。",
+      "唔，先弄点木头。",
+    ];
+  }
+  if (/铁矿石|铁矿|矿道|下矿|开掘|挖矿|iron_ore/iu.test(text)) {
+    return [
+      "再往下挖一点，铁应该快出来了。",
+      "这条矿道还能走，我接着挖。",
+      "换个面挖挖看，说不定前面就有矿。",
+      "唔，还没见着铁……再挖几格。",
+      "先把矿道打通，铁矿石应该就在前头。",
+      "我往旁边开条路，找矿去。",
+    ];
+  }
+  if (/熔炼|烧炼|smelt/iu.test(text)) {
+    return [
+      "先烧一炉，等铁锭出来。",
+      "炉子不能闲着，我烧点东西。",
+      "把矿炼了，马上就能用。",
+    ];
+  }
+  if (/合成|制作|工作台|木棍|木板|镐|工具|craft/iu.test(text)) {
+    return [
+      "先把要用的东西做出来。",
+      "缺个工具，我搓一下。",
+      "这个得先合成，不然干不了活。",
+      "手上材料够，先做出来再说。",
+      "做把镐子，接下来挖矿就快了。",
+    ];
+  }
+  if (/放下|放置|摆|火把|点亮|搭|建|墙|门|床|place_block|pillar/iu.test(text)) {
+    return [
+      "先把这里收拾一下。",
+      "放个工作台，干活方便。",
+      "这里太黑了，点个火把。",
+      "把东西摆好再继续。",
+      "先搭个能落脚的地方。",
+    ];
+  }
+  if (/吃|食物|饿|eat/iu.test(text)) {
+    return [
+      "肚子有点饿了，先找点吃的。",
+      "吃点东西再干活。",
+      "先补一口，不然没力气。",
+    ];
+  }
+  if (/睡|床|夜|sleep/iu.test(text)) {
+    return [
+      "天黑了，先睡一觉。",
+      "困了，我去床上躺一下。",
+      "把这一夜睡过去。",
+    ];
+  }
+  if (/回|营地|箱子|储物|存放|deposit/iu.test(text)) {
+    return [
+      "先回营地一趟，把东西放下。",
+      "背包快满了，回去整理一下。",
+      "把东西收好，免得丢了。",
+    ];
+  }
+  if (/逃|撤退|危险|躲|远离|flee/iu.test(text)) {
+    return [
+      "有点危险，我先撤。",
+      "不对劲，先躲一下。",
+      "先保命，别的待会儿再说。",
+    ];
+  }
+  if (/观察|看看|等待|look_at|wait/iu.test(text)) {
+    return [
+      "先停一下，看看情况。",
+      "我瞅一眼再动。",
+      "别急，先观察一下。",
+    ];
+  }
+  if (/前往|走到|靠近|移动|出发|goto|follow/iu.test(text)) {
+    return [
+      "我过去看看。",
+      "先往那边走一段。",
+      "路不远，我这就过去。",
+      "到前面那个位置再说。",
+    ];
+  }
+  if (/挖|采集|石头|泥土|圆石|mine_block|collect_items/iu.test(text)) {
+    return [
+      "这点方块，几下就挖完了。",
+      "先把眼前这块挖掉。",
+      "我挖一点材料备着。",
+      "顺手收点石头。",
+    ];
+  }
+  if (title.length > 0 && !/[A-Za-z_]|×/u.test(title)) {
+    return [`我先${title}。`, `接下来${title}。`, `把${title}办了。`];
+  }
+  switch (skill) {
+    case "mine_block":
+      return ["再挖几块。", "把这块挖开看看。"];
+    case "goto":
+      return ["我过去看看。", "先走一段。"];
+    case "chop_tree":
+      return ["砍点木头。", "先弄点原木。"];
+    case "craft":
+      return ["做点东西。", "先把手上的材料合成了。"];
+    case "place_block":
+      return ["把方块放好。", "先摆一下。"];
+    case "collect_items":
+      return ["先把东西捡了。", "地上的掉落物别浪费。"];
+    case "smelt":
+      return ["烧点东西。", "让炉子先忙着。"];
+    case "deposit":
+      return ["把东西存起来。", "先去整理背包。"];
+    case "equip":
+      return ["换上装备。", "把家伙事换好。"];
+    case "eat":
+      return ["吃点东西。", "先补一口。"];
+    case "sleep":
+      return ["睡一觉。", "先把夜里过去。"];
+    default:
+      return ["先把手上的事做完。", "继续，别停。"];
+  }
+}
+
+function acquisitionIntent(node: AcquisitionNode): string {
+  const name = node.target
+    .replace(/^item:/u, "")
+    .replace(/^action:/u, "")
+    .replace(/^station:/u, "")
+    .replace(/^minecraft:/u, "");
+  if (node.kind === "station") return `准备 ${name}`;
+  if (node.kind === "item") return `获取 ${name} ×${node.quantity}`;
+  const action = node.target.replace(/^action:/u, "");
+  if (action.startsWith("craft:")) return `合成 ${name.replace(/^craft:/u, "")}`;
+  if (action.startsWith("smelt:")) return `熔炼 ${name.replace(/^smelt:/u, "")}`;
+  if (action.startsWith("mine:")) return `采集 ${name.replace(/^mine:/u, "")}`;
+  if (action.startsWith("silk_touch:")) return `精准采集 ${name.replace(/^silk_touch:/u, "")}`;
+  if (action.startsWith("loot:")) return `搜寻 ${name.replace(/^loot:/u, "")}`;
+  return `获取 ${name} ×${node.quantity}`;
 }
 
 /**

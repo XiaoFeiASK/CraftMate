@@ -6,6 +6,7 @@
   "client": [
     "MinecraftMixin",
     "CameraMixin",
+    "EntityRenderDispatcherMixin",
     "LightTextureMixin"
   ],
   "injectors": {

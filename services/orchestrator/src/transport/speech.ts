@@ -28,7 +28,7 @@ export function speakDecision(
   decision: Decision,
   voice: SpeechHooks | null,
 ): SpeechOutcome | null {
-  const text = decision.speech.trim();
+  const text = spokenText(decision.speech);
   if (text.length === 0) return null;
   // QUEUE can speak a model-generated explanation while retaining the "not
   // yet executed" decision and without carrying a skill.
@@ -56,4 +56,19 @@ export function speakDecision(
     priority: decision.priority,
   });
   return { commitmentId: commitment?.id ?? null, text };
+}
+
+/**
+ * Internal coordinates and route bookkeeping are useful to the planner but
+ * sound like a debug log when read aloud. Keep the decision itself intact and
+ * remove only those parenthetical asides from the utterance.
+ */
+function spokenText(value: string): string {
+  return value
+    .replace(
+      /[（(][^）)]*(?:[xyz]\s*=|坐标|第\s*\d+\s*阶|支线|复用|候选|分支)[^）)]*[）)]/giu,
+      "",
+    )
+    .replace(/\s{2,}/gu, " ")
+    .trim();
 }

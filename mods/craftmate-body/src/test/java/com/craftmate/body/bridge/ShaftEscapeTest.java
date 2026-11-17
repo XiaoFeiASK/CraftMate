@@ -13,8 +13,10 @@ class ShaftEscapeTest {
 	}
 
 	@Test
-	void openTerrainIsNotAShaft() {
-		assertFalse(ShaftEscape.shouldDigOut(1, true));
+	void aDeadEndWithOneWallStillOpensWithATool() {
+		// A dead-end tunnel has one wall, not four. Once A* has no route,
+		// opening that wall is the next legal move instead of E_ENCLOSED.
+		assertTrue(ShaftEscape.shouldDigOut(1, true));
 	}
 
 	@Test
@@ -204,6 +206,13 @@ class ShaftEscapeTest {
 	}
 
 	@Test
+	void aStairCornerRecentersOntoItsRealSupportBeforePillaring() {
+		assertTrue(ShaftEscape.shouldRecenterBeforePillar(false, true));
+		assertFalse(ShaftEscape.shouldRecenterBeforePillar(true, true));
+		assertFalse(ShaftEscape.shouldRecenterBeforePillar(false, false));
+	}
+
+	@Test
 	void aPillarRebasesWhenTheBodyDropsToALowerFloor() {
 		assertTrue(ShaftEscape.shouldRebasePillar(true, 75, 77));
 		assertFalse(ShaftEscape.shouldRebasePillar(true, 77, 77));
@@ -251,5 +260,36 @@ class ShaftEscapeTest {
 		assertFalse(ShaftEscape.canDescendShaft(4, false, true, true));
 		assertFalse(ShaftEscape.canDescendShaft(4, true, false, true));
 		assertFalse(ShaftEscape.canDescendShaft(4, true, true, false));
+	}
+
+	@Test
+	void passableDecorationInThePillarCellIsCleared() {
+		// A wall torch in the vacated feet cell is passable but not
+		// replaceable; jump-place would fail silently forever.
+		assertTrue(
+			ShaftEscape.shouldClearPillarCell(false, false, false, false, 0.0f)
+		);
+	}
+
+	@Test
+	void valuableOrClimbablePillarCellOccupantsAreKept() {
+		assertFalse(
+			ShaftEscape.shouldClearPillarCell(true, false, false, false, 0.0f)
+		);
+		assertFalse(
+			ShaftEscape.shouldClearPillarCell(false, true, false, false, 0.5f)
+		);
+		assertFalse(
+			ShaftEscape.shouldClearPillarCell(false, false, true, false, 0.5f)
+		);
+		assertFalse(
+			ShaftEscape.shouldClearPillarCell(false, false, false, true, 0.4f)
+		);
+		assertFalse(
+			ShaftEscape.shouldClearPillarCell(false, false, false, false, -1.0f)
+		);
+		assertFalse(
+			ShaftEscape.shouldClearPillarCell(false, false, false, false, 1.5f)
+		);
 	}
 }

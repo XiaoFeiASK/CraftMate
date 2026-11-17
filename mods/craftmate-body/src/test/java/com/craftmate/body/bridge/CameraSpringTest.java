@@ -19,8 +19,8 @@ class CameraSpringTest {
 			0
 		);
 		assertEquals(0.0, south.x(), 1.0e-6);
-		assertEquals(64.35, south.y(), 1.0e-6);
-		assertEquals(-3.2, south.z(), 1.0e-6);
+		assertEquals(65.25, south.y(), 1.0e-6);
+		assertEquals(-7.0, south.z(), 1.0e-6);
 
 		CameraSpring.Target east = CameraSpring.followTarget(
 			0,
@@ -31,7 +31,7 @@ class CameraSpringTest {
 			0,
 			0
 		);
-		assertEquals(-3.2, east.x(), 1.0e-6);
+		assertEquals(-7.0, east.x(), 1.0e-6);
 		assertEquals(0.0, east.z(), 1.0e-6);
 	}
 
@@ -47,14 +47,14 @@ class CameraSpringTest {
 			-20
 		);
 		double dx = target.x();
-		double dz = target.z() + 3.2;
+		double dz = target.z() + CameraSpring.SHOULDER_BACK;
 		assertTrue(Math.hypot(dx, dz) <= 0.5 + 1.0e-6);
 	}
 
 	@Test
 	void framingPitchBlendsLookIntentWithBodyPitch() {
-		assertEquals(12.0f, CameraSpring.framingPitch(20.0f, 0.0f), 1.0e-6);
-		assertEquals(8.0f, CameraSpring.framingPitch(0.0f, 20.0f), 1.0e-6);
+		assertEquals(15.0f, CameraSpring.framingPitch(20.0f, 0.0f), 1.0e-6);
+		assertEquals(5.0f, CameraSpring.framingPitch(0.0f, 20.0f), 1.0e-6);
 	}
 
 	@Test
@@ -68,10 +68,14 @@ class CameraSpringTest {
 	}
 
 	@Test
-	void occlusionClipsTowardTheEyeAndKeepsAMargin() {
-		CameraSpring.Target desired = new CameraSpring.Target(0, 64, -3.2);
-		CameraSpring.Target clipped = CameraSpring.clipped(0, 64, 0, desired, 1.0);
-		assertTrue(clipped.z() > -3.2);
-		assertTrue(clipped.z() <= -0.6);
+	void pinDistanceKeepsTheObservationRadiusFixed() {
+		CameraSpring spring = new CameraSpring();
+		spring.snap(0, 64, -3.0);
+		spring.pinDistance(0, 64, 0, 7.0);
+		assertEquals(-7.0, spring.z(), 1.0e-6);
+
+		spring.snap(6.0, 64, 0);
+		spring.pinDistance(0, 64, 0, 7.0);
+		assertEquals(7.0, spring.x(), 1.0e-6);
 	}
 }

@@ -1,6 +1,10 @@
+import type { VoicePerformance } from "./performance.ts";
+
 export interface TtsRequest {
   readonly text: string;
   readonly voice: { readonly provider: string; readonly voiceId: string; readonly speed: number };
+  /** Scene direction derived from the whole utterance. */
+  readonly performance?: VoicePerformance;
   readonly signal: AbortSignal;
 }
 

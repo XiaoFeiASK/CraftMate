@@ -168,7 +168,18 @@ final class Reflexes {
 			threatResponseUntil = 0;
 			nextThreatAt = 0;
 		}
-		Entity threat = emergencyAction ? null : nearestThreat(client, player);
+		Entity threat = nearestThreat(client, player);
+		/*
+		 * An emergency task owns ordinary mob response so the planner's
+		 * retreat is not cancelled every tick. A creeper is different: its
+		 * fuse leaves no time for the next planning round, and the live body
+		 * was knocked off a ledge while an emergency retreat had suppressed
+		 * every creeper report. Keep creeper evasion alive during emergency
+		 * actions; the task itself still runs underneath the dodge input.
+		 */
+		if (!keepsThreatDuringEmergency(emergencyAction, threat instanceof Creeper)) {
+			threat = null;
+		}
 		AbstractArrow arrow = emergencyAction ? null : incomingArrow(client, player);
 		double threatDistance =
 			threat == null ? 0.0 : Math.sqrt(threat.distanceToSqr(player));
@@ -530,6 +541,17 @@ final class Reflexes {
 				urgent
 			)
 		);
+	}
+
+	/**
+	 * Emergency actions suppress ordinary threat steering, but a creeper fuse
+	 * is shorter than one planner round. Keep that one signal live.
+	 */
+	static boolean keepsThreatDuringEmergency(
+		boolean emergencyAction,
+		boolean creeper
+	) {
+		return !emergencyAction || creeper;
 	}
 
 	private enum Kind {

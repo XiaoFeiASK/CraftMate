@@ -56,4 +56,21 @@ class MineStairTest {
 			"a fluid is handled by the mine safety checks, not the solid-step test"
 		);
 	}
+
+	@Test
+	void aDeepOpenEndedStairWithNoBranchIsAbandonable() {
+		assertTrue(MineStair.abandonableDeadEnd(false, 17, false));
+		assertFalse(
+			MineStair.abandonableDeadEnd(true, 17, false),
+			"a pending cell means the stair can still advance"
+		);
+		assertFalse(
+			MineStair.abandonableDeadEnd(false, 17, true),
+			"a branch is a productive way forward"
+		);
+		assertFalse(
+			MineStair.abandonableDeadEnd(false, 3, false),
+			"a shallow stair is still being started"
+		);
+	}
 }

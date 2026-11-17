@@ -59,6 +59,7 @@ import {
   KNOWLEDGE_VERSION,
   acquisitionActions,
   acquisitionPath,
+  acquisitionTree,
 } from "@craftmate/agent/domain";
 ```
 
@@ -66,7 +67,11 @@ import {
 `recipesFor()` 返回所有可用配方，`queryRecipe()` 选择确定性的首选配方（优先
 2×2、少原料、ID 排序）。`acquisitionActions()` 把挖矿、合成、熔炼、开箱、交易、
 钓鱼、剪羊毛、种植、击杀等不同来源作为竞争动作，按风险、成本、概率排序；
-`acquisitionPath()` 沿 AND 输入递归解析一条有证据的获取路径。
+`acquisitionPath()` 沿 AND 输入递归解析一条有证据的获取路径；AND 输入必须全部
+满足，OR 输入只选一个分支。`acquisitionTree()` 返回同一语义的树形节点，供任务树
+记录和规划器展示。真正的 `run_plan` 步骤由
+`packages/agent/application/acquisition-planner.ts` 生成，并且只在所有叶子原料
+已在背包时成功；缺矿、缺木头或燃料不足时交回生存规划器。
 
 ## 限制
 
@@ -74,5 +79,5 @@ import {
 - 掉落表只取普通破坏/击杀路径，忽略时运数量浮动和部分特殊工具分支；图仍保留
   精准采集等竞争 action 作为替代来源。
 - 物品粒度为 ID + 结构化变体/能力，不展开 NBT；药水、附魔、地图、旗帜等用字段表示。
-- 知识图是 Agent 的规划与解释依据，不是身体可执行技能的自动生成器；执行仍受
-  `run_plan` guard、目标族白名单和真机证据约束。
+- 知识图是 Agent 的规划与解释依据，只有合成/熔炼链会被编译成 `run_plan`；
+  执行仍受 `run_plan` guard、目标族白名单和真机证据约束。

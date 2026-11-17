@@ -134,6 +134,23 @@ export const goalTaskTreeSchema = z.object({
   blockedReason: z.string().trim().max(600).nullable().default(null),
   targetFamily: z.string().trim().max(120).nullable().default(null),
   evidenceRefs: z.array(z.string().trim().min(1).max(240)).max(16).default([]),
+  /**
+   * Planned acquisition branch under the active task. `activePath` explains
+   * where execution is; `branches` explains which prerequisites that single
+   * compiled job is allowed to consume.
+   */
+  branches: z
+    .array(
+      z.object({
+        id: z.string().min(1).max(100),
+        parentId: z.string().min(1).max(100).nullable(),
+        intent: z.string().trim().min(1).max(120),
+        state: goalTaskStateSchema,
+        targetFamily: z.string().trim().max(120),
+      }),
+    )
+    .max(32)
+    .default([]),
 });
 export type GoalTaskTree = z.infer<typeof goalTaskTreeSchema>;
 
@@ -265,6 +282,17 @@ export const personaSummarySchema = z.object({
   name: z.string().min(1),
   identity: z.string().min(1),
   weights: z.record(z.number()),
+  /** Prompt-facing delivery style. Optional so older clients stay valid. */
+  style: z
+    .object({
+      tone: z.string().min(1),
+      sentenceLength: z.enum(["short", "medium", "long"]),
+      verbalTics: z.array(z.string()).max(8),
+      quirks: z.array(z.string()).max(8),
+    })
+    .optional(),
+  values: z.array(z.string()).max(16).optional(),
+  boundaries: z.array(z.string()).max(16).optional(),
 });
 export type PersonaSummary = z.infer<typeof personaSummarySchema>;
 

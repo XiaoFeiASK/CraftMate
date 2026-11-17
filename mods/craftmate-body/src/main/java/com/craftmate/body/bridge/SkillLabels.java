@@ -15,12 +15,14 @@ final class SkillLabels {
 			case "flee" -> "逃离";
 			case "look_at" -> "看向";
 			case "mine_block" -> "挖掘";
+			case "mine_tunnel" -> "连续掘进";
 			case "chop_tree" -> "砍树";
 			case "collect_items" -> "拾取";
 			case "craft" -> "合成";
 			case "equip" -> "装备";
 			case "eat" -> "进食";
 			case "deposit" -> "存放";
+			case "withdraw" -> "取物";
 			case "place_block" -> "放置方块";
 			case "pillar_up" -> "垫高";
 			case "smelt" -> "熔炼";

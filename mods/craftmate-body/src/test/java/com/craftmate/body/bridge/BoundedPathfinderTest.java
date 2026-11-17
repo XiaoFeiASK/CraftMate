@@ -3,6 +3,7 @@ package com.craftmate.body.bridge;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.HashSet;
@@ -11,6 +12,53 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class BoundedPathfinderTest {
+	@Test
+	void searchResumesAcrossBudgetSlices() {
+		BoundedPathfinder.Search search = new BoundedPathfinder.Search(
+			new BoundedPathfinder.Cell(0, 0, 0),
+			new BoundedPathfinder.Cell(30, 0, 0),
+			(cell) -> cell.x() == 30 && cell.y() == 0 && cell.z() == 0,
+			(x, y, z) -> y == 0,
+			BoundedPathfinder.Traversal.ANY,
+			BoundedPathfinder.StepCost.DEFAULT,
+			BoundedPathfinder.Heuristic.DEFAULT,
+			500,
+			40,
+			4
+		);
+		assertNull(search.advance(5), "a small slice must not finish the search");
+		BoundedPathfinder.Result result = null;
+		int slices = 0;
+		while (!search.finished() && slices++ < 100) {
+			result = search.advance(7);
+		}
+		assertNotNull(result);
+		assertTrue(result.complete());
+		assertEquals(31, result.path().size());
+	}
+
+	@Test
+	void allowsASafeThreeBlockDrop() {
+		BoundedPathfinder.Result result = BoundedPathfinder.find(
+			new BoundedPathfinder.Cell(0, 0, 0),
+			new BoundedPathfinder.Cell(6, -3, 0),
+			(cell) -> cell.x() == 6 && cell.y() == -3,
+			(x, y, z) -> (y == 0 && x <= 2) || (y == -3 && x >= 3),
+			BoundedPathfinder.Traversal.ANY,
+			200,
+			16,
+			8
+		);
+		assertNotNull(result);
+		assertTrue(result.complete());
+		boolean droppedThree = false;
+		for (int index = 1; index < result.path().size(); index++) {
+			int dy = result.path().get(index).y() - result.path().get(index - 1).y();
+			if (dy == -3) droppedThree = true;
+		}
+		assertTrue(droppedThree, "the path should use the three-block drop");
+	}
+
 	@Test
 	void walksAroundShortWall() {
 		Set<BoundedPathfinder.Cell> blocked = new HashSet<>();

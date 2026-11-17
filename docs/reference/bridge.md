@@ -1,6 +1,8 @@
 # Bridge 执行通道
 
-> 本文定义 Orchestrator 与 Minecraft 身体之间的协议、队列和控制权。整体边界见[架构总览](architecture.md)。
+> 本文定义 Orchestrator 与 Minecraft 身体之间的协议、队列和控制权。整体边界见
+> [架构总览](architecture.md)，技能与 Java 任务的对应见
+> [Agent 编排与游戏身体映射](agent-body-mapping.md)。
 
 ## 1. 边界
 
@@ -58,14 +60,15 @@ Bridge 是受控命令通道，不是模型网关。
 悬崖。
 
 命令契约定义在 `packages/contracts/src/skills.ts` 与 `bridge.ts`。契约目录保留
-20 个技能作为未来扩展面；当前 Fabric 身体实际支持的能力和技能以
+23 个技能作为未来扩展面（其中 `follow`、`flee`、`emote` 身体尚未实现）；当前
+Fabric 身体实际支持的能力和技能以
 `FABRIC_BODY_CAPABILITIES` / `FABRIC_BODY_SKILLS` 为准。未知技能、非法参数和未
 声明的能力不会下发。未在真实身体清单中的技能只能作为 roadmap，不得写成现有
 产品能力。
 
-当前 Fabric 身体声明 18 个技能：`goto`、`look_at`、`mine_block`、`chop_tree`、
+当前 Fabric 身体声明 20 个技能：`goto`、`look_at`、`mine_block`、`mine_tunnel`、`chop_tree`、
 `collect_items`、`craft`、`deposit`、`say`、`wait`、`attack`、`equip`、`eat`、
-`use_block`、`place_block`、`pillar_up`、`smelt`、`sleep`、`run_plan`。
+`use_block`、`place_block`、`pillar_up`、`smelt`、`withdraw`、`sleep`、`run_plan`。
 
 ### 3.2 移动、镜头与地形
 
@@ -85,6 +88,17 @@ Bridge 是受控命令通道，不是模型网关。
 
 `look_at` 接受坐标或玩家名，镜头稳定后才完成。渲染镜头由 `CameraMixin` 平滑，
 玩家真实旋转只承载移动方向与床等方块朝向，不参与命中判定。
+
+`mine_tunnel` 是连续掘进，不替代精确的单格 `mine_block`。参数为可选
+`targetY`、`length`（0–8，默认 4）、`direction` 与 `rememberMine`：给
+`targetY` 时按安全阶梯连续下挖，省略时沿当前层开一条两格高的水平支线。身体
+在一次动作里连续完成“挖面前格 → 前进/下台阶 → 挖下一格”，不再每格返回
+Agent 重新排队。单段下挖限制为 18 格，执行中持续发送进度；遇到液体、无落点、
+不可破坏方块或工具不足会保留已挖证据并失败，下一轮观察再继续。
+
+第三人称相机被墙体裁切时会临时让本地玩家渲染穿过地形，并在离开遮挡后恢复
+正常深度测试；挖掘时相机俯仰不再混入身体每 tick 的旋转，走路 look-ahead
+也缩短到原来的约四成，减少运镜抖动。
 
 ### 3.3 合成、放置与战斗
 
@@ -120,6 +134,14 @@ Bridge 是受控命令通道，不是模型网关。
 增加量逐项相等为确认依据。当前只覆盖 `BaseContainerBlockEntity` 的存储菜单，
 不含末影箱、讲台、信标等其它容器或功能界面。
 
+`withdraw` 支持可选 `container`、`category`（目前为 `wood`）和 `maxStacks`。
+客户端在菜单打开前读不到箱子库存，因此身体会在 32 格内枚举已加载区块的
+`BaseContainerBlockEntity`，按“近期开箱确认有目标物 → 未知 → 近期确认无目标物”
+排序，逐个真实开箱探测；每个箱子的内容在内存中保留 5 分钟，避免同一趟反复翻空箱。
+不可达、被遮挡、液体内或开屏失败的候选会被跳过，不影响后续探测。接近路线必须
+以完整 A* 路径落到可交互格；只有部分路线时不会朝箱子中心硬走，而是换一个交互格
+或跳过该候选。步行预算按首次完整路线的路点数计算，重规划不会缩短已承诺的预算。
+
 `place_block` 支持 `block` 与 `count`（1–64），每次确认目标格出现请求方块且材料
 被消耗后才继续。`pillar_up` 支持可选 `block` 与 `height`（1–16）：原地跳起、
 向下看并在脚下确认放置，逐块抬高，适合无路可走的洞穴/竖井逃生；材料不足、未在
@@ -129,6 +151,10 @@ Bridge 是受控命令通道，不是模型网关。
 `collect`。每刀都要求同一实体掉血或死亡；`lethal=true` 以目标死亡为完成条件，
 `collect=true` 会在击杀后确认掉落物进入背包。远距离动物先用 `goto` 接近，避免
 只站在原地反复攻击。
+
+`smelt` 的生存规划器单批最多安排 8 个输入，身体仍按请求批次执行，并以背包/
+熔炉内已有的真实输入为上限。完成一批后下一轮规划会继续装载剩余矿石；这样既
+避免“3 个一烧”的碎片化，也保证单任务能在有界执行时间内结束。
 
 ### 3.4 世界快照
 

@@ -12,7 +12,13 @@ import {
   type GoalPlanner,
   type GoalRuntimeContext,
 } from "./goal-runtime.ts";
-import type { SurvivalPlan, Task, TaskFailure, WorldFacts } from "../domain/index.ts";
+import type {
+  AcquisitionNode,
+  SurvivalPlan,
+  Task,
+  TaskFailure,
+  WorldFacts,
+} from "../domain/index.ts";
 
 function testClock(): { readonly clock: Clock; advance(ms: number): void } {
   let now = 1_000;
@@ -106,6 +112,10 @@ describe("goal runtime", () => {
     assert.ok(issued);
     assert.equal(value.currentProgress?.taskTree?.currentNodeIntent, "砍一根原木");
     assert.equal(value.currentProgress?.taskTree?.targetFamily, "wood");
+    assert.deepEqual(
+      value.currentProgress?.taskTree?.activePath.map((node) => node.intent),
+      ["击败末影龙", "背包有原木", "砍一根原木"],
+    );
 
     assert.equal(
       value.settle(issued.decision.id, {
@@ -123,6 +133,92 @@ describe("goal runtime", () => {
       ),
     );
     assert.ok((record.evidenceRefs ?? []).includes("block_broken: minecraft:oak_log"));
+  });
+
+  test("a confirmed torch placement waits for the light snapshot before retrying", () => {
+    const torch = planner(
+      {},
+      {
+        name: "place_block",
+        args: { block: "minecraft:torch", count: 1 },
+        idempotencyKey: "torch-1",
+      },
+    );
+    const { value, advance } = runtime(torch);
+    const torchContext = context({
+      bridge: health({ skills: ["place_block"] }),
+    });
+    const first = value.beginStep(torchContext);
+    assert.ok(first, value.currentProgress?.lastFailure ?? "no dispatch reason");
+    assert.equal(
+      value.settle(first.decision.id, {
+        status: "completed",
+        at: 2_000,
+        changes: [{ kind: "block_placed", detail: "minecraft:torch" }],
+      }),
+      true,
+    );
+    // The body confirmed the block, but the next world snapshot still says
+    // light 3. Do not hammer the same spot while that snapshot catches up.
+    assert.equal(value.beginStep(torchContext), null);
+    advance(8_000);
+    assert.ok(
+      value.beginStep(torchContext),
+      value.currentProgress?.lastFailure ?? "no second dispatch reason",
+    );
+  });
+
+  test("an acquisition branch is recorded and proven with its parent task", () => {
+    const acquisition: AcquisitionNode = {
+      key: "action:craft:minecraft:stick",
+      kind: "action",
+      target: "action:craft:minecraft:stick",
+      quantity: 1,
+      group: "AND",
+      evidence: ["recipe minecraft:stick"],
+      children: [
+        {
+          key: "item:minecraft:oak_planks",
+          kind: "item",
+          target: "minecraft:oak_planks",
+          quantity: 2,
+          group: "AND",
+          evidence: ["inventory has 2 minecraft:oak_planks"],
+          children: [],
+        },
+      ],
+    };
+    const base = planner();
+    const nested: GoalPlanner = {
+      plan: (input) => {
+        const next = base.plan(input);
+        if (next?.nextTask === null || next?.nextTask === undefined) return next;
+        return { ...next, nextTask: { ...next.nextTask, acquisition } };
+      },
+    };
+    const { value } = runtime(nested);
+    const issued = value.beginStep(context());
+    assert.ok(issued);
+    assert.ok(
+      value.currentProgress?.taskTree?.branches.some(
+        (branch) => branch.intent.includes("oak_planks"),
+      ),
+    );
+    assert.equal(
+      value.settle(issued.decision.id, {
+        status: "completed",
+        at: 2_000,
+        changes: [{ kind: "block_broken", detail: "minecraft:oak_log" }],
+      }),
+      true,
+    );
+    const record = value.snapshot();
+    assert.ok(
+      record.taskTree?.nodes.some(
+        (node) =>
+          node.intent.includes("oak_planks") && node.state === "succeeded",
+      ),
+    );
   });
 
   test("a completed mine that only replays an open cell is a failure", () => {
@@ -335,6 +431,24 @@ describe("goal runtime", () => {
     assert.equal(value.beginStep(context({ mode: "operator" })), null);
     assert.equal(value.currentProgress?.status, "paused");
     assert.match(value.currentProgress?.lastFailure ?? "", /接管或急停/);
+  });
+
+  test("a transient world loss resumes automatically when the world returns", () => {
+    const { value } = runtime();
+    assert.equal(
+      value.beginStep(context({ world: null })),
+      null,
+    );
+    assert.equal(value.currentProgress?.status, "paused");
+    assert.notEqual(value.beginStep(context()), null);
+    assert.notEqual(value.currentProgress?.status, "paused");
+  });
+
+  test("an operator pause stays paused after the world returns", () => {
+    const { value } = runtime();
+    value.pause();
+    assert.equal(value.beginStep(context()), null);
+    assert.equal(value.currentProgress?.status, "paused");
   });
 
   test("a threat does not pause the planner that must choose fight or flight", () => {
@@ -675,7 +789,7 @@ describe("goal runtime", () => {
           },
         },
       },
-      health: health({ skills: ["mine_block", "craft", "goto", "place_block"] }),
+      health: health({ skills: ["mine_block", "mine_tunnel", "craft", "goto", "place_block"] }),
       proposals: [],
       lastFailure: null,
       consecutiveFailures: 0,
@@ -855,6 +969,91 @@ describe("goal runtime", () => {
     assert.equal(plan.nextTask?.skill.name, "craft");
     assert.equal(plan.blockedReason, null);
     assert.match(plan.nextTask?.reason ?? "", /重新观察后重试/);
+  });
+
+  test("an empty wood chest falls back to chopping instead of reopening it", () => {
+    const failure: TaskFailure = {
+      taskId:
+        "task:iron:gather:withdraw:{\"category\":\"wood\",\"container\":{\"x\":156,\"y\":74,\"z\":-69},\"maxStacks\":2}",
+      stage: "iron",
+      code: "E_PRECONDITION",
+      detail: "no more matching items remain in the container",
+      attempts: 2,
+    };
+    const plan = new SurvivalGoalPlanner().plan({
+      goal: goal(),
+      progress: {
+        ...progress(),
+        stage: { id: "iron", title: "铁器与熔炉" },
+        milestone: { id: "iron-sword", title: "背包有铁剑或更好的剑" },
+      },
+      world: {
+        inWorld: true,
+        position: { x: 155.8, y: 75, z: -69 },
+        canSeeSky: true,
+        surfaceY: 75,
+        chest: { x: 156, y: 74, z: -69 },
+        chestPlaced: true,
+        bed: { x: 150, y: 74, z: -69 },
+        bedPlaced: true,
+        craftingTable: { x: 153, y: 74, z: -67 },
+        craftingTablePlaced: true,
+        furnace: { x: 154, y: 74, z: -67 },
+        furnacePlaced: true,
+        mineEntrance: { x: 153, y: 75, z: -64 },
+        nearbyBlocks: [
+          {
+            id: "minecraft:oak_log",
+            count: 6,
+            x: 165,
+            y: 72,
+            z: -66,
+          },
+        ],
+        inventory: [
+          { section: "hotbar", slot: 0, item: "minecraft:cooked_beef", count: 5 },
+          {
+            section: "hotbar",
+            slot: 1,
+            item: "minecraft:stone_sword",
+            count: 1,
+            durability: 100,
+            maxDurability: 131,
+          },
+          {
+            section: "hotbar",
+            slot: 2,
+            item: "minecraft:stone_pickaxe",
+            count: 1,
+            durability: 70,
+            maxDurability: 131,
+          },
+          { section: "main", slot: 9, item: "minecraft:cobblestone", count: 20 },
+          { section: "main", slot: 10, item: "minecraft:stick", count: 4 },
+          { section: "main", slot: 11, item: "minecraft:torch", count: 8 },
+          { section: "main", slot: 12, item: "minecraft:coal", count: 4 },
+        ],
+      },
+      health: health({
+        skills: [
+          "goto",
+          "withdraw",
+          "chop_tree",
+          "mine_block",
+          "place_block",
+          "craft",
+          "eat",
+          "sleep",
+        ],
+      }),
+      proposals: [],
+      lastFailure: failure.detail,
+      consecutiveFailures: 2,
+      failures: [failure],
+      lastFailureStrategy: failure.taskId.replace(/^task:/u, ""),
+    });
+    assert.equal(plan.nextTask?.skill.name, "chop_tree");
+    assert.doesNotMatch(plan.nextTask?.text ?? "", /取回|取木/u);
   });
 
   test("a walk that just failed for lack of a route escalates to recovery movement", () => {
@@ -1196,6 +1395,122 @@ describe("goal runtime", () => {
     });
     assert.equal(detour.nextTask?.skill.name, "goto");
     assert.match(detour.nextTask?.reason ?? "", /换一片区域|重新观察/u);
+  });
+
+  test("a no-safe-direction tunnel failure mines the overhead escape instead of exploring", () => {
+    const world = {
+      inWorld: true,
+      health: 20,
+      food: 20,
+      position: { x: 140.3, y: 49, z: -57.43 },
+      canSeeSky: false,
+      surfaceY: 75,
+      mineEntrance: { x: 153, y: 75, z: -69 },
+      mine: {
+        entrance: { x: 153, y: 75, z: -69 },
+        direction: "north" as const,
+        deadEnd: true,
+        stair: { stand: { x: 140, y: 49, z: -58 }, depth: 26 },
+      },
+      reachableBlock: { id: "minecraft:diorite", x: 139, y: 51, z: -58 },
+      inventory: [
+        { section: "hotbar" as const, slot: 0, item: "minecraft:diamond_pickaxe", count: 1 },
+        { section: "hotbar" as const, slot: 1, item: "minecraft:cobblestone", count: 33 },
+        { section: "hotbar" as const, slot: 2, item: "minecraft:torch", count: 4 },
+        { section: "hotbar" as const, slot: 3, item: "minecraft:iron_sword", count: 1 },
+        { section: "armor" as const, slot: 39, item: "minecraft:iron_helmet", count: 1 },
+        { section: "armor" as const, slot: 38, item: "minecraft:iron_chestplate", count: 1 },
+        { section: "armor" as const, slot: 37, item: "minecraft:iron_leggings", count: 1 },
+        { section: "armor" as const, slot: 36, item: "minecraft:iron_boots", count: 1 },
+      ],
+      nearbyBlocks: [
+        { id: "minecraft:crafting_table" },
+        { id: "minecraft:furnace" },
+      ],
+    };
+    const plan = new SurvivalGoalPlanner().plan({
+      goal: goal(),
+      progress: progress(),
+      world,
+      health: health({ skills: ["mine_block", "mine_tunnel", "craft", "goto", "place_block"] }),
+      proposals: [],
+      lastFailure: null,
+      consecutiveFailures: 0,
+    });
+    assert.equal(plan.nextTask?.skill.name, "mine_tunnel", plan.nextTask?.text);
+    const strategy = plan.strategyKey;
+    assert.ok(strategy);
+    const failure: TaskFailure = {
+      taskId: `task:${strategy}`,
+      stage: "diamond-gear",
+      code: "E_PRECONDITION",
+      detail: "no safe mining direction from the current cell",
+      attempts: 1,
+    };
+    const facts: WorldFacts = {
+      inWorld: true,
+      position: { x: 140.3, y: 49, z: -57.43 },
+      surfaceY: 75,
+      canSeeSky: false,
+      health: 20,
+      food: 20,
+      inventory: [
+        { item: "minecraft:diamond_pickaxe", count: 1, durability: 294 },
+        { item: "minecraft:cobblestone", count: 33 },
+        { item: "minecraft:torch", count: 4 },
+      ],
+      nearbyBlocks: [],
+      mine: {
+        entrance: { x: 153, y: 75, z: -69 },
+        direction: "north",
+        deadEnd: true,
+        stair: { stand: { x: 140, y: 49, z: -58 }, depth: 26 },
+      },
+      reachableBlock: { id: "minecraft:diorite", x: 139, y: 51, z: -58 },
+      foodAcquired: false,
+      foodConsumed: false,
+      timeOfDay: 1_000,
+      day: 1,
+      sleeping: false,
+    };
+    const survivalPlan = {
+      goal: goal(),
+      stage: "diamond-gear",
+      stageTitle: "钻石装备",
+      stages: [],
+      milestone: null,
+      task: plan.nextTask,
+      blocked: [],
+      missing: [],
+      verifiedProgress: 0,
+      completedMilestones: 0,
+      totalMilestones: 1,
+      recoveredFrom: null,
+      evaluatedAt: 1_000,
+    } as unknown as SurvivalPlan;
+    const result = applyFailureRecovery(
+      survivalPlan,
+      {
+        goal: goal(),
+        progress: progress(),
+        world: null,
+        health: null,
+        proposals: [],
+        lastFailure: failure.detail,
+        consecutiveFailures: 1,
+        failures: [failure],
+        lastFailureStrategy: strategy,
+      },
+      facts,
+    );
+    assert.ok(result.resolved !== null);
+    assert.equal(result.resolved.nextTask?.skill.name, "mine_block");
+    assert.deepEqual(result.resolved.nextTask?.skill.args["at"], {
+      x: 139,
+      y: 51,
+      z: -58,
+    });
+    assert.match(result.resolved.nextTask?.reason ?? "", /脱困/u);
   });
 
   test("a craft that cannot reach its table climbs out instead of exploring rock", () => {

@@ -29,6 +29,14 @@ public final class BridgeClient {
 	private static final String TOKEN_FILE_ENV = "CRAFTMATE_BRIDGE_TOKEN_FILE";
 	/** Same bounded grace the coordinator gives a stalled client. */
 	private static final long SERVER_WATCHDOG_GRACE_MS = 1_000L;
+	/**
+	 * World snapshots normally travel only when the client tick advances the
+	 * generation. A reconnect or a generation bookkeeping bug then leaves the
+	 * orchestrator with `world = null` forever, which pauses goals even though
+	 * the body is alive. Resend the cached snapshot periodically so a lost
+	 * delta heals without restarting either process.
+	 */
+	private static final long WORLD_RESEND_INTERVAL_MS = 2_000L;
 
 	private final URI uri;
 	private final String token;
@@ -50,6 +58,7 @@ public final class BridgeClient {
 	private volatile int cachedTick;
 	private volatile JsonObject cachedWorld;
 	private volatile long worldGeneration;
+	private volatile long lastWorldSentAt;
 	private final AtomicLong publishedWorldGeneration = new AtomicLong(-1);
 
 	private BridgeClient(URI uri, String token) {
@@ -160,6 +169,10 @@ public final class BridgeClient {
 				String owner = BridgeJson.string(frame, "owner");
 				heartbeatMs = BridgeJson.integer(frame, "heartbeatMs");
 				watchdogMs = BridgeJson.integer(frame, "watchdogMs");
+				// A new server process starts with no world cache. Force the
+				// first heartbeat on this connection to carry a full snapshot.
+				lastWorldSentAt = 0L;
+				publishedWorldGeneration.set(-1L);
 				initialHandshake = "none".equals(owner)
 					&& !GameActions.snapshot(Minecraft.getInstance()).get("inWorld").getAsBoolean();
 				applyOwnership(source, owner, "我是大肥鱼喵，Ciallo～(∠・ω< )⌒☆");
@@ -276,10 +289,14 @@ public final class BridgeClient {
 	private JsonObject heartbeat() {
 		long generation = worldGeneration;
 		long observed = publishedWorldGeneration.getAndSet(generation);
+		long now = System.currentTimeMillis();
+		boolean periodic = now - lastWorldSentAt >= WORLD_RESEND_INTERVAL_MS;
+		boolean includeWorld = generation != observed || initialHandshake || periodic;
+		if (includeWorld) lastWorldSentAt = now;
 		return BridgeMessages.heartbeat(
 			cachedTick,
 			control.agentControlled(),
-			generation == observed && !initialHandshake ? null : cachedWorld,
+			includeWorld ? cachedWorld : null,
 			generation
 		);
 	}

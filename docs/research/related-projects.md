@@ -16,7 +16,7 @@
 | 维度 | 外部项目的强项 | CraftMate 的现状与差异 |
 | --- | --- | --- |
 | 社交互动 | MaiBot 以自然对话、互动时机、观众关系和扩展生态为核心 | CraftMate 有观众仲裁、人格权重、记忆和承诺机制，重点是把直播输入安全地转成可执行行为 |
-| 游戏身体 | MaiCraftMod 提供更宽的游戏能力目录，并将长任务建模为目标；宿主可观察、查询、等待、取消和读取事件 | CraftMate 当前 Fabric 身体声明 18 个技能；Bridge 已具备能力协商、队列、任务终态、控制权和看门狗，A*、战斗、自动垫桥和脱困已在 1.20.1 实机验证 |
+| 游戏身体 | MaiCraftMod 提供更宽的游戏能力目录，并将长任务建模为目标；宿主可观察、查询、等待、取消和读取事件 | CraftMate 当前 Fabric 身体声明 20 个技能；Bridge 已具备能力协商、队列、任务终态、控制权和看门狗，A*、战斗、自动垫桥和脱困已在 1.20.1 实机验证 |
 | 任务结果 | MaiCraftMod 的任务结果强调完成变化、尝试过的策略、未确认事项和受阻原因 | CraftMate 已通过 `changes`、`unconfirmed`、`attempts` 等字段记录结果，适合继续把结果证据与任务进展对齐 |
 | 直播节奏 | Amaidesu 用 Rundown 流程单和自主 Planner 设计空场时继续推进内容，并由 Replyer 专注表达 | CraftMate 已有观众驱动和确定性目标模式两条路径；目标模式仍偏生存执行，不是节目流程单或空场话题编排 |
 | 记忆 | Amaidesu 有场次回顾、观众画像、长期笔记和本场备忘录；MaiBot 强调长期理解与个性化互动 | CraftMate 将证据、待审记忆、已批准记忆、人格版本和承诺分开管理，强调来源、审批与可回滚 |
@@ -109,16 +109,67 @@ dsh-mc-agent 也暴露了几个反例：41 个工具语义重叠、部分工具�
 
 ### 映射到 CraftMate
 
-| 外部机制 | CraftMate 的独立实现 | 不做的事 |
-| --- | --- | --- |
-| Baritone 单一寻路权威 | `goto` 是唯一拥有移动目标的任务；其他技能只能提交目标或等待 | 不让挖掘/建造流程各自维护一套导航 |
-| `safeToCancel` | `PlanSafety` 检查落地、岩浆、窒息、坠落和未闭合容器；操作员/反射可强制取消并记录边界状态 | 不用“取消失败”阻止操作员接管 |
-| 分段规划与推测段 | 当前 `goto` 在安全部分路径终点继续重规划；世界身份变化/偏离时丢弃旧段 | 不预生成整张世界路径 |
-| 不可达目标拉黑 | Body 侧 `UnreachableTargets` 短期抑制同一精确坐标；Agent 侧保留 `route_blacklist` 持久拒绝 | 不把暂时不可达当成永久不存在 |
-| AltoClef 递归任务 tick | Agent `TaskTree` 只展开当前活动分支，`TaskScheduler` 按优先级选一个节点 | 不在 Body tick 里递归展开整棵任务树 |
-| 最高优先级任务链 | 反射/操作员 > 生存 > 当前目标 > 可选工作；生存任务压栈后恢复游标 | 不让模型在 tick 内重排优先级 |
-| 资源获取回退顺序 | 知识图 `action` 节点把不同来源作为竞争方案；任务失败两次后切换来源 | 不把固定配方顺序写死为唯一路径 |
-| 目标滞回 | `TargetHysteresis`：当前目标失效立即换；否则挑战者连续两次领先 ≥20% 才换 | 不因单帧噪声频繁换目标 |
+状态以本仓库自动化结果为准；“已实现”不代表已完成真实存档长链路验收。
+
+| 外部机制 | CraftMate 的独立实现 | 状态 | 边界 |
+| --- | --- | --- | --- |
+| Baritone 单一寻路权威 | `goto` 是唯一拥有移动目标的任务；其他技能只能提交目标或等待 | 已实现 | 不让挖掘/建造流程各自维护导航 |
+| `safeToCancel` | `PlanSafety` 检查落地、岩浆、窒息、坠落和未闭合容器；操作员/反射可强制取消 | 已实现 | 取消失败不阻止操作员接管 |
+| 分段规划与推测段 | `BoundedPathfinder.Search` 可分片推进；`goto` 在安全部分路径终点重规划，并预取下一段 | 已实现（客户端线程分片） | 不预生成整张世界路径；不跨线程读 `level` |
+| 不可达目标拉黑 | Body `UnreachableTargets` 短期抑制精确坐标；Agent `route_blacklist` 持久拒绝 | 已实现 | 暂时不可达不等于永久不存在 |
+| AltoClef 递归任务 | `TaskTree` 只展开活动分支；知识图 AND/OR 分支以 pending 子树附加，完成时整支留证 | 已实现 | Body tick 不递归展开整棵树 |
+| 最高优先级任务链 | 反射/操作员 > 生存 > 当前目标 > 可选；`TaskScheduler` 判定，`preempt`/`resumeAfterPreemption` 恢复游标 | 已实现 | 模型不能在 tick 内重排优先级 |
+| 资源获取回退顺序 | 知识图保留竞争来源；`acquisitionPath`/`acquisitionTree` 选择 AND/OR 分支，`compileAcquisitionChain` 只编译原料已具备的合成/熔炼链 | 已实现，真机部分通过 | 缺矿石、原木、燃料时回到生存规划器，不虚构步骤 |
+| 配方路径语义 | 直接补铁锭时优先熔炼粗铁；祖先目标材料有预留，禁止“铁锭→铁粒→铁锭”净零循环；获取树只选当前可达工作站 | 已实现，单测 + 真机通过 | 不替代完整配方求解器，只处理已具备原料的可执行链 |
+| 容器批量转移 | 一次打开箱子批量 quick-move 多种物品；取木头按 `category`/`maxStacks` 一次取多组，并在失败时探测附近其他容器 | 已实现，真机通过 | 不跨维度、不做持久容器索引 |
+| 目标滞回 | 生产路径由持久 `targetLock` 承担；`TargetHysteresis` 保留“失效立即换、连续两次领先 20% 才换”的通用策略 | 已实现 | 不对每次世界心跳重新掷目标 |
+| 结构感知 | `ChunkIndex` 每 tick 有界扫描附近区块，输出 `landmarks`/`scan`；要塞、下界要塞、末地传送门接入规划并持久化 | 已实现，待真机验收 | 只报告实际观察到的方块，不猜结构中心 |
+| 连续挖掘 | `MineTask` 内循环“找目标→接近→破坏→拾取→重扫”，每个目标重置接近预算 | 已实现，真机通过 | 背包满、无目标、持续危险或超时仍会返回 |
+| 门与攀爬 | 木门/栅栏门/活板门可开启，梯子/藤蔓按可通行处理 | 已实现，待真机验收 | 铁门/铁活板门不视为可开启 |
+
+### 功能对照
+
+| 功能 | Baritone | AltoClef | CraftMate | 当前结论 |
+| --- | --- | --- | --- | --- |
+| 地形感知寻路 | 强，完整 A* / 复杂移动 | 主要借寻路层 | 有界 A*、分段预取、半径/列目标 | 已实现，真机通过 |
+| 跳跃、游泳、梯子、门 | 覆盖广 | 部分 | 门/梯子/藤蔓已接；跑酷和游泳未完整 | 部分实现 |
+| 全量世界/区块缓存 | 强 | 部分 | 只有内存 `ChunkIndex`，半径 5、已加载区块 | 部分实现 |
+| 持久区块与容器索引 | 有世界缓存 | 部分容器记忆 | 未实现 | 未实现 |
+| 采矿流程 | `MineProcess` 完整 | 任务链采矿 | `mine_block` / `mine_tunnel` 连续循环 | 已实现，真机通过 |
+| 建造流程 | `BuilderProcess` 完整 | 有限 | 只有 `place_block` / `pillar_up` / 局部蓝图 | 未完整 |
+| 递归任务树 | 非核心 | 核心 | `TaskTree` + `run_plan` 计划分支 | 已实现 |
+| 资源获取图 | 非核心 | 有获取回退 | 知识图 AND/OR + 配方/熔炼编译 | 已实现 |
+| 容器批量存取 | 有容器流程 | 有容器任务 | 一次开箱批量存/取，多容器探测 | 已实现，真机通过 |
+| 工具耗尽恢复 | 有 | 有 | 断镐前补石镐/铁镐，就近合成 | 已实现，真机通过 |
+| 批量熔炼 | 有 | 有 | `run_plan` 批量熔炼并续接合成 | 已实现，真机通过 |
+| 失败恢复/目标拉黑 | 强 | 部分 | 反射抢占、路线黑名单、失败退避 | 已实现 |
+
+### 扫描能力
+
+| 扫描能力 | Baritone | AltoClef | CraftMate | 状态 |
+| --- | --- | --- | --- | --- |
+| 近距离方块/矿脉感知 | 有 | 有 | 17×9×17 感知 + 有界矿脉射线 | 已实现，真机通过 |
+| 已加载区块结构扫描 | 区块缓存覆盖大 | 方块扫描 | `ChunkIndex` 半径 5，2 区块/ tick，3ms 预算 | 已实现，待长时验收 |
+| 结构语义 | 非核心 | 部分 | 村庄、下界要塞、要塞、末地门、刷怪笼 | 已实现，待坐标误差验收 |
+| 跨区块增量缓存 | 有 | 部分 | 每 3 区块位移重扫，会话内去重 | 部分实现 |
+| 持久区块/容器索引 | 有 | 部分 | 未实现 | 未实现 |
+| 远距离任意方块查询 | 有 | 部分 | 只报告已扫描签名，不猜未观察区域 | 未实现 |
+
+结论：扫描要学，但先学“有界、可中断、只报告实际观察”的调度；暂不引入
+Baritone 的全量区块缓存，避免把客户端内存和线程安全风险带进当前 Bridge。
+
+### 实现落点
+
+- Body 导航与感知：`mods/craftmate-body/src/main/java/com/craftmate/body/bridge/`
+  下的 `BoundedPathfinder`、`NavGoal`、`ChunkIndex`、`GameActions`；
+- Agent 图与规划：`packages/agent/domain/knowledge/src/graph.ts`、
+  `packages/agent/application/acquisition-planner.ts`、
+  `packages/agent/application/mission-goal-planner.ts`；
+- 任务树与调度：`packages/agent/domain/tasks/task-tree.ts`、
+  `packages/agent/domain/tasks/scheduler.ts`、
+  `packages/agent/application/goal-runtime.ts`；
+- 契约与持久化：`packages/contracts/src/{bridge,control,skills}.ts`、
+  `services/orchestrator/src/persistence.ts`。
 
 ### 许可边界
 

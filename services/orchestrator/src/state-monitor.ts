@@ -138,24 +138,13 @@ function visibleIronOpportunity(
   isResourceWork: boolean,
 ): StateOpportunity | null {
   if ((!isNavigation && !isResourceWork) || !hasUsablePickaxe(facts, 2)) return null;
-  // A one-cell blueprint/mine step finishes in seconds. Interrupting it to
-  // "mine the visible ore first" is exactly the left/right fight that made
-  // the body abandon half-placed blocks and half-dug stairs.
-  if (decision.skill?.args["at"] !== undefined) return null;
-  if (/(工作台|熔炉|镐|返回地表|挖阶梯|建房|小屋|营地|回家|箱子|储物|复用矿道)/u.test(decision.text)) {
-    return null;
-  }
-  const currentBlock = String(decision.skill?.args["block"] ?? "");
-  // Do not interrupt the ore we already chose, or a reclaim of our own field
-  // station, just because another iron block is nearby.
-  if (IRON_ORE.test(currentBlock) || /^(minecraft:)?(crafting_table|furnace)$/u.test(currentBlock)) {
-    return null;
-  }
   const ore = (facts.nearbyBlocks ?? [])
     .filter(
       (block) =>
         IRON_ORE.test(block.id) &&
         block.visible === true &&
+        block.reachable !== false &&
+        block.exposed !== false &&
         block.x !== undefined &&
         block.y !== undefined &&
         block.z !== undefined &&
@@ -167,6 +156,32 @@ function visibleIronOpportunity(
         (right.distance ?? Number.POSITIVE_INFINITY),
     )[0];
   if (ore === undefined) return null;
+  /*
+   * Ore literally against the tunnel wall is different from an ore ten
+   * blocks away. A player mining a return staircase turns and takes the
+   * adjacent block; refusing to do that because the task is "go home" is
+   * what produced a body that stared at iron ore and kept digging past it.
+   * Only this near-face case bypasses the recovery-task exclusions below.
+   */
+  const nearFace = (ore.distance ?? Number.POSITIVE_INFINITY) <= 4.5;
+  // A one-cell blueprint/mine step finishes in seconds. Interrupting it to
+  // "mine the visible ore first" is exactly the left/right fight that made
+  // the body abandon half-placed blocks and half-dug stairs.
+  if (!nearFace && decision.skill?.args["at"] !== undefined) return null;
+  if (
+    !nearFace &&
+    /(工作台|熔炉|镐|返回地表|挖阶梯|建房|小屋|营地|回家|箱子|储物|复用矿道)/u.test(
+      decision.text,
+    )
+  ) {
+    return null;
+  }
+  const currentBlock = String(decision.skill?.args["block"] ?? "");
+  // Do not interrupt the ore we already chose, or a reclaim of our own field
+  // station, just because another iron block is nearby.
+  if (IRON_ORE.test(currentBlock) || /^(minecraft:)?(crafting_table|furnace)$/u.test(currentBlock)) {
+    return null;
+  }
   return {
     key: "visible-iron",
     reason: "视野内出现可采铁矿，先挖眼前资源",

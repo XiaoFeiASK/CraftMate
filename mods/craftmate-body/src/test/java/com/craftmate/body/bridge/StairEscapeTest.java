@@ -33,4 +33,13 @@ class StairEscapeTest {
 		assertFalse(StairEscape.canRetryAfterFall(68, 69, 4));
 		assertFalse(StairEscape.canRetryAfterFall(69, 69, 0));
 	}
+
+	@Test
+	void staircasesTowardAnyHigherTargetNotOnlyOneDirectlyOverhead() {
+		assertTrue(ShaftEscape.shouldStairUp(true, true, 26.0));
+		assertTrue(ShaftEscape.shouldStairUp(true, true, 1.5));
+		assertFalse(ShaftEscape.shouldStairUp(true, true, 0.5));
+		assertFalse(ShaftEscape.shouldStairUp(false, true, 26.0));
+		assertFalse(ShaftEscape.shouldStairUp(true, false, 26.0));
+	}
 }

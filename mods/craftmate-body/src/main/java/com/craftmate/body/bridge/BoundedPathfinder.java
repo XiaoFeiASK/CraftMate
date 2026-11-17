@@ -36,7 +36,14 @@ public final class BoundedPathfinder {
 		{ -1, -1 },
 	};
 	/** Same level first, then a conservative drop or one-block step up. */
-	private static final int[] VERTICAL_ORDER = { 0, -1, 1 };
+	/**
+	 * Vanilla takes no fall damage from a three-block drop, so a ledge is a
+	 * legitimate move rather than a detour. Ordering the cheap vertical moves
+	 * first keeps the search preferring flat ground while still letting it
+	 * descend a ravine instead of reporting "no route" and walking twenty
+	 * blocks around it.
+	 */
+	private static final int[] VERTICAL_ORDER = { 0, -1, 1, -2, -3 };
 
 	private BoundedPathfinder() {
 	}
@@ -73,6 +80,18 @@ public final class BoundedPathfinder {
 	}
 
 	/**
+	 * A goal supplies both a termination predicate and an estimate of the
+	 * remaining cost. Callers that only care about reaching a cell use
+	 * {@link #DEFAULT}; a column or radius goal supplies its own so the search
+	 * still heads toward the target instead of fanning out uniformly.
+	 */
+	public interface Heuristic {
+		double estimate(Cell from, Cell goal);
+
+		Heuristic DEFAULT = BoundedPathfinder::distanceHeuristic;
+	}
+
+	/**
 	 * Costs one proven transition. The pathfinder never decides whether water,
 	 * a drop or a block is dangerous; the caller prices those hazards and the
 	 * search simply prefers the cheaper proven route.
@@ -83,7 +102,11 @@ public final class BoundedPathfinder {
 
 		StepCost DEFAULT = (from, to) ->
 			(Math.abs(to.x - from.x) > 0 && Math.abs(to.z - from.z) > 0 ? 1.414 : 1.0)
-				+ (to.y == from.y ? 0.0 : 0.25);
+				+ (to.y == from.y ? 0.0 : 0.25)
+				// A fall is faster than a walk, but it should not beat a flat
+				// path when both exist. The extra cost is a preference, not a
+				// danger signal; callers price real hazards separately.
+				+ Math.max(0, from.y - to.y) * 0.35;
 	}
 
 	/**
@@ -203,89 +226,186 @@ public final class BoundedPathfinder {
 		int maxVertical
 	) {
 		if (maxNodes <= 0) return null;
-		int verticalWindow = Math.max(1, maxVertical);
-		// The start is where the body already stands, not a cell it plans to
-		// enter, so it is never rejected. Requiring it to be standable meant a
-		// body on a leaf canopy, a slab, or a ledge failed every search on its
-		// first check and could not take a single step: navigation froze while
-		// the planner kept re-issuing goto from the same position. Every
-		// neighbour still passes the standability grid, so path index zero may
-		// be a non-standable cell and callers must treat it as "where we are"
-		// rather than as a destination.
-		if (goal.reached(start)) {
-			return new Result(List.of(start), true, 1);
+		return new Search(
+			start,
+			goalCell,
+			goal,
+			grid,
+			traversal,
+			stepCost,
+			Heuristic.DEFAULT,
+			maxNodes,
+			maxRadius,
+			maxVertical
+		).run();
+	}
+
+	/**
+	 * A resumable A* search. Each {@link #advance(int)} call expands at most
+	 * `budget` nodes, so a caller can spread a long search over several client
+	 * ticks instead of stalling the frame. The search only reads through the
+	 * caller's grid/traversal callbacks, so it must be advanced on the thread
+	 * that owns the level.
+	 */
+	public static final class Search {
+		private final Cell start;
+		private final Cell goalCell;
+		private final Goal goal;
+		private final Grid grid;
+		private final Traversal traversal;
+		private final StepCost stepCost;
+		private final Heuristic heuristic;
+		private final int maxNodes;
+		private final int maxVertical;
+		private final double maxRadius;
+		private final PriorityQueue<OpenNode> open;
+		private final Map<Cell, Double> bestCost = new HashMap<>();
+		private final Map<Cell, Cell> parent = new HashMap<>();
+		private final Set<Cell> closed = new HashSet<>();
+		private Cell best;
+		private double bestRemaining;
+		private int expanded;
+		private int order = 1;
+		private Result result;
+		private boolean finished;
+
+		public Search(
+			Cell start,
+			Cell goalCell,
+			Goal goal,
+			Grid grid,
+			Traversal traversal,
+			StepCost stepCost,
+			Heuristic heuristic,
+			int maxNodes,
+			double maxRadius,
+			int maxVertical
+		) {
+			this.start = start;
+			this.goalCell = goalCell;
+			this.goal = goal;
+			this.grid = grid;
+			this.traversal = traversal;
+			this.stepCost = stepCost;
+			this.heuristic = heuristic;
+			this.maxNodes = Math.max(1, maxNodes);
+			this.maxRadius = maxRadius;
+			this.maxVertical = Math.max(1, maxVertical);
+			this.open = new PriorityQueue<>(
+				(left, right) -> {
+					int score = Double.compare(left.estimatedTotal, right.estimatedTotal);
+					return score != 0 ? score : Integer.compare(left.order, right.order);
+				}
+			);
+			this.best = start;
+			this.bestRemaining = heuristic.estimate(start, goalCell);
+			this.bestCost.put(start, 0.0);
+			this.open.add(new OpenNode(start, 0.0, bestRemaining, 0));
+			// The start is where the body already stands, not a cell it plans
+			// to enter, so it is never rejected. Requiring it to be standable
+			// meant a body on a leaf canopy, a slab, or a ledge failed every
+			// search on its first check and could not take a single step.
+			if (goal.reached(start)) {
+				this.result = new Result(List.of(start), true, 1);
+				this.finished = true;
+			}
 		}
 
-		PriorityQueue<OpenNode> open = new PriorityQueue<>(
-			(left, right) -> {
-				int score = Double.compare(left.estimatedTotal, right.estimatedTotal);
-				return score != 0 ? score : Integer.compare(left.order, right.order);
-			}
-		);
-		Map<Cell, Double> bestCost = new HashMap<>();
-		Map<Cell, Cell> parent = new HashMap<>();
-		Set<Cell> closed = new HashSet<>();
-		bestCost.put(start, 0.0);
-		open.add(new OpenNode(start, 0.0, heuristic(start, goalCell), 0));
+		/** Expands at most {@code budget} nodes; null means "not finished". */
+		public Result advance(int budget) {
+			if (finished) return result;
+			int remainingBudget = Math.max(1, budget);
+			while (
+				!open.isEmpty()
+					&& expanded < maxNodes
+					&& remainingBudget-- > 0
+			) {
+				OpenNode current = open.poll();
+				if (!closed.add(current.cell)) continue;
+				expanded++;
 
-		Cell best = start;
-		double bestRemaining = heuristic(start, goalCell);
-		int expanded = 0;
-		int order = 1;
+				double remaining = heuristic.estimate(current.cell, goalCell);
+				if (remaining < bestRemaining) {
+					bestRemaining = remaining;
+					best = current.cell;
+				}
+				if (goal.reached(current.cell)) {
+					result = new Result(reconstruct(parent, current.cell), true, expanded);
+					finished = true;
+					return result;
+				}
 
-		while (!open.isEmpty() && expanded < maxNodes) {
-			OpenNode current = open.poll();
-			if (!closed.add(current.cell)) continue;
-			expanded++;
+				for (int[] direction : HORIZONTAL) {
+					for (int dy : VERTICAL_ORDER) {
+						int x = current.cell.x + direction[0];
+						int y = current.cell.y + dy;
+						int z = current.cell.z + direction[1];
+						Cell next = new Cell(x, y, z);
+						if (closed.contains(next)) continue;
+						if (
+							Math.hypot(x - start.x, z - start.z) > maxRadius
+								|| Math.abs(y - start.y) > maxVertical
+						) {
+							continue;
+						}
+						if (!grid.standable(x, y, z)) continue;
+						if (!traversal.allowed(current.cell, next)) continue;
 
-			double remaining = heuristic(current.cell, goalCell);
-			if (remaining < bestRemaining) {
-				bestRemaining = remaining;
-				best = current.cell;
-			}
-			if (goal.reached(current.cell)) {
-				return new Result(reconstruct(parent, current.cell), true, expanded);
-			}
-
-			for (int[] direction : HORIZONTAL) {
-				for (int dy : VERTICAL_ORDER) {
-					int x = current.cell.x + direction[0];
-					int y = current.cell.y + dy;
-					int z = current.cell.z + direction[1];
-					Cell next = new Cell(x, y, z);
-					if (closed.contains(next)) continue;
-					if (
-						Math.hypot(x - start.x, z - start.z) > maxRadius
-							|| Math.abs(y - start.y) > verticalWindow
-					) {
-						continue;
+						double moveCost = Math.max(
+							0.01,
+							stepCost.cost(current.cell, next)
+						);
+						double cost = current.cost + moveCost;
+						Double known = bestCost.get(next);
+						if (known != null && known <= cost) continue;
+						bestCost.put(next, cost);
+						parent.put(next, current.cell);
+						open.add(
+							new OpenNode(
+								next,
+								cost,
+								cost + heuristic.estimate(next, goalCell),
+								order++
+							)
+						);
 					}
-					if (!grid.standable(x, y, z)) continue;
-					if (!traversal.allowed(current.cell, next)) continue;
-
-					double moveCost = Math.max(
-						0.01,
-						stepCost.cost(current.cell, next)
-					);
-					double cost = current.cost + moveCost;
-					Double known = bestCost.get(next);
-					if (known != null && known <= cost) continue;
-					bestCost.put(next, cost);
-					parent.put(next, current.cell);
-					open.add(
-						new OpenNode(
-							next,
-							cost,
-							cost + heuristic(next, goalCell),
-							order++
-						)
-					);
 				}
 			}
+
+			if (open.isEmpty() || expanded >= maxNodes) {
+				finished = true;
+				if (best.equals(start)) {
+					result = null;
+				} else {
+					result = new Result(reconstruct(parent, best), false, expanded);
+				}
+				return result;
+			}
+			return null;
 		}
 
-		if (best.equals(start)) return null;
-		return new Result(reconstruct(parent, best), false, expanded);
+		/** Runs the whole search without a per-call budget. */
+		public Result run() {
+			while (!finished) {
+				advance(maxNodes);
+			}
+			return result;
+		}
+
+		/** Best path found so far, even when the search is still running. */
+		public Result partial() {
+			if (result != null) return result;
+			if (best.equals(start)) return null;
+			return new Result(reconstruct(parent, best), false, expanded);
+		}
+
+		public boolean finished() {
+			return finished;
+		}
+
+		public int expanded() {
+			return expanded;
+		}
 	}
 
 	private static List<Cell> reconstruct(Map<Cell, Cell> parent, Cell end) {
@@ -341,7 +461,7 @@ public final class BoundedPathfinder {
 		return List.copyOf(result);
 	}
 
-	private static double heuristic(Cell cell, Cell goal) {
+	private static double distanceHeuristic(Cell cell, Cell goal) {
 		double horizontal = Math.hypot(cell.x - goal.x, cell.z - goal.z);
 		return horizontal + Math.abs(cell.y - goal.y) * 0.25;
 	}

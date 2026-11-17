@@ -45,6 +45,37 @@ final class ContainerEvidence {
 		return moves;
 	}
 
+	/**
+	 * The mirror image of {@link #moves}: the inventory must gain exactly what
+	 * the opened container loses. A chest withdrawal is not a deposit and must
+	 * not be confirmed from the same direction.
+	 */
+	static Map<String, Integer> withdrawals(
+		Map<String, Integer> inventoryBefore,
+		Map<String, Integer> inventoryAfter,
+		Map<String, Integer> containerBefore,
+		Map<String, Integer> containerAfter
+	) {
+		Set<String> items = new LinkedHashSet<>();
+		items.addAll(inventoryBefore.keySet());
+		items.addAll(inventoryAfter.keySet());
+		items.addAll(containerBefore.keySet());
+		items.addAll(containerAfter.keySet());
+		Map<String, Integer> moves = new LinkedHashMap<>();
+		for (String item : items) {
+			int gained = Math.max(
+				0,
+				count(inventoryAfter, item) - count(inventoryBefore, item)
+			);
+			int lost = Math.max(
+				0,
+				count(containerBefore, item) - count(containerAfter, item)
+			);
+			if (gained > 0 && gained == lost) moves.put(item, gained);
+		}
+		return moves;
+	}
+
 	static int moved(
 		Map<String, Integer> inventoryBefore,
 		Map<String, Integer> inventoryAfter,

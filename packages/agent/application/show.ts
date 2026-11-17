@@ -384,10 +384,13 @@ export class Show {
       return decision;
     }
 
+    const conversation = this.recentConversation(decision.id);
     const context = {
       decision,
       goal: this.settings.goal,
       persona: this.personaSummary(),
+      ...(this.goal?.nextTask ? { activity: this.goal.nextTask } : {}),
+      ...(conversation.length > 0 ? { conversation } : {}),
       ...(this.incidents.length > 0 ? { incidents: compactIncidents(this.incidents) } : {}),
       ...(this.world ? { world: compactWorld(this.world()) } : {}),
       ...(this.availableSkills
@@ -432,12 +435,49 @@ export class Show {
 
   personaSummary(): PersonaSummary {
     const { persona } = this.settings;
+    const summary = this.personaFor(this.settings);
     return {
       id: this.personaId,
       name: persona.name,
       identity: persona.identity,
       weights: persona.weights,
+      style: summary.style,
+      values: summary.values.slice(0, 8),
+      boundaries: summary.boundaries.slice(0, 8),
     };
+  }
+
+  /**
+   * The last few audience lines and replies give the model conversational
+   * continuity without replaying the whole session. Audience text stays data;
+   * the planner never moves it into the system instructions.
+   */
+  private recentConversation(
+    currentDecisionId: string,
+  ): readonly { readonly role: "audience" | "agent"; readonly speaker?: string; readonly text: string }[] {
+    const turns: { role: "audience" | "agent"; speaker?: string; text: string }[] = [];
+    for (const entry of this.decisions) {
+      if (entry.id === currentDecisionId) continue;
+      const speaker = entry.nickname.trim();
+      const audienceText = entry.text.trim();
+      if (
+        audienceText.length > 0 &&
+        speaker.length > 0 &&
+        speaker !== "系统" &&
+        speaker !== "目标运行时"
+      ) {
+        turns.push({
+          role: "audience",
+          speaker: speaker.slice(0, 40),
+          text: audienceText.slice(0, 180),
+        });
+      }
+      const reply = entry.speech.trim();
+      if (reply.length > 0) {
+        turns.push({ role: "agent", text: reply.slice(0, 180) });
+      }
+    }
+    return turns.slice(-8);
   }
 
   currentSettings(): ShowSettings {

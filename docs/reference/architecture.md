@@ -1,6 +1,8 @@
 # 架构总览
 
-> 本文描述系统边界、运行链路和不可妥协的约束。字段与参数见[技术设计](technical-design.md)，运行步骤见[运行手册](../operations/runbook.md)。
+> 本文描述系统边界、运行链路和不可妥协的约束。技能与 Java 任务的对应关系见
+> [Agent 编排与游戏身体映射](agent-body-mapping.md)，字段与参数见
+> [技术设计](technical-design.md)，运行步骤见[运行手册](../operations/runbook.md)。
 
 ## 1. 系统上下文
 
@@ -61,7 +63,7 @@ Admin Console 崩溃不中断直播；外部系统故障只降级对应能力，
 ```text
 身体快照 → worldFactsFromSnapshot → planMission（安全门与验收链）
          → planSurvival（阶段任务）→ MissionGoalPlanner（可编译 run_plan）
-         → GoalRuntime → Bridge → Fabric Mod
+         → PlanCompiler（必要时）→ GoalRuntime → Bridge → Fabric Mod
          → result/changes → settle → 重新观察
 ```
 
@@ -168,14 +170,11 @@ task/decision 也会归回同一条评论，而不依赖到达顺序。
 
 Issue #55 的最终决定是**解除管理端依赖，保留可选录制/调试能力**：
 
-- 管理端已删除 `LiveHero`、`pond-loop.mp4`、poster、`4324` 的 CSP 允许项和
-  MJPEG `<img>` 消费；
-- `FrameServer` 仍由 `CraftMateBodyClient` 挂在 loopback `4324`，只有
-  `FrameDemand` 被录制端请求时才截图，未请求时保持空闲；
-- 该端口不参与控制权、liveness、Bridge 命令或首屏；没有它管理端仍完整工作；
-- 删除身体侧采集需要先确认没有外部录制/调试消费者，因此不在本次改造中删除。
+- `FrameServer` 仍挂在 loopback `4324`，只有录制端请求时才截图；
+- 该端口不参与控制权、liveness、Bridge 命令或管理端首屏；
+- 没有它系统仍完整工作，外部录制由录制工具显式 opt-in。
 
-未来若接入外部录制，应由录制工具显式 opt-in；管理端不应重新把视频作为默认主路径。
+端口和启动细节见[运行手册](../operations/runbook.md)。
 
 ## 9. 演进接缝
 
@@ -184,7 +183,7 @@ Issue #55 的最终决定是**解除管理端依赖，保留可选录制/调试�
 | 平台来源 | dyhub → `AudienceEvent` | 新增 Source 实现，不改仲裁 |
 | 模型 | OpenAI Compatible Provider | 新增 Provider，不改 Stage A/B |
 | TTS | Volcengine Seeduplex | 新增 Voice Provider，不改决策 |
-| 游戏身体 | Fabric 1.20.1 compat | 版本差异限制在 Mod compat；协议用语义 ID |
+| 游戏身体 | Fabric 1.20.1 compat | 版本差异限制在 Mod；协议用语义 ID；技能映射见[映射文档](agent-body-mapping.md) |
 | 存储 | SQLite | 表视图可演进；迁移只向前追加 |
 
 新增能力必须先通过现有契约、回放和降级测试，再扩大运行面。

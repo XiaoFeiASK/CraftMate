@@ -191,6 +191,19 @@ final class ShaftEscape {
 	}
 
 	/**
+	 * A body can stand on the corner of a stair while `blockPosition()`
+	 * reports the adjacent air column. Jump-placing from that column has no
+	 * support to click, so the pillar loop aborts without moving. The real
+	 * support is visible through the bounding box; walk over it first.
+	 */
+	static boolean shouldRecenterBeforePillar(
+		boolean feetSupported,
+		boolean supportOnAnotherColumn
+	) {
+		return !feetSupported && supportOnAnotherColumn;
+	}
+
+	/**
 	 * Mining a ceiling block can open the floor beneath the body and drop it
 	 * into a lower pocket mid-pillar. The jump target must follow the new feet
 	 * level; otherwise every jump is measured from a stale base and the body
@@ -198,6 +211,29 @@ final class ShaftEscape {
 	 */
 	static boolean shouldRebasePillar(boolean grounded, int feetY, int baseY) {
 		return grounded && feetY < baseY;
+	}
+
+	/**
+	 * A torch, button or rail stands in the cell the body just vacated. It
+	 * does not block movement, so the jump reaches the right height, but the
+	 * cell is not replaceable and every placement packet is rejected
+	 * silently. The body then jumps in place forever. Clear such a tiny
+	 * decoration first; containers, signs and climbable blocks are left
+	 * alone because they are either valuable or have their own escape route.
+	 */
+	static boolean shouldClearPillarCell(
+		boolean replaceable,
+		boolean blocksMotion,
+		boolean hasBlockEntity,
+		boolean climbable,
+		float hardness
+	) {
+		return !replaceable
+			&& !blocksMotion
+			&& !hasBlockEntity
+			&& !climbable
+			&& hardness >= 0.0f
+			&& hardness <= 1.0f;
 	}
 
 	/** Stop climbing once the requested floor has been reached. */
@@ -240,7 +276,16 @@ final class ShaftEscape {
 	 * @param hasPickaxe true when a carried tool can harvest the wall
 	 */
 	static boolean shouldDigOut(int horizontalWalls, boolean hasPickaxe) {
-		return horizontalWalls >= 3 && hasPickaxe;
+		/*
+		 * This runs only after A* has no route at all. A dead-end tunnel or a
+		 * shallow water pocket can have one or two walls, not the four of a
+		 * self-dug shaft. Refusing those pockets made the live body report
+		 * E_ENCLOSED every six seconds while a single mineable wall stood
+		 * beside it. One harvestable wall is enough to open the next cell;
+		 * the caller still verifies the wall is not a player facility and
+		 * that the body can actually break it.
+		 */
+		return horizontalWalls >= 1 && hasPickaxe;
 	}
 
 	/**
@@ -266,6 +311,21 @@ final class ShaftEscape {
 				&& targetDeltaY <= 2.5
 				&& horizontalDistance >= 3.0
 		);
+	}
+
+	/**
+	 * A target above the body needs a staircase even when it is not directly
+	 * overhead. A far surface destination used to fall through every escape:
+	 * it was too high for a level tunnel, not directly above for a pillar,
+	 * and the climb step was gated on that same "directly above" check. The
+	 * body then reported E_ENCLOSED without trying the one legal move.
+	 */
+	static boolean shouldStairUp(
+		boolean grounded,
+		boolean mayDig,
+		double targetDeltaY
+	) {
+		return grounded && mayDig && targetDeltaY > 0.9;
 	}
 
 	/**

@@ -16,6 +16,15 @@ final class PickaxeBudget {
 		return Math.max(12, depth + branchLength * 2 + 8);
 	}
 
+	/**
+	 * A trip must leave enough swings to cut one blocked step on the way out.
+	 * `choose` reports the richest available pickaxe when none can finish the
+	 * whole job, so its use count is the real reserve the body still owns.
+	 */
+	static boolean hasRescueReserve(Candidate best, int reserve) {
+		return best != null && best.uses() >= reserve;
+	}
+
 	static Candidate choose(Candidate[] candidates, boolean needsStone, int required) {
 		int minimumTier = needsStone ? 2 : 1;
 		Candidate enough = null;

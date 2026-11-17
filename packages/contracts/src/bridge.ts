@@ -153,6 +153,23 @@ export const worldSnapshotSchema = z.object({
     durability: z.number().int().nonnegative().optional(),
     maxDurability: z.number().int().positive().optional(),
   })).max(64).optional(),
+  /**
+   * Armour currently in the four equipment slots. The inventory array also
+   * contains these stacks (slots 36–39), but this view answers "is it actually
+   * worn?" without the caller having to infer it from slot numbers.
+   */
+  equippedArmor: z.object({
+    helmet: z.string().min(1).max(160).optional(),
+    chestplate: z.string().min(1).max(160).optional(),
+    leggings: z.string().min(1).max(160).optional(),
+    boots: z.string().min(1).max(160).optional(),
+  }).optional(),
+  /**
+   * True after a pickaxe this body carried disappeared and no replacement has
+   * entered the inventory. Vanilla destroys a tool at zero durability, so the
+   * planner cannot infer a break from the current slot list alone.
+   */
+  pickaxeLost: z.boolean().optional(),
   /** World time of day in ticks, 0–23999. */
   timeOfDay: z.number().int().min(0).max(23_999).optional(),
   /** True while a crafting table is within the body's observation radius. */
@@ -236,6 +253,13 @@ export const worldSnapshotSchema = z.object({
       z: z.number().finite(),
     }),
     direction: z.enum(["north", "south", "east", "west"]),
+    /**
+     * The stair ends in water or a void and has no branch. Keep the entrance
+     * visible so the body can walk back out of it, but do not plan another
+     * descent. The bridge forgets the entrance once the body is safely at the
+     * surface.
+     */
+    deadEnd: z.boolean().optional(),
     stair: z.object({
       stand: z.object({
         x: z.number().finite(),
@@ -311,6 +335,11 @@ export const worldSnapshotSchema = z.object({
     z: z.number().finite(),
   }).optional(),
   furnacePlaced: z.boolean().optional(),
+  /**
+   * True only when a furnace is inside the body's interaction reach now.
+   * An aggregate nearby-block count is observation, not a usable station.
+   */
+  furnaceReachable: z.boolean().optional(),
   /** Ticks since the remembered furnace was placed, when known. */
   furnaceAgeTicks: z.number().int().nonnegative().optional(),
   /**
@@ -361,6 +390,8 @@ export const worldSnapshotSchema = z.object({
     visible: z.boolean().optional(),
     /** An exposed, clickable face exists (not just an adjacent air cell). */
     exposed: z.boolean().optional(),
+    /** One breakable block between the tunnel face and this ore. */
+    covered: z.boolean().optional(),
     /** A standable route to an interaction cell was proven. */
     reachable: z.boolean().optional(),
     /** Why this ore candidate is or is not selectable. */
@@ -376,6 +407,32 @@ export const worldSnapshotSchema = z.object({
       visible: z.number().int().nonnegative(),
       reachable: z.number().int().nonnegative(),
       surveying: z.boolean(),
+    })
+    .optional(),
+  /**
+   * Structure signatures found by the bounded chunk survey. Coordinates are
+   * the observed block, not a guessed structure centre; the planner still
+   * has to walk there and verify.
+   */
+  landmarks: z
+    .array(
+      z.object({
+        kind: z.string().min(1).max(40),
+        label: z.string().min(1).max(80),
+        x: z.number().int(),
+        y: z.number().int(),
+        z: z.number().int(),
+        detail: z.string().min(1).max(120).optional(),
+        confidence: z.number().min(0).max(1).optional(),
+      }),
+    )
+    .max(24)
+    .optional(),
+  /** Progress of the background chunk survey, for the console and budget. */
+  scan: z
+    .object({
+      scannedChunks: z.number().int().nonnegative(),
+      scanning: z.boolean(),
     })
     .optional(),
   /**
@@ -459,6 +516,13 @@ export const bridgeErrorCodeSchema = z.enum([
   "E_UNREACHABLE",
   "E_ENCLOSED",
   "E_STUCK",
+  /*
+   * Body-side plan execution failures. They are ordinary terminal results,
+   * not protocol errors; omitting them from the enum closed the socket and
+   * replayed the same guarded plan every three seconds.
+   */
+  "E_PLAN_GUARD",
+  "E_PLAN_EVIDENCE",
   "E_INTERNAL",
 ]);
 export type BridgeErrorCode = z.infer<typeof bridgeErrorCodeSchema>;

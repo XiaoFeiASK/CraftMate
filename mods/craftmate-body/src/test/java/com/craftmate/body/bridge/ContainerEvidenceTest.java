@@ -63,6 +63,37 @@ class ContainerEvidenceTest {
 	}
 
 	@Test
+	void aChestWithdrawalIsConfirmedOnlyWhenTheInventoryGainsWhatTheChestLoses() {
+		Map<String, Integer> inventoryBefore = Map.of("minecraft:oak_log", 2);
+		Map<String, Integer> inventoryAfter = Map.of("minecraft:oak_log", 8);
+		Map<String, Integer> containerBefore = Map.of(
+			"minecraft:oak_log", 9,
+			"minecraft:cobblestone", 64
+		);
+		Map<String, Integer> containerAfter = Map.of(
+			"minecraft:oak_log", 3,
+			"minecraft:cobblestone", 64
+		);
+		assertEquals(
+			Map.of("minecraft:oak_log", 6),
+			ContainerEvidence.withdrawals(
+				inventoryBefore,
+				inventoryAfter,
+				containerBefore,
+				containerAfter
+			)
+		);
+		assertTrue(
+			ContainerEvidence.withdrawals(
+				inventoryBefore,
+				inventoryAfter,
+				containerBefore,
+				containerAfter
+			).containsKey("minecraft:oak_log")
+		);
+	}
+
+	@Test
 	void incompleteReasonsDistinguishClosedMenuFullContainerAndExhaustedInventory() {
 		assertEquals(
 			"the container screen closed before the transfer was confirmed",

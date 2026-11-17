@@ -473,7 +473,10 @@ export function dispatchDirectSkill(input: {
   };
   readonly taskTelemetry: TaskTelemetry;
   readonly goalId: string | null;
-  readonly issue: (command: SkillCommand) => void;
+  readonly issue: (
+    command: SkillCommand,
+    options?: { readonly timeoutTicks?: number },
+  ) => void;
   readonly commandId?: string;
 }): string {
   const commandId = input.commandId ?? crypto.randomUUID();
@@ -487,19 +490,21 @@ export function dispatchDirectSkill(input: {
     source: "agent",
   });
   try {
-    input.issue({
-      v: 1,
-      type: "cmd",
-      id: commandId,
-      decisionId: input.decision.id,
-      op: skill.name,
-      args: skill.args,
-      priority: input.decision.priority,
-      idempotencyKey: skill.idempotencyKey,
-      ...(skill.deadlineTicks === undefined
+    input.issue(
+      {
+        v: 1,
+        type: "cmd",
+        id: commandId,
+        decisionId: input.decision.id,
+        op: skill.name,
+        args: skill.args,
+        priority: input.decision.priority,
+        idempotencyKey: skill.idempotencyKey,
+      },
+      skill.deadlineTicks === undefined
         ? {}
-        : { deadlineTick: skill.deadlineTicks }),
-    });
+        : { timeoutTicks: skill.deadlineTicks },
+    );
   } catch (error) {
     throw new TaskDispatchError(commandId, error);
   }

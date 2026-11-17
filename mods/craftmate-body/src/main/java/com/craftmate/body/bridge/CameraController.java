@@ -2,6 +2,7 @@ package com.craftmate.body.bridge;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.BlockGetter;
@@ -31,6 +32,19 @@ public final class CameraController {
 	private static final float RELEASE_TOLERANCE = 0.35f;
 	private static final float YAW_GAIN = 6.0f;
 	private static final float PITCH_GAIN = 6.0f;
+	/**
+	 * When the fixed observation point is inside a tunnel wall, orbit the
+	 * same seven-block radius until a clear air cell is found. A straight
+	 * mine tunnel usually has a clear view along its own axis, so the body
+	 * stays visible without shortening the camera or showing the inside of
+	 * a stone block.
+	 */
+	private static final float[] FALLBACK_YAW_OFFSETS = {
+		0.0f, 45.0f, -45.0f, 90.0f, -90.0f, 135.0f, -135.0f, 180.0f
+	};
+	private static final float[] FALLBACK_PITCH_OFFSETS = {
+		0.0f, 20.0f, -20.0f, 35.0f, -35.0f
+	};
 
 	private static boolean active;
 	private static boolean releasing;
@@ -43,6 +57,12 @@ public final class CameraController {
 	private static float yawVelocity;
 	private static float pitchVelocity;
 	private static boolean holdPose;
+	/**
+	 * Mining tracks an exact block, so mixing the body's per-tick pitch back
+	 * into the audience camera produced a visible shimmer. Walking still uses
+	 * the blend because the body's posture carries useful weight there.
+	 */
+	private static boolean blendBodyPitch = true;
 	private static long lastFrameNanos;
 	private static Object lastLevel;
 	private static Object lastPlayer;
@@ -54,6 +74,17 @@ public final class CameraController {
 	/** A continuous plan owns the camera across its child tasks. */
 	private static int planHolds;
 	private static boolean positionSettled = true;
+	/**
+	 * Terrain sits between the fixed observation camera and the body. The
+	 * position is never shortened for this; the renderer reveals the body.
+	 */
+	private static boolean cameraClipped;
+	/**
+	 * The agent owns the character between tasks too. Without this flag the
+	 * audience camera fell back to vanilla's four-block third person during
+	 * idle windows, which read as the zoom changing on its own.
+	 */
+	private static boolean audienceMode;
 
 	private CameraController() {
 	}
@@ -77,6 +108,7 @@ public final class CameraController {
 		desiredPitch = displayPitch;
 		lookPitch = displayPitch;
 		holdPose = true;
+		blendBodyPitch = false;
 		releasing = false;
 	}
 
@@ -87,6 +119,7 @@ public final class CameraController {
 		holdPose = false;
 		desiredYaw = yaw;
 		lookPitch = Mth.clamp(pitch, -90.0f, 90.0f);
+		blendBodyPitch = true;
 		releasing = false;
 	}
 
@@ -96,6 +129,7 @@ public final class CameraController {
 		holdPose = false;
 		desiredYaw = yaw;
 		lookPitch = Mth.clamp(pitch, -90.0f, 90.0f);
+		blendBodyPitch = false;
 		releasing = false;
 	}
 
@@ -147,11 +181,13 @@ public final class CameraController {
 		yawVelocity = 0;
 		pitchVelocity = 0;
 		holdPose = false;
+		blendBodyPitch = true;
 		lastFrameNanos = 0;
 		lastPositionNanos = 0;
 		POSITION.reset();
 		planHolds = 0;
 		positionSettled = true;
+		cameraClipped = false;
 		lastLevel = client.level;
 		lastPlayer = client.player;
 		LocalPlayer player = client.player;
@@ -165,6 +201,14 @@ public final class CameraController {
 			lastBodyYaw = displayYaw;
 			lastBodyPitch = displayPitch;
 		}
+	}
+
+	/**
+	 * Keeps the wide observation framing for the whole agent session, not only
+	 * while a movement skill is steering the camera. Human takeover clears it.
+	 */
+	public static void setAudienceMode(boolean enabled) {
+		audienceMode = enabled;
 	}
 
 	/**
@@ -182,9 +226,11 @@ public final class CameraController {
 	) {
 		if (!thirdPerson) {
 			positionSettled = true;
+			cameraClipped = false;
 			return null;
 		}
-		if (!active || entity != player || player.isSleeping()) {
+		if ((!active && !audienceMode) || entity != player || player.isSleeping()) {
+			cameraClipped = false;
 			return null;
 		}
 		long now = System.nanoTime();
@@ -200,17 +246,25 @@ public final class CameraController {
 		);
 		Vec3 desired = new Vec3(vanillaPosition.x, vanillaPosition.y, vanillaPosition.z);
 		if (!releasing) {
+			float yaw = active ? displayYaw : player.getViewYRot(partialTick);
+			float pitch = active ? displayPitch : player.getViewXRot(partialTick);
 			Vec3 movement = entity.getDeltaMovement();
 			CameraSpring.Target follow = CameraSpring.followTarget(
 				anchor.x,
 				anchor.y,
 				anchor.z,
-				displayYaw,
-				displayPitch,
+				yaw,
+				pitch,
 				movement.x,
 				movement.z
 			);
 			desired = new Vec3(follow.x(), follow.y(), follow.z());
+			/*
+			 * A fixed observation distance is the whole point. Terrain used to
+			 * pull the camera in to two blocks, which produced a helmet filling
+			 * the screen. Keep the wide shot and reveal the body through the
+			 * wall instead; the camera never changes zoom on its own.
+			 */
 			HitResult hit = level.clip(new ClipContext(
 				anchor,
 				desired,
@@ -219,20 +273,40 @@ public final class CameraController {
 				entity
 			));
 			if (hit.getType() != HitResult.Type.MISS) {
-				CameraSpring.Target clipped = CameraSpring.clipped(
-					anchor.x,
-					anchor.y,
-					anchor.z,
-					follow,
-					hit.getLocation().distanceTo(anchor)
-				);
-				desired = new Vec3(clipped.x(), clipped.y(), clipped.z());
+				double hitDistance = hit.getLocation().distanceTo(anchor);
+				cameraClipped = desired.distanceTo(anchor) > hitDistance - 0.05;
+			} else {
+				cameraClipped = false;
 			}
+			if (cameraClipped) {
+				Vec3 alternate = clearObservationTarget(
+					level,
+					entity,
+					anchor,
+					yaw,
+					pitch
+				);
+				if (alternate != null) {
+					desired = alternate;
+					cameraClipped = false;
+				}
+			}
+		} else {
+			cameraClipped = false;
 		}
 		POSITION.step(
 			new CameraSpring.Target(desired.x, desired.y, desired.z),
 			dt
 		);
+		if (!releasing) {
+			// Direction is smoothed by the spring; the radius is not.
+			POSITION.pinDistance(
+				anchor.x,
+				anchor.y,
+				anchor.z,
+				desired.distanceTo(anchor)
+			);
+		}
 		if (releasing && POSITION.distanceTo(
 			vanillaPosition.x,
 			vanillaPosition.y,
@@ -245,12 +319,73 @@ public final class CameraController {
 		return new Vec3(POSITION.x(), POSITION.y(), POSITION.z());
 	}
 
+	/**
+	 * Same-radius camera fallback. The first candidate with an air cell at
+	 * the camera point and an unobstructed sight line back to the torso wins;
+	 * keeping the angle order fixed prevents frame-to-frame side switching.
+	 */
+	private static Vec3 clearObservationTarget(
+		BlockGetter level,
+		Entity entity,
+		Vec3 anchor,
+		float yaw,
+		float pitch
+	) {
+		for (float pitchOffset : FALLBACK_PITCH_OFFSETS) {
+			for (float yawOffset : FALLBACK_YAW_OFFSETS) {
+				float candidatePitch = Mth.clamp(pitch + pitchOffset, -80.0f, 80.0f);
+				CameraSpring.Target follow = CameraSpring.followTarget(
+					anchor.x,
+					anchor.y,
+					anchor.z,
+					yaw + yawOffset,
+					candidatePitch,
+					0.0,
+					0.0
+				);
+				Vec3 candidate = new Vec3(follow.x(), follow.y(), follow.z());
+				if (!level.getBlockState(BlockPos.containing(candidate)).isAir()) {
+					continue;
+				}
+				HitResult hit = level.clip(new ClipContext(
+					anchor,
+					candidate,
+					ClipContext.Block.VISUAL,
+					ClipContext.Fluid.NONE,
+					entity
+				));
+				if (
+					hit.getType() == HitResult.Type.MISS ||
+					hit.getLocation().distanceTo(anchor) >=
+						candidate.distanceTo(anchor) - 0.1
+				) {
+					return candidate;
+				}
+			}
+		}
+		return null;
+	}
+
 	public static float displayYaw(LocalPlayer player) {
 		return active ? displayYaw : player.getViewYRot(1.0f);
 	}
 
 	public static float displayPitch(LocalPlayer player) {
 		return active ? displayPitch : player.getViewXRot(1.0f);
+	}
+
+	/**
+	 * A terrain-clipped third-person camera keeps the character's render pass
+	 * visible through the wall. Only the local player is affected, and only
+	 * while the camera is actually inside terrain, so the rest of the world
+	 * keeps normal depth occlusion.
+	 */
+	public static boolean revealThroughTerrain(Entity entity) {
+		Minecraft client = Minecraft.getInstance();
+		return (active || audienceMode)
+			&& cameraClipped
+			&& entity == client.player
+			&& !client.options.getCameraType().isFirstPerson();
 	}
 
 	/**
@@ -355,6 +490,7 @@ public final class CameraController {
 	private static float targetPitch(LocalPlayer player) {
 		if (holdPose) return displayPitch;
 		if (releasing) return player.getViewXRot(1.0f);
+		if (!blendBodyPitch) return lookPitch;
 		return CameraSpring.framingPitch(lookPitch, player.getViewXRot(1.0f));
 	}
 

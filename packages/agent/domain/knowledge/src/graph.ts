@@ -77,6 +77,25 @@ export interface AcquisitionPath {
   readonly inputs: readonly AcquisitionPath[];
 }
 
+export interface AcquisitionNode {
+  readonly key: string;
+  readonly kind: "item" | "action" | "station";
+  readonly target: string;
+  readonly quantity: number;
+  readonly group: "AND" | "OR";
+  readonly evidence: readonly string[];
+  readonly children: readonly AcquisitionNode[];
+}
+
+export interface AcquisitionTreeOptions {
+  readonly maxDepth?: number;
+  readonly maxNodes?: number;
+  /** Current stock; used to prefer an OR branch that is already available. */
+  readonly available?: (item: string) => number;
+  /** Stations currently reachable. Undefined keeps station filtering disabled. */
+  readonly stations?: readonly string[];
+}
+
 export const KNOWLEDGE_GRAPH: KnowledgeGraphData = graphData as KnowledgeGraphData;
 
 const nodesById = new Map(KNOWLEDGE_GRAPH.nodes.map((node) => [node.id, node] as const));
@@ -137,6 +156,30 @@ export function acquisitionPath(
   options: { readonly maxDepth?: number } = {},
 ): AcquisitionPath | null {
   return resolve(normalize(item), 0, new Set(), options.maxDepth ?? 12);
+}
+
+/**
+ * Materialises the selected acquisition branch as an AND/OR tree. This is the
+ * planner-facing form: item nodes are goals, action nodes are sources, and
+ * station nodes are preconditions that do not consume inventory.
+ */
+export function acquisitionTree(
+  item: string,
+  quantity = 1,
+  options: AcquisitionTreeOptions = {},
+): AcquisitionNode | null {
+  const stations =
+    options.stations === undefined
+      ? null
+      : new Set(options.stations.map(stationName));
+  const context: TreeContext = {
+    maxDepth: options.maxDepth ?? 10,
+    maxNodes: options.maxNodes ?? 128,
+    available: options.available ?? (() => 0),
+    stations,
+    nodes: 0,
+  };
+  return buildItemTree(normalize(item), Math.max(1, quantity), 0, new Set(), context);
 }
 
 export function allIronAcceptancePaths(): Readonly<Record<string, AcquisitionPath | null>> {
@@ -210,13 +253,33 @@ function resolve(
     const inputs = outgoingEdges(edge.from).filter(
       (candidate) => candidate.type === "consume" || candidate.type === "tool",
     );
+    const required = inputs.filter((candidate) => candidate.group === "AND");
+    const choices = grouped(inputs.filter((candidate) => candidate.group === "OR"));
     const resolvedInputs: AcquisitionPath[] = [];
     let valid = true;
-    for (const group of grouped(inputs)) {
-      // Any edge in an OR group is a choice; an AND group must supply every
-      // required item. Tool edges are AND by construction.
+    for (const candidate of required) {
+      const resolved = resolve(
+        candidate.to.replace(/^item:/u, ""),
+        depth + 1,
+        stack,
+        maxDepth,
+      );
+      if (resolved === null) {
+        valid = false;
+        break;
+      }
+      resolvedInputs.push(resolved);
+    }
+    for (const group of choices) {
       const choice = group
-        .map((candidate) => resolve(candidate.to.replace(/^item:/u, ""), depth + 1, stack, maxDepth))
+        .map((candidate) =>
+          resolve(
+            candidate.to.replace(/^item:/u, ""),
+            depth + 1,
+            stack,
+            maxDepth,
+          ),
+        )
         .find((candidate) => candidate !== null);
       if (choice === undefined) {
         valid = false;
@@ -237,10 +300,263 @@ function resolve(
   return null;
 }
 
+interface TreeContext {
+  readonly maxDepth: number;
+  readonly maxNodes: number;
+  readonly available: (item: string) => number;
+  readonly stations: ReadonlySet<string> | null;
+  nodes: number;
+}
+
+function buildItemTree(
+  item: string,
+  quantity: number,
+  depth: number,
+  stack: Set<string>,
+  context: TreeContext,
+): AcquisitionNode | null {
+  if (depth > context.maxDepth || stack.has(item)) return null;
+  if (context.nodes >= context.maxNodes) return null;
+  const key = `item:${item}`;
+  context.nodes++;
+  if (context.available(item) >= quantity) {
+    return {
+      key,
+      kind: "item",
+      target: item,
+      quantity,
+      group: "AND",
+      evidence: [`inventory has ${quantity} ${item}`],
+      children: [],
+    };
+  }
+  stack.add(item);
+  const actions = [...acquisitionActions(item)].sort(
+    (left, right) =>
+      actionStationScore(right, context) - actionStationScore(left, context) ||
+      actionStockScore(right, context) - actionStockScore(left, context) ||
+      Number(context.available(right.to) > 0) -
+        Number(context.available(left.to) > 0) ||
+      riskRank(left.risk) - riskRank(right.risk) ||
+      left.cost - right.cost,
+  );
+  for (const edge of actions) {
+    const produced = buildActionTree(edge, quantity, depth, stack, context);
+    if (produced !== null) {
+      stack.delete(item);
+      return produced;
+    }
+  }
+  stack.delete(item);
+  return null;
+}
+
+function buildActionTree(
+  edge: GraphEdge,
+  quantity: number,
+  depth: number,
+  stack: Set<string>,
+  context: TreeContext,
+): AcquisitionNode | null {
+  if (context.nodes >= context.maxNodes) return null;
+  const actionKind = acquireKind(edge);
+  if (actionKind === null) return null;
+  const output = outgoingEdges(edge.from).find(
+    (candidate) => candidate.type === "produce" && candidate.to === edge.to,
+  );
+  const outputCount = Math.max(1, output?.quantity ?? edge.quantity);
+  const batches = Math.max(1, Math.ceil(quantity / outputCount));
+  const inputs = outgoingEdges(edge.from).filter(
+    (candidate) =>
+      candidate.type === "consume" ||
+      candidate.type === "tool" ||
+      candidate.type === "location",
+  );
+  /*
+   * Fuel is a rate, not one item per output: a single coal smelts several
+   * items, and the body's smelt skill owns fuel selection. Tool edges are
+   * likewise capability requirements owned by the survival planner. Treat
+   * both as optional annotations so a tree does not claim "no iron path"
+   * merely because the exact fuel stack is smaller than the output count.
+   */
+  const required = inputs.filter(
+    (candidate) =>
+      candidate.type === "consume" &&
+      candidate.group === "AND" &&
+      !isFuelEdge(candidate),
+  );
+  const choices = grouped(
+    inputs.filter(
+      (candidate) =>
+        candidate.type === "consume" &&
+        candidate.group === "OR" &&
+        !isFuelEdge(candidate),
+    ),
+  );
+  const children: AcquisitionNode[] = [];
+  for (const candidate of inputs.filter((entry) => entry.type === "location")) {
+    const station = stationName(candidate.to);
+    if (context.stations !== null && !context.stations.has(station)) return null;
+    if (context.nodes >= context.maxNodes) return null;
+    context.nodes++;
+    children.push({
+      key: `station:${candidate.to}`,
+      kind: "station",
+      target: candidate.to.replace(/^station:/u, ""),
+      quantity: batches,
+      group: "AND",
+      evidence: [...candidate.evidence],
+      children: [],
+    });
+  }
+  for (const candidate of inputs.filter(
+    (entry) =>
+      entry.type === "tool" &&
+      context.available(entry.to.replace(/^item:/u, "")) > 0,
+  )) {
+    if (context.nodes >= context.maxNodes) return null;
+    context.nodes++;
+    children.push({
+      key: candidateInputKey(candidate),
+      kind: "item",
+      target: candidate.to.replace(/^item:/u, ""),
+      quantity: candidate.quantity,
+      group: "AND",
+      evidence: [...candidate.evidence],
+      children: [],
+    });
+  }
+  for (const candidate of inputs.filter(
+    (entry) =>
+      entry.type === "consume" &&
+      isFuelEdge(entry) &&
+      entry.group === "AND" &&
+      context.available(entry.to.replace(/^item:/u, "")) > 0,
+  )) {
+    if (context.nodes >= context.maxNodes) return null;
+    context.nodes++;
+    children.push({
+      key: candidateInputKey(candidate),
+      kind: "item",
+      target: candidate.to.replace(/^item:/u, ""),
+      quantity: 1,
+      group: "AND",
+      evidence: [...candidate.evidence],
+      children: [],
+    });
+  }
+  for (const candidate of required) {
+    const child = buildItemTree(
+      candidate.to.replace(/^item:/u, ""),
+      candidate.quantity * batches,
+      depth + 1,
+      stack,
+      context,
+    );
+    if (child === null) return null;
+    children.push(child);
+  }
+  for (const group of choices) {
+    const child = [...group]
+      .sort(
+        (left, right) =>
+          context.available(right.to.replace(/^item:/u, "")) -
+            context.available(left.to.replace(/^item:/u, "")) ||
+          left.to.localeCompare(right.to),
+      )
+      .map((candidate) =>
+        buildItemTree(
+          candidate.to.replace(/^item:/u, ""),
+          candidate.quantity * batches,
+          depth + 1,
+          stack,
+          context,
+        ),
+      )
+      .find((candidate) => candidate !== null);
+    if (child === undefined) return null;
+    children.push(child);
+  }
+  context.nodes++;
+  return {
+    key: edge.from,
+    kind: "action",
+    target: edge.from,
+    quantity: batches,
+    group: "AND",
+    evidence: [...edge.evidence, ...(output?.evidence ?? [])],
+    children,
+  };
+}
+
+function actionStockScore(edge: GraphEdge, context: TreeContext): number {
+  const inputs = outgoingEdges(edge.from).filter(
+    (candidate) => candidate.type === "consume",
+  );
+  let score = 0;
+  for (const input of inputs) {
+    if (input.group === "OR") {
+      score += inputs.some(
+        (candidate) =>
+          candidate.group === "OR" &&
+          candidate.quantity === input.quantity &&
+          candidate.type === input.type &&
+          context.available(candidate.to.replace(/^item:/u, "")) >= candidate.quantity,
+      )
+        ? 1
+        : 0;
+    } else {
+      score +=
+        context.available(input.to.replace(/^item:/u, "")) >= input.quantity
+          ? 1
+          : 0;
+    }
+  }
+  return score;
+}
+
+function actionStationScore(edge: GraphEdge, context: TreeContext): number {
+  const stations = context.stations;
+  if (stations === null) return 0;
+  const locations = outgoingEdges(edge.from).filter(
+    (candidate) => candidate.type === "location",
+  );
+  return locations.every((candidate) =>
+    stations.has(stationName(candidate.to)),
+  )
+    ? 1
+    : -1;
+}
+
+function isFuelEdge(edge: GraphEdge): boolean {
+  return edge.conditions.some((condition) => condition.startsWith("fuel"));
+}
+
+function candidateInputKey(edge: GraphEdge): string {
+  return edge.to;
+}
+
+function acquireKind(
+  edge: GraphEdge,
+): "craft" | "smelt" | "mine" | "loot" | "drop" | "trade" | null {
+  if (edge.type === "produce" && edge.from.startsWith("action:craft:")) return "craft";
+  if (edge.type === "produce" && edge.from.startsWith("action:smelt:")) return "smelt";
+  if (edge.type === "produce" && edge.from.startsWith("action:silk_touch:")) return "mine";
+  if (edge.type === "produce" && edge.from.startsWith("action:mine:")) return "mine";
+  if (edge.type === "loot") return "loot";
+  if (edge.type === "drop") return "drop";
+  if (edge.type === "trade") return "trade";
+  return null;
+}
+
 function grouped(edges: readonly GraphEdge[]): GraphEdge[][] {
   const groups = new Map<string, GraphEdge[]>();
   for (const edge of edges) {
-    const key = `${edge.type}:${edge.group}`;
+    // The generated graph has no ingredient id. Quantity is the only stable
+    // discriminator between two independent OR ingredient groups (barrel:
+    // six planks and two slabs); edges sharing it are alternative choices for
+    // one ingredient.
+    const key = `${edge.type}:${edge.group}:${edge.quantity}`;
     const list = groups.get(key) ?? [];
     list.push(edge);
     groups.set(key, list);
@@ -255,4 +571,8 @@ function riskRank(risk: GraphEdge["risk"]): number {
 function normalize(id: string): string {
   const trimmed = id.trim().toLowerCase();
   return trimmed.includes(":") ? trimmed : `minecraft:${trimmed}`;
+}
+
+function stationName(id: string): string {
+  return id.replace(/^station:/u, "").replace(/^minecraft:/u, "");
 }

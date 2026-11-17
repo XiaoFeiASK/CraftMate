@@ -54,13 +54,43 @@ export class PlanCompiler {
       readonly targetFamilies: readonly PlanTargetFamily[];
     },
   ): SkillCall {
+    /*
+     * Acquisition steps name the station family they need before that station
+     * exists (for example craft an iron pickaxe at the table placed earlier
+     * in the same plan), so the caller cannot list every family up front.
+     * Referencing an undeclared family fails `run_plan` contract validation
+     * and turned the live iron job into sixteen rejected plans. Add the
+     * family the step actually names instead of emitting a plan the body must
+     * reject.
+     */
+    const families = new Map(
+      input.targetFamilies.map((family) => [family.id, family]),
+    );
+    const steps = input.steps.map((step) => {
+      const id = step.targetFamilyId;
+      if (id === undefined || families.has(id)) return step;
+      if (id === "station:crafting_table") {
+        families.set(id, {
+          id,
+          kind: "station",
+          ids: ["minecraft:crafting_table"],
+          maxDistance: 16,
+        });
+        return step;
+      }
+      // An id with no derivable family cannot be authorized. The step's own
+      // guards still prove reachability, and the body may choose the concrete
+      // block, so keep the step but drop the dangling reference.
+      const { targetFamilyId: _dropped, ...rest } = step;
+      return rest;
+    });
     const plan = runPlanSchema.parse({
       planId: input.planId,
       title: input.task.text,
       entryNodeId: input.entryNodeId,
       goalFamily: input.goalFamily,
-      targetFamilies: input.targetFamilies,
-      steps: input.steps,
+      targetFamilies: [...families.values()],
+      steps,
       maxDurationSeconds: input.maxDurationSeconds ?? 180,
       ...(input.checkpointIndex === undefined
         ? {}
@@ -74,6 +104,15 @@ export class PlanCompiler {
     return {
       name: "run_plan",
       args: plan,
+      /*
+       * A plan owns its own 180-second budget. Without an explicit command
+       * deadline the bridge falls back to thirty seconds, which expired while
+       * the plan was still loading a furnace or cooking an eight-item batch:
+       * the live iron chestplate job died one second after the furnace was
+       * placed. Keep the transport deadline above the body budget so a queued
+       * plan is never killed before its own checkpoint/timeout policy runs.
+       */
+      deadlineTicks: ((input.maxDurationSeconds ?? 180) + 60) * 20,
       idempotencyKey: `strategy:run_plan:${plan.planId}:${plan.steps.length}:${plan.entryNodeId}`,
     };
   }

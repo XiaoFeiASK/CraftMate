@@ -57,7 +57,6 @@ final class OrePerception {
 	static String status(int observed, int exposed, int visible, int reachable) {
 		if (observed <= 0) return NOT_OBSERVED;
 		if (exposed <= 0) return OBSERVED_NOT_PLANNED;
-		if (visible <= 0) return OBSERVED_NOT_PLANNED;
 		if (reachable <= 0) return OBSERVED_NOT_PLANNED;
 		return CANDIDATE_READY;
 	}
@@ -65,8 +64,14 @@ final class OrePerception {
 	static String reason(int observed, int exposed, int visible, int reachable) {
 		if (observed <= 0) return "no ore of the requested family was observed";
 		if (exposed <= 0) return "observed ore is fully encased; no exposed face";
-		if (visible <= 0) return "observed exposed faces are not visible from the eye";
-		if (reachable <= 0) return "visible ore has no standable interaction route";
+		if (reachable <= 0) {
+			return visible <= 0
+				? "observed exposed faces are neither visible nor reachable"
+				: "visible ore has no standable interaction route";
+		}
+		if (visible <= 0) {
+			return "a reachable exposed face is available; the eye ray is partially occluded";
+		}
 		return "a reachable exposed face is available";
 	}
 }

@@ -117,28 +117,19 @@ Loader `≥0.15.11`（当前验证实例为 0.20.1）。
 
 ### 安装
 
-1. 准备 Minecraft 1.20.1、Fabric Loader `≥0.15.11` 和 Fabric API 0.92.2+1.20.1 实例；开发验证使用 HMCL。
-2. 构建：
+```bash
+cd mods/craftmate-body
+./gradlew build
+```
 
-   ```bash
-   cd mods/craftmate-body
-   ./gradlew build
-   ```
+把构建产物放进专用 1.20.1 / Fabric 实例的 `mods/`，关闭失焦暂停，然后启动
+CraftMate 和游戏。版本、jar 路径和验收步骤见
+[身体 README](../../mods/craftmate-body/README.md)。
 
-3. 按该实例的 mods 目录安装构建产物。
-4. 直播世界关闭失焦暂停，并使用专用存档。
-5. 启动 CraftMate 和游戏实例。
-
-管理端「设置 → 目标模式」默认关闭。关闭时空闲不移动、不下发计划任务，只响应
-观众评论或操作员操作。开启后由 GoalRuntime 一次下达一个任务，等待身体终态后
-再重新观察；接管、急停和暂停会取消当前命令。评论进入「观众提议」收件箱，
-经过安全、目标与执行三层闸门，票数不会覆盖安全拒绝。
-
-目标规划器只使用身体快照中的已观测事实生成任务。模型不参与目标模式的逐步执行，
-也不能代替身体事实跳过工具、食物或站点前置。角色在两个命令之间仍可能随机观察、
-短距离行走或捡掉落物，
-这是 Mod 的 `IdleWander`，不是 Agent 失去控制。完整分工见
-[自主生存闭环](../operations/autonomy.md)。
+管理端「设置 → 目标模式」默认关闭。开启后 `GoalRuntime` 一次只下达一个任务，
+终态后重新观察；观众提议经过安全、目标和执行闸门，不能覆盖安全拒绝。完整决策链见
+[自主生存闭环](../operations/autonomy.md)，技能与 Mod 任务对应见
+[Agent 编排与游戏身体映射](../reference/agent-body-mapping.md)。
 
 ### 验证
 
@@ -147,7 +138,8 @@ Loader `≥0.15.11`（当前验证实例为 0.20.1）。
 3. 观察 `ack`、`progress`、终态和游戏内结果。
 4. 测试窗口失焦、断线、接管和急停后输入释放。
 
-`bridge-mcpfabric` 中的候选映射尚未接入运行时，不能视为可用身体能力。
+帧字段和验收细节见 [Bridge 设计](../reference/bridge.md)。`bridge-mcpfabric`
+中的候选映射尚未接入运行时，不能视为可用身体能力。
 
 ## 5. 凭据与安全
 

@@ -94,6 +94,13 @@ export interface BodySessionOptions {
 export interface IssueOptions {
   /** Rejects work authorised before a takeover, stop or reconnect. */
   readonly expectedGeneration?: number;
+  /**
+   * Relative body-tick budget for a caller that names a duration rather than
+   * an absolute `deadlineTick`. Agent skills store `deadlineTicks` as a
+   * duration; passing it through unchanged put a small absolute tick in the
+   * past and rejected the command immediately.
+   */
+  readonly timeoutTicks?: number;
 }
 
 const CLOSE_UNAUTHORIZED = 4401;
@@ -321,10 +328,14 @@ export class BodySession {
     // non-extensible frozen the extension path for every long task: a
     // `chop_tree` still reporting breaking progress was cancelled at 30s
     // even though the body was making real progress.
-    const callerDeadline = command.deadlineTick;
+    const callerDeadline =
+      command.deadlineTick ??
+      (options.timeoutTicks === undefined
+        ? undefined
+        : this.tick + Math.max(1, Math.floor(options.timeoutTicks)));
     const deadlineTick = callerDeadline ?? this.tick + 20 * 30;
-    if (command.deadlineTick !== undefined && command.deadlineTick <= this.tick) {
-      throw new BridgeError("E_TIMEOUT", `deadline tick ${command.deadlineTick} already passed`);
+    if (callerDeadline !== undefined && callerDeadline <= this.tick) {
+      throw new BridgeError("E_TIMEOUT", `deadline tick ${callerDeadline} already passed`);
     }
 
     let attempt: { id: string; created: boolean };

@@ -99,6 +99,27 @@ describe("decision to speech", () => {
     }
   });
 
+  test("route coordinates are not read aloud even when a model leaks them", () => {
+    const { show, close } = harness();
+    try {
+      const leaked = decision({
+        speech: "我先开挖矿道寻找铁矿石（本轮先到 y=35）（复用矿道第 24 阶）。",
+      });
+      let spoken = "";
+      const outcome = speakDecision(show, leaked, {
+        speak: ({ text }) => {
+          spoken = text;
+        },
+      });
+
+      assert.equal(spoken, "我先开挖矿道寻找铁矿石。");
+      assert.equal(outcome?.text, "我先开挖矿道寻找铁矿石。");
+      assert.match(leaked.speech, /y=35/u);
+    } finally {
+      close();
+    }
+  });
+
   test("an operator takeover silences the agent but keeps the decision", () => {
     const { show, commitments, close } = harness();
     try {

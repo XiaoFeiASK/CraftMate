@@ -1,4 +1,8 @@
-import { nextTaskForStage } from "./tasks.ts";
+import {
+  deadEndEscapeTask,
+  nextTaskForStage,
+  woodSourceFallbackTask,
+} from "./tasks.ts";
 import { isNight, isUnderground } from "./facts.ts";
 import type {
   BlockedTask,
@@ -73,6 +77,18 @@ export function classifyFailure(
   ) {
     return "RESOURCE_NOT_FOUND";
   }
+  /*
+   * The container is open and reachable, but it holds none of the requested
+   * category. That is a resource verdict, not an unknown failure that can be
+   * fixed by reopening the same chest.
+   */
+  if (
+    /no more matching items remain|no matching items remain|container.*(?:empty|no room)/iu.test(
+      text,
+    )
+  ) {
+    return "RESOURCE_NOT_FOUND";
+  }
   if (
     /route|path|reach|approach|navigate|stopped short|unreachable|obstruct|blocked|no safe|no valid|no usable|no direction|behind a wall|寻路|路线|接近|到达|不可达|受阻/u.test(
       text,
@@ -90,6 +106,7 @@ export function classifyFailure(
  */
 export function recover(input: RecoveryInput): Recovery {
   const failureClass = classifyFailure(input.failure);
+  const failureText = `${input.failure.code} ${input.failure.detail}`;
   const history = [...(input.history ?? []), input.failure];
   const avoid = history.map((entry) => normalizedTaskId(entry.taskId));
   const sameStage = history.filter((entry) => entry.stage === input.failure.stage);
@@ -97,6 +114,73 @@ export function recover(input: RecoveryInput): Recovery {
   const taskKey = task === null ? null : normalizedTaskId(taskSignature(task));
   const avoidStrategies = new Set(avoid);
   if (taskKey !== null) avoidStrategies.add(taskKey);
+
+  /*
+   * A stair can dead-end on a dry ledge with water around every descent and
+   * branch face. Retrying the same mine_tunnel only produced another
+   * E_PRECONDITION, and the generic alternative was an enclosed goto to the
+   * old entrance. Switch to the explicit escape task immediately: mine the
+   * overhead face or pillar until the body is out of the pocket.
+   */
+  if (
+    task !== null &&
+    ((task.skill.name === "mine_tunnel" &&
+      /no safe mining direction|no safe mining|no direction/iu.test(
+        failureText,
+      )) ||
+      (task.skill.name === "goto" &&
+        (input.failure.code === "E_ENCLOSED" ||
+          /enclosed|no safe route and no legal recovery step/iu.test(
+            failureText,
+          ))))
+  ) {
+    const escape = deadEndEscapeTask(
+      input.failure.stage,
+      input.facts,
+      () => crypto.randomUUID(),
+    );
+    if (escape !== null) {
+      return {
+        task: escape,
+        reason: "矿道死端没有安全下挖或侧切方向；改为挖开头顶/垫高脱困",
+        avoid,
+        blocked: [],
+      };
+    }
+  }
+
+  /*
+   * "No more matching items remain" is a content verdict, not a transient
+   * approach failure. Retrying the same chest produced three identical
+   * withdraw attempts in the live run while seven trees were visible.
+   */
+  if (
+    task !== null &&
+    task.skill.name === "withdraw" &&
+    /no more matching items remain|no matching .* in .*containers?/iu.test(
+      `${input.failure.code} ${input.failure.detail}`,
+    )
+  ) {
+    const woodFallback = woodSourceFallbackTask(
+      input.failure.stage,
+      input.facts,
+      () => crypto.randomUUID(),
+    );
+    if (woodFallback !== null) {
+      return {
+        task: woodFallback,
+        reason: "附近箱子都没有木头；改为砍树补充",
+        avoid,
+        blocked: [],
+      };
+    }
+    return {
+      task: null,
+      reason: "附近箱子都没有木头，也没有可搜索的树木",
+      avoid,
+      blocked: [],
+    };
+  }
 
   const retryAllowed =
     failureClass !== "INVENTORY_FULL" &&
@@ -239,6 +323,36 @@ export function recover(input: RecoveryInput): Recovery {
       avoid,
       blocked: [],
     };
+  }
+  /*
+   * A chest can be empty of wood even though it is openable. Repeating the
+   * same withdraw forever would starve the mine; treat that chest as
+   * unavailable for one replan so the wood reserve falls back to chopping.
+   */
+  if (task !== null && task.skill.name === "withdraw") {
+    const woodFallback = nextTaskForStage({
+      stage: input.failure.stage,
+      facts: { ...input.facts, chest: null },
+      newId: () => crypto.randomUUID(),
+    });
+    if (
+      woodFallback !== null &&
+      "skill" in woodFallback &&
+      woodFallback.skill.name !== "withdraw"
+    ) {
+      return {
+        task: woodFallback,
+        /*
+         * A previous chop_tree failure must not block this fallback. The
+         * chest has just been proven empty of wood, so the only remaining
+         * source is a tree; the runtime's failure backoff still caps retries
+         * and the newer body selects the lowest trunk log.
+         */
+        reason: "箱子没有可取回的木头；改为砍树补充",
+        avoid,
+        blocked: [],
+      };
+    }
   }
   if (
     alternative !== null &&

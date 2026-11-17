@@ -98,8 +98,22 @@ function splitLong(text: string, maxChars: number): string[] {
  * only when the combined unit still fits.
  */
 function mergeShort(parts: string[], maxChars: number): string[] {
-  // Keep sentence boundaries intact: merging would change both subtitle
-  // timing and the unit at which a higher-priority utterance may preempt.
-  void maxChars;
-  return parts;
+  // A one-word beat ("唔。", "好！") sounds clipped when it opens a separate
+  // synthesis session. Fold only those tiny fragments into the next sentence;
+  // real sentence boundaries remain preemption points.
+  const merged: string[] = [];
+  for (let index = 0; index < parts.length; index += 1) {
+    let current = parts[index] ?? "";
+    while (
+      current.trim().length <= 3 &&
+      index + 1 < parts.length
+    ) {
+      const next = parts[index + 1] ?? "";
+      if (`${current}${next}`.length > maxChars) break;
+      current = `${current}${next}`;
+      index += 1;
+    }
+    if (current.length > 0) merged.push(current);
+  }
+  return merged;
 }

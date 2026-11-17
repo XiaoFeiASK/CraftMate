@@ -12,12 +12,14 @@ export const skillNameSchema = z.enum([
   "flee",
   "look_at",
   "mine_block",
+  "mine_tunnel",
   "chop_tree",
   "collect_items",
   "craft",
   "equip",
   "eat",
   "deposit",
+  "withdraw",
   "place_block",
   "pillar_up",
   "smelt",
@@ -201,6 +203,12 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
        * answering the danger.
        */
       emergency: z.boolean().optional(),
+      /**
+       * Horizontal arrival tolerance in blocks. Omitted keeps the historic
+       * one-cell window; use 2-4 for a structure entrance or a shoreline
+       * where the exact cell may be occupied.
+       */
+      radius: z.number().int().min(1).max(8).optional(),
     }),
   }),
   z.object({ name: z.literal("follow"), args: z.object({ player: playerName }) }),
@@ -227,6 +235,23 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
       requireDrop: z.boolean().optional(),
     }),
   }),
+  z.object({
+    name: z.literal("mine_tunnel"),
+    args: z.object({
+      /**
+       * Omit to continue a horizontal branch at the body's current Y. A
+       * lower value cuts a reusable staircase down to that layer.
+       */
+      targetY: z.number().int().min(-60).max(320).optional(),
+      /**
+       * Fresh branch cells to open after reaching targetY. Bounded to keep a
+       * single body action under the orchestrator's watchdog window.
+       */
+      length: z.number().int().min(0).max(8).default(4),
+      direction: z.enum(["north", "south", "east", "west"]).optional(),
+      rememberMine: z.boolean().optional(),
+    }),
+  }),
   z.object({ name: z.literal("chop_tree"), args: z.object({ count: z.number().int().min(1).max(16).default(1) }) }),
   z.object({
     name: z.literal("collect_items"),
@@ -241,10 +266,25 @@ export const skillArgsSchema = z.discriminatedUnion("name", [
       container: point.optional(),
       item: itemId.optional(),
       /**
+       * Batch several overflow types into one chest visit. A single `item`
+       * stays supported for older plans.
+       */
+      items: z.array(itemId).min(1).max(8).optional(),
+      /**
        * Stop after this many inventory stacks instead of emptying every
        * matching stack. A full backpack needs one free slot, not a chest
        * transfer that also removes the tool-building reserve.
        */
+      maxStacks: z.number().int().min(1).max(36).optional(),
+    }),
+  }),
+  z.object({
+    name: z.literal("withdraw"),
+    args: z.object({
+      container: point.optional(),
+      items: z.array(itemId).min(1).max(8).optional(),
+      /** Coarse groups avoid guessing the wood species stored in a chest. */
+      category: z.enum(["wood"]).optional(),
       maxStacks: z.number().int().min(1).max(36).optional(),
     }),
   }),
@@ -352,12 +392,14 @@ export const SKILL_CAPABILITY: Readonly<Record<SkillName, string>> = {
   flee: "move",
   look_at: "camera",
   mine_block: "mine",
+  mine_tunnel: "mine",
   chop_tree: "mine",
   collect_items: "container",
   craft: "container",
   equip: "use",
   eat: "use",
   deposit: "container",
+  withdraw: "container",
   place_block: "build",
   pillar_up: "build",
   smelt: "use",
@@ -383,10 +425,12 @@ export const FABRIC_BODY_SKILLS = [
   "goto",
   "look_at",
   "mine_block",
+  "mine_tunnel",
   "chop_tree",
   "collect_items",
   "craft",
   "deposit",
+  "withdraw",
   "say",
   "wait",
   "attack",

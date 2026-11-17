@@ -5,19 +5,24 @@ package com.craftmate.body.bridge;
  * Minecraft classes makes the jump/clamp guarantees testable without a client.
  */
 public final class CameraSpring {
-	public static final double SHOULDER_BACK = 3.2;
-	public static final double SHOULDER_UP = 0.35;
+	/**
+	 * Audience framing is deliberately wider than vanilla third person. The
+	 * goal is not a cinematic over-the-shoulder shot: a fixed seven-block
+	 * observation distance shows the body, the tunnel face and the blocks it
+	 * is interacting with at the same time. Terrain never shortens it.
+	 */
+	public static final double SHOULDER_BACK = 7.0;
+	public static final double SHOULDER_UP = 1.25;
 	/** Camera anchor is the torso, expressed as a fraction of entity height. */
 	public static final double TORSO_HEIGHT_FRACTION = 0.55;
 	/** Audience framing keeps most of the look pitch while retaining body weight. */
-	public static final double LOOK_PITCH_WEIGHT = 0.6;
-	public static final double BODY_PITCH_WEIGHT = 0.4;
+	public static final double LOOK_PITCH_WEIGHT = 0.75;
+	public static final double BODY_PITCH_WEIGHT = 0.25;
 	/** 120 ms position settle, slow enough to hide node transitions. */
 	public static final double TIME_CONSTANT_SECONDS = 0.12;
 	public static final double MAX_STEP_PER_FRAME = 0.45;
-	public static final double LOOK_AHEAD_SECONDS = 0.10;
-	public static final double MAX_LOOK_AHEAD = 0.5;
-	public static final double OCCLUSION_MARGIN = 0.28;
+	public static final double LOOK_AHEAD_SECONDS = 0.04;
+	public static final double MAX_LOOK_AHEAD = 0.18;
 
 	private double x;
 	private double y;
@@ -95,6 +100,34 @@ public final class CameraSpring {
 	}
 
 	/**
+	 * Keeps the current viewing direction but pins the camera to an exact
+	 * radius around the anchor. The character is small enough that a changing
+	 * distance reads as an unwanted zoom; the spring may smooth direction but
+	 * never scale. If the body walks into the camera, this pushes it back out.
+	 */
+	public void pinDistance(
+		double anchorX,
+		double anchorY,
+		double anchorZ,
+		double distance
+	) {
+		if (!initialized || distance <= 0.0) return;
+		double dx = x - anchorX;
+		double dy = y - anchorY;
+		double dz = z - anchorZ;
+		double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
+		if (length < 1.0e-6) {
+			// A degenerate direction cannot be repaired from the current
+			// sample; leave the position to the next follow target.
+			return;
+		}
+		double scale = distance / length;
+		x = anchorX + dx * scale;
+		y = anchorY + dy * scale;
+		z = anchorZ + dz * scale;
+	}
+
+	/**
 	 * Centred third-person framing around the torso. Yaw 0 faces south (+Z).
 	 * There is deliberately no lateral offset: the character remains on the
 	 * horizontal centre line at every heading.
@@ -134,29 +167,4 @@ public final class CameraSpring {
 		return (float) (lookPitch * LOOK_PITCH_WEIGHT + bodyPitch * BODY_PITCH_WEIGHT);
 	}
 
-	/**
-	 * Applies an occlusion hit distance while preserving the follow offset
-	 * direction. Restoring is handled by the spring, so a wall exit is smooth
-	 * instead of a one-frame pop.
-	 */
-	public static Target clipped(
-		double anchorX,
-		double anchorY,
-		double anchorZ,
-		Target desired,
-		double hitDistance
-	) {
-		double dx = desired.x() - anchorX;
-		double dy = desired.y() - anchorY;
-		double dz = desired.z() - anchorZ;
-		double length = Math.sqrt(dx * dx + dy * dy + dz * dz);
-		if (length < 1.0e-6) return desired;
-		double allowed = Math.max(0.25, Math.min(length, hitDistance - OCCLUSION_MARGIN));
-		double scale = allowed / length;
-		return new Target(
-			anchorX + dx * scale,
-			anchorY + dy * scale,
-			anchorZ + dz * scale
-		);
-	}
 }

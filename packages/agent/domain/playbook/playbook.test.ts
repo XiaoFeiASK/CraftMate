@@ -207,6 +207,37 @@ describe("safety and night gates", () => {
     const retreat = hurt.find((item) => item.card.id === "safety.retreat");
     assert.equal(retreat?.status, "available");
     assert.equal(retreat?.task?.skill.args["emergency"], true);
+    assert.equal(retreat?.task?.skill.args["mode"], "walk");
+
+    const underground = evaluatePlaybook(
+      context({
+        ...settled,
+        position: { x: 40, y: 36, z: 40 },
+        surfaceY: 70,
+        canSeeSky: false,
+        health: 6,
+        food: 18,
+        inventory: [
+          { section: "hotbar", slot: 0, item: "minecraft:stone_pickaxe", count: 1 },
+        ],
+        entities: [
+          {
+            name: "僵尸",
+            type: "minecraft:zombie",
+            distance: 3,
+            x: 41,
+            y: 36,
+            z: 40,
+          },
+        ],
+      }),
+      DEFAULT_GOAL_STRATEGY,
+    );
+    const tunnelRetreat = underground.find(
+      (item) => item.card.id === "safety.retreat",
+    );
+    assert.equal(tunnelRetreat?.status, "available");
+    assert.equal(tunnelRetreat?.task?.skill.args["mode"], "dig");
 
     const armed = evaluatePlaybook(
       context({

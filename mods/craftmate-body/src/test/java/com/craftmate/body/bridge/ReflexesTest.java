@@ -79,4 +79,11 @@ class ReflexesTest {
 		assertTrue(Reflexes.threatIsUrgent(false, true, 5.0));
 		assertTrue(Reflexes.threatIsUrgent(true, false, 9.0));
 	}
+
+	@Test
+	void anEmergencyRetreatStillLetsACreeperInterrupt() {
+		assertTrue(Reflexes.keepsThreatDuringEmergency(true, true));
+		assertFalse(Reflexes.keepsThreatDuringEmergency(true, false));
+		assertTrue(Reflexes.keepsThreatDuringEmergency(false, false));
+	}
 }

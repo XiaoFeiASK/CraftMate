@@ -110,7 +110,12 @@ export class TaskScheduler {
 
   shouldPreempt(current: TaskNode | null, candidate: TaskNode): boolean {
     if (current === null) return true;
-    return PRIORITY_RANK[candidate.priority] < PRIORITY_RANK[current.priority];
+    return this.preemptsByPriority(current.priority, candidate.priority);
+  }
+
+  /** Priority-only form used before a candidate node has been materialised. */
+  preemptsByPriority(current: TaskPriority, candidate: TaskPriority): boolean {
+    return PRIORITY_RANK[candidate] < PRIORITY_RANK[current];
   }
 
   blockedUntil(_category: FailureCategory): number {

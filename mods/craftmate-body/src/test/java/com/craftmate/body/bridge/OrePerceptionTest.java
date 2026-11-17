@@ -47,5 +47,25 @@ class OrePerceptionTest {
 			OrePerception.status(3, 2, 1, 0)
 		);
 		assertEquals(OrePerception.CANDIDATE_READY, OrePerception.status(3, 2, 1, 1));
+		for (
+			int visible = 0;
+			visible <= 2;
+			visible++
+		) {
+			assertEquals(
+				OrePerception.CANDIDATE_READY,
+				OrePerception.status(3, 2, visible, 1)
+			);
+		}
+	}
+
+	@Test
+	void anOreInsideCurrentReachIsReachableWithoutASeparateStandingCell() {
+		assertTrue(GameActions.oreReachable(true, true, 1.0, true, false));
+		assertTrue(GameActions.oreReachable(true, false, 1.0, true, false));
+		assertFalse(GameActions.oreReachable(true, true, 1.0, false, false));
+		assertTrue(GameActions.oreReachable(true, true, 1.0, false, true));
+		assertTrue(GameActions.oreReachable(true, true, 12.0, false, false));
+		assertFalse(GameActions.oreReachable(false, true, 1.0, true, true));
 	}
 }

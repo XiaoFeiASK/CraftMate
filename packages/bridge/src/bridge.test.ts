@@ -421,6 +421,19 @@ describe("bridge command lifecycle", () => {
     assert.ok((after as number) > (before as number));
   });
 
+  test("a relative timeout budget becomes an absolute deadline", () => {
+    const harness = createHarness("manual");
+    connectHarness(harness);
+    harness.coordinator.issue(harness.frame({ id: "c-plan" }), {
+      timeoutTicks: 4_800,
+    });
+    const deadline = harness.coordinator.pendingCommand("c-plan")?.command.deadlineTick;
+    assert.equal(typeof deadline, "number");
+    // The default would be 600 ticks. A plan's 180-second budget plus a
+    // sixty-second queue allowance must survive the bridge's default.
+    assert.ok((deadline as number) >= 4_800);
+  });
+
   test("a timed-out command is reported as timeout and the body is told to stop", () => {
     const harness = createHarness("manual");
     connectHarness(harness);

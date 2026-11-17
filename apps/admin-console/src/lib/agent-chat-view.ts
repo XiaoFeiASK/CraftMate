@@ -143,6 +143,10 @@ const BODY_EVENT_LABELS: Record<string, string> = {
   creeper: "苦力怕",
 };
 
+const GOAL_NARRATION_MS = 12_000;
+const GOAL_URGENT_NARRATION_MS = 5_000;
+const GOAL_REPEAT_MS = 45_000;
+
 /**
  * Builds the user-facing conversation. Audience comments and proposals use
  * their real text; the agent uses its planned speech when available. Decision
@@ -155,9 +159,11 @@ export function buildAgentChat(
   worldEvents: readonly BodyEvent[] = [],
   limit = 24,
 ): readonly AgentChatEntry[] {
-  const decisions = [...snapshot.decisions]
-    .sort((left, right) => left.at - right.at)
-    .slice(-Math.max(1, limit));
+  const decisions = visibleGoalNarration(
+    [...snapshot.decisions]
+      .sort((left, right) => left.at - right.at)
+      .slice(-Math.max(1, limit)),
+  );
   const proposals = [...snapshot.proposals]
     .sort((left, right) => left.createdAt - right.createdAt)
     .slice(-Math.max(1, limit));
@@ -336,12 +342,40 @@ function agentTurn(
     kind: "agent",
     id: `agent-${decision.id}`,
     at: decision.at,
-    text: humanizeRuntimeText(outcome === null && speech.length > 0 ? speech : agentLine(decision)),
+    // The character's own line is the conversation. Outcome details stay in
+    // the evidence row below the bubble instead of replacing what was said.
+    text: speech.length > 0 ? humanizeAgentSpeech(speech) : agentLine(decision),
     meta: meta.slice(0, 4),
     tone: outcome === null ? decisionTone(decision) : outcomeTone(outcome.status),
     traceId: decision.eventId || null,
     current: false,
   };
+}
+
+/**
+ * Goal mode settles a skill every couple of seconds. Voice already throttles
+ * those transitions; the conversation should use the same cadence instead of
+ * turning one mining loop into a wall of near-identical bubbles. Every raw
+ * decision remains available through replay and telemetry.
+ */
+function visibleGoalNarration(decisions: readonly Decision[]): readonly Decision[] {
+  let lastAt = Number.NEGATIVE_INFINITY;
+  let lastText = "";
+  return decisions.filter((decision) => {
+    if (!decision.eventId.startsWith("goal:")) return true;
+    const text = decision.speech.trim();
+    if (text.length === 0) return true;
+    const urgent =
+      decision.intent === "danger" ||
+      /低血量|撤离|威胁|苦力怕|僵尸|骷髅|着火|岩浆/u.test(decision.text);
+    const minimum = urgent ? GOAL_URGENT_NARRATION_MS : GOAL_NARRATION_MS;
+    const elapsed = decision.at - lastAt;
+    if (elapsed < minimum) return false;
+    if (text === lastText && elapsed < GOAL_REPEAT_MS) return false;
+    lastAt = decision.at;
+    lastText = text;
+    return true;
+  });
 }
 
 function agentLine(decision: Decision): string {
@@ -584,5 +618,21 @@ export function humanizeRuntimeText(value: string): string {
   return replacements.reduce(
     (text, [pattern, label]) => text.replace(pattern, label),
     value,
+  );
+}
+
+/**
+ * A last guard against internal planning detail leaking into the conversation.
+ * Model prompts already forbid it; this keeps older persisted rows readable.
+ */
+export function humanizeAgentSpeech(value: string): string {
+  return humanizeRuntimeText(
+    value
+      .replace(
+        /[（(][^）)]*(?:[xyz]\s*=|坐标|第\s*\d+\s*阶|支线|复用|候选|分支)[^）)]*[）)]/giu,
+        "",
+      )
+      .replace(/\s{2,}/gu, " ")
+      .trim(),
   );
 }

@@ -86,10 +86,11 @@ describe("stage B scoring", () => {
     assert.equal(decision.decision, "REFUSE");
   });
 
-  test("ordinary chat is observed rather than executed", () => {
+  test("ordinary chat is answered without becoming a queued action", () => {
     const { decision } = createArbiter().evaluate(comment("大肥鱼你好可爱"));
     assert.equal(decision.intent, "chat");
-    assert.notEqual(decision.decision, "EXECUTE");
+    assert.equal(decision.decision, "ACK_ONLY");
+    assert.equal(decision.priority, "ambient");
   });
 
   test("a confident actionable comment is actually executable", () => {
