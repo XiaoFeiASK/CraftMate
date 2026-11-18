@@ -1,4 +1,5 @@
 export * from "./types.ts";
+export * from "./goal.ts";
 export * from "./facts.ts";
 export * from "./stages.ts";
 export * from "./tasks.ts";

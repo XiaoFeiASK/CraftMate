@@ -27,4 +27,27 @@ class WaterSurfaceTest {
 	void ignoresDryGround() {
 		assertFalse(WaterSurface.needsJump(false, false, false));
 	}
+
+	@Test
+	void aDescentTaskMaySinkThroughClearWater() {
+		assertTrue(WaterSurface.mayDive(true, false, 300, true));
+	}
+
+	@Test
+	void aDescentTaskMayAlsoSinkWithTheEyesUnderwater() {
+		// A flooded stair can be deeper than the surface. Air supply, not the
+		// eye height, is what limits the dive.
+		assertTrue(WaterSurface.mayDive(true, false, 300, true));
+	}
+
+	@Test
+	void surfacesForAirWhenTheReserveIsLow() {
+		assertFalse(WaterSurface.mayDive(true, false, 80, true));
+	}
+
+	@Test
+	void ordinaryTasksDoNotDive() {
+		assertFalse(WaterSurface.mayDive(true, false, 300, false));
+		assertFalse(WaterSurface.mayDive(false, false, 300, true));
+	}
 }

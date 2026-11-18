@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type {
   BodyEvent,
+  GoalTaskTree,
+  GoalTreeNodeKind,
+  GoalTreeViewNode,
   OperatorKind,
   ProposalStatus,
   ShowSnapshot,
@@ -193,33 +196,36 @@ function CurrentWorkCard({
         {goal?.nextTask ? <span>下一步 {goal.nextTask}</span> : null}
       </div>
       {goal?.taskTree ? (
-        <div className="agent-chat__work-meta" data-task-tree="true">
-          <span>
-            任务树{" "}
-            {goal.taskTree.activePath
-              .map((node) => node.intent)
-              .join(" → ") || "等待活动分支"}
-          </span>
-          <span>
-            当前节点 {goal.taskTree.currentNodeIntent ?? "无"} · 检查点{" "}
-            {Math.floor(goal.taskTree.checkpointAgeMs / 1000)}s 前
-          </span>
-          {goal.taskTree.branches.length > 0 ? (
+        <>
+          <div className="agent-chat__work-meta" data-task-tree="true">
             <span>
-              计划分支{" "}
-              {goal.taskTree.branches
-                .slice(0, 4)
-                .map((node) => humanizeRuntimeText(node.intent))
-                .join(" · ")}
-              {goal.taskTree.branches.length > 4
-                ? ` 等 ${goal.taskTree.branches.length} 项`
-                : ""}
+              任务树{" "}
+              {goal.taskTree.activePath
+                .map((node) => node.intent)
+                .join(" → ") || "等待活动分支"}
             </span>
-          ) : null}
-          {goal.taskTree.blockedReason ? (
-            <span>阻塞原因 {humanizeRuntimeText(goal.taskTree.blockedReason)}</span>
-          ) : null}
-        </div>
+            <span>
+              当前节点 {goal.taskTree.currentNodeIntent ?? "无"} · 检查点{" "}
+              {Math.floor(goal.taskTree.checkpointAgeMs / 1000)}s 前
+            </span>
+            {goal.taskTree.branches.length > 0 ? (
+              <span>
+                计划分支{" "}
+                {goal.taskTree.branches
+                  .slice(0, 4)
+                  .map((node) => humanizeRuntimeText(node.intent))
+                  .join(" · ")}
+                {goal.taskTree.branches.length > 4
+                  ? ` 等 ${goal.taskTree.branches.length} 项`
+                  : ""}
+              </span>
+            ) : null}
+            {goal.taskTree.blockedReason ? (
+              <span>阻塞原因 {humanizeRuntimeText(goal.taskTree.blockedReason)}</span>
+            ) : null}
+          </div>
+          <TaskTreePanel tree={goal.taskTree} />
+        </>
       ) : null}
       {goal?.playbook ? (
         <div className="agent-chat__work-meta" data-playbook="true">
@@ -257,6 +263,123 @@ function CurrentWorkCard({
         </div>
       ) : null}
     </article>
+  );
+}
+
+const TREE_KIND_LABELS: Record<GoalTreeNodeKind, string> = {
+  goal: "目标",
+  stage: "阶段",
+  milestone: "里程碑",
+  task: "任务",
+  skill: "技能",
+  interrupt: "中断",
+};
+
+const TREE_STATE_LABELS: Record<GoalTreeViewNode["state"], string> = {
+  pending: "待执行",
+  active: "执行中",
+  waiting: "等待",
+  blocked: "受阻",
+  succeeded: "完成",
+  failed: "失败",
+  invalidated: "作废",
+  paused: "暂停",
+};
+
+/**
+ * The complete tree is a diagnostic, not an editor. It shows the planned
+ * hierarchy, node state and evidence so an operator can explain a stop
+ * without gaining a second way to command the body.
+ */
+function TaskTreePanel({
+  tree,
+}: {
+  readonly tree: GoalTaskTree;
+}): React.JSX.Element | null {
+  if (tree.nodes.length === 0) return null;
+  const active = new Set(tree.activePath.map((node) => node.id));
+  const byParent = new Map<string | null, GoalTreeViewNode[]>();
+  for (const node of tree.nodes) {
+    const siblings = byParent.get(node.parentId);
+    if (siblings === undefined) byParent.set(node.parentId, [node]);
+    else siblings.push(node);
+  }
+  const seen = new Set<string>();
+  const rows: React.JSX.Element[] = [];
+  const visit = (parentId: string | null, depth: number): void => {
+    if (depth > 8) return;
+    for (const node of byParent.get(parentId) ?? []) {
+      if (seen.has(node.id)) continue;
+      seen.add(node.id);
+      rows.push(
+        <li
+          key={node.id}
+          className="agent-chat__tree-node"
+          data-kind={node.kind}
+          data-state={node.state}
+          data-active={active.has(node.id)}
+          style={{ paddingLeft: `${depth * 13}px` }}
+        >
+          <span className="agent-chat__tree-kind">
+            {TREE_KIND_LABELS[node.kind]}
+          </span>
+          <span className="agent-chat__tree-state">
+            {TREE_STATE_LABELS[node.state]}
+          </span>
+          <span className="agent-chat__tree-intent">
+            {humanizeRuntimeText(node.intent)}
+          </span>
+          {node.attempts > 0 ? (
+            <span className="agent-chat__tree-note">尝试 {node.attempts}</span>
+          ) : null}
+          {node.reason ? (
+            <span className="agent-chat__tree-note">
+              {humanizeRuntimeText(node.reason)}
+            </span>
+          ) : null}
+        </li>,
+      );
+      visit(node.id, depth + 1);
+    }
+  };
+  visit(tree.rootId, 0);
+  // A persisted node can be orphaned by an older snapshot. Show it instead of
+  // hiding the only explanation for a blocked run.
+  for (const node of tree.nodes) {
+    if (seen.has(node.id)) continue;
+    seen.add(node.id);
+    rows.push(
+      <li
+        key={node.id}
+        className="agent-chat__tree-node"
+        data-kind={node.kind}
+        data-state={node.state}
+        data-active={active.has(node.id)}
+      >
+        <span className="agent-chat__tree-kind">
+          {TREE_KIND_LABELS[node.kind]}
+        </span>
+        <span className="agent-chat__tree-state">
+          {TREE_STATE_LABELS[node.state]}
+        </span>
+        <span className="agent-chat__tree-intent">
+          {humanizeRuntimeText(node.intent)}
+        </span>
+      </li>,
+    );
+  }
+  return (
+    <details
+      className="agent-chat__tree"
+      data-interrupt={tree.interruptActive}
+    >
+      <summary>
+        完整目标树 · {tree.nodes.length} 个节点
+        {tree.interruptActive ? " · 安全抢占中" : ""}
+        {tree.pausedNodeId ? " · 已暂停" : ""}
+      </summary>
+      <ul>{rows}</ul>
+    </details>
   );
 }
 

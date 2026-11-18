@@ -1,6 +1,8 @@
 import {
   audienceEventSchema,
   DEFAULT_GOAL_STRATEGY,
+  goalKindForTitle,
+  goalPresetForTitle,
   type AudienceEvent,
   type Decision,
   type GoalProgress,
@@ -151,10 +153,12 @@ export interface WorldIncident {
   readonly at: number;
 }
 
-export function defaultSettings(persona: Persona, goalText = "盖一间带床和箱子的海崖小屋"): ShowSettings {
+export function defaultSettings(persona: Persona, goalText = "击败末影龙"): ShowSettings {
+  const preset = goalPresetForTitle(goalText);
   return {
-    goal: goalText,
-    goalDescription: "",
+    goal: preset?.title ?? goalText,
+    goalKind: preset?.kind ?? goalKindForTitle(goalText),
+    goalDescription: preset?.description ?? "",
     goalMode: false,
     goalStrategy: DEFAULT_GOAL_STRATEGY,
     worldName: "本地单人世界",

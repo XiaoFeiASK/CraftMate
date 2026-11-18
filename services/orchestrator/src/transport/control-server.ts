@@ -17,6 +17,7 @@ import {
   voiceStatusSchema,
   type BridgeHealth,
   type Decision,
+  type GoalKind,
   type IngressServerFrame,
   type OpsRequest,
   type Proposal,
@@ -105,6 +106,7 @@ export interface GoalRuntimeHooks {
   setGoal(input: {
     readonly title: string;
     readonly description: string;
+    readonly goalKind?: GoalKind;
   }): SeasonGoal | null;
   pause(): void;
   resume(): void;

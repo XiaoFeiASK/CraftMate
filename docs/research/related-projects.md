@@ -74,8 +74,9 @@ dsh-mc-agent 也暴露了几个反例：41 个工具语义重叠、部分工具�
 2026-11-06 的目标模式进一步把这些原则合成了一个闭环：`GoalRuntime` 以身体事实
 选择单个任务，终态证据决定是否推进，失败后改道或退避再观察。它仍是确定性规划，
 不是外部项目的 LLM Planner；这样可以先验证身体和证据链，再评估是否引入模型级
-目标推理。2026-11-15 进一步收敛为 `MissionGoalPlanner` 单一任务链，旧的模型候选
-排序只保留为可选实现，不进入生产装配。
+目标推理。2026-11-17 进一步收敛为 `GoalTreePlanner` 目标树：阶段骨架、里程碑、
+任务和技能叶子都由同一份持久化状态调度；`MissionGoalPlanner` 保留为 legacy 回退，
+旧的模型候选排序不进入生产装配。
 
 2026-11-11 吸收 dsh-mc-agent 的运行时经验，补了四条独立实现：
 
@@ -137,11 +138,11 @@ dsh-mc-agent 也暴露了几个反例：41 个工具语义重叠、部分工具�
 | 持久区块与容器索引 | 有世界缓存 | 部分容器记忆 | 未实现 | 未实现 |
 | 采矿流程 | `MineProcess` 完整 | 任务链采矿 | `mine_block` / `mine_tunnel` 连续循环 | 已实现，真机通过 |
 | 建造流程 | `BuilderProcess` 完整 | 有限 | 只有 `place_block` / `pillar_up` / 局部蓝图 | 未完整 |
-| 递归任务树 | 非核心 | 核心 | `TaskTree` + `run_plan` 计划分支 | 已实现 |
+| 递归任务树 | 非核心 | 核心 | `GoalTreePlanner` + `TaskTree` 六类节点；`run_plan` 保留为身体能力 | 已实现 |
 | 资源获取图 | 非核心 | 有获取回退 | 知识图 AND/OR + 配方/熔炼编译 | 已实现 |
 | 容器批量存取 | 有容器流程 | 有容器任务 | 一次开箱批量存/取，多容器探测 | 已实现，真机通过 |
 | 工具耗尽恢复 | 有 | 有 | 断镐前补石镐/铁镐，就近合成 | 已实现，真机通过 |
-| 批量熔炼 | 有 | 有 | `run_plan` 批量熔炼并续接合成 | 已实现，真机通过 |
+| 批量熔炼 | 有 | 有 | legacy `run_plan` 批量熔炼并续接合成 | 已实现，真机通过 |
 | 失败恢复/目标拉黑 | 强 | 部分 | 反射抢占、路线黑名单、失败退避 | 已实现 |
 
 ### 扫描能力
@@ -167,6 +168,7 @@ Baritone 的全量区块缓存，避免把客户端内存和线程安全风险�
   `packages/agent/application/mission-goal-planner.ts`；
 - 任务树与调度：`packages/agent/domain/tasks/task-tree.ts`、
   `packages/agent/domain/tasks/scheduler.ts`、
+  `packages/agent/application/goal-tree-planner.ts`、
   `packages/agent/application/goal-runtime.ts`；
 - 契约与持久化：`packages/contracts/src/{bridge,control,skills}.ts`、
   `services/orchestrator/src/persistence.ts`。

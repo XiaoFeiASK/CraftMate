@@ -1,11 +1,15 @@
 import {
   goalProgressSchema,
+  goalKindForTitle,
+  goalPresetForTitle,
   navigationModeSchema,
   seasonGoalSchema,
+  SEASON_GOAL_PRESETS,
   skillCallSchema,
   type Intent,
   type BridgeHealth,
   type Decision,
+  type GoalKind,
   type GoalMilestone,
   type GoalProgress,
   type GoalStatus,
@@ -22,6 +26,7 @@ import {
   classifyFailure,
   deadEndEscapeTask,
   explore,
+  mineMouthApproachTask,
   nextTaskForStage,
   normalizedTaskId,
   planSurvival,
@@ -43,6 +48,7 @@ import {
 import type { Clock } from "./ports/clock.ts";
 import { systemClock } from "./ports/clock.ts";
 import type { ModelProvider } from "./ports/model.ts";
+import { projectGoalTree } from "./goal-tree-view.ts";
 
 export interface GoalTask {
   readonly intent: Decision["intent"];
@@ -89,6 +95,8 @@ export interface GoalPlan {
   readonly cardModelChoice?: boolean | null;
   readonly cardFallbackReason?: string | null;
   readonly targetLock?: TargetLock | null;
+  /** Full behavior tree state returned by the tree engine. */
+  readonly treeSnapshot?: TaskTreeSnapshot | null;
 }
 
 export interface GoalPlanningInput {
@@ -106,6 +114,8 @@ export interface GoalPlanningInput {
   readonly failures?: readonly TaskFailure[];
   /** Strategy that just failed; recovery may not reissue it. */
   readonly lastFailureStrategy?: string | null;
+  /** Restored behavior tree, when the tree engine is active. */
+  readonly treeSnapshot?: TaskTreeSnapshot | null;
 }
 
 /**
@@ -113,6 +123,8 @@ export interface GoalPlanningInput {
  * milestone; without the engine it returns an explicit unverified plan.
  */
 export interface GoalPlanner {
+  /** Identifies which runtime path owns settlement and persistence. */
+  readonly engine?: "tree" | "legacy";
   plan(input: GoalPlanningInput): GoalPlan | null;
   /** Optional model-assisted path. Hosts fall back to `plan` when absent. */
   planAsync?(input: GoalPlanningInput): Promise<GoalPlan | null>;
@@ -120,6 +132,20 @@ export interface GoalPlanner {
   updateProvider?(provider: ModelProvider | null): void;
   /** Applies an operator-saved model timeout to the next request. */
   updateDeadline?(deadlineMs: number): void;
+  /** Tree engines update their nodes from the body's terminal result. */
+  noteSettlement?(event: {
+    readonly decisionId: string;
+    readonly taskId: string;
+    readonly strategyKey: string;
+    readonly outcome: GoalSettlement;
+  }): void;
+  /** Latest tree snapshot after a settlement, without asking for a new task. */
+  treeSnapshot?(): TaskTreeSnapshot | null;
+  /**
+   * A reconnected body is a changed world. Tree engines may clear blocked
+   * branches for another attempt instead of stranding the goal forever.
+   */
+  retryFailed?(reason: string): number;
 }
 
 export interface GoalRuntimeRecord {
@@ -214,6 +240,13 @@ interface GoalRuntimeOptions {
   readonly hardTaskTimeoutMs?: number;
   readonly failureBaseMs?: number;
   readonly failureMaxMs?: number;
+  /**
+   * A tree branch that has failed twice is parked rather than retried every
+   * few seconds. It is still a world state, not a verdict: after this
+   * cooldown the runtime reopens it, doubling the wait up to `blockedRetryMaxMs`.
+   */
+  readonly blockedRetryBaseMs?: number;
+  readonly blockedRetryMaxMs?: number;
   readonly maxConsecutiveFailures?: number;
   /** Same `code + detail` repeated this many times opens a strategy circuit. */
   readonly circuitFailureThreshold?: number;
@@ -254,6 +287,8 @@ const DEFAULT_FAILURE_BASE_MS = 2_500;
  * during this window, so the pause is a short observation beat, not a freeze.
  */
 const DEFAULT_FAILURE_MAX_MS = 6_000;
+const DEFAULT_BLOCKED_RETRY_BASE_MS = 45_000;
+const DEFAULT_BLOCKED_RETRY_MAX_MS = 5 * 60_000;
 const DEFAULT_TASK_TIMEOUT_MS = 90_000;
 /**
  * Progress keeps a long mining or travel command alive, but it must not make
@@ -291,6 +326,8 @@ export class GoalRuntime {
   private readonly hardTaskTimeoutMs: number;
   private readonly failureBaseMs: number;
   private readonly failureMaxMs: number;
+  private readonly blockedRetryBaseMs: number;
+  private readonly blockedRetryMaxMs: number;
   private readonly maxConsecutiveFailures: number;
   private readonly circuitFailureThreshold: number;
   private readonly circuitWindowMs: number;
@@ -320,6 +357,8 @@ export class GoalRuntime {
   private consecutiveFailures = 0;
   private retryAt = 0;
   private nextPlanAt = 0;
+  private blockedRetryAt = 0;
+  private blockedRetryCount = 0;
   /**
    * A station placement is a one-off world change. The body may report the
    * success before the next world snapshot contains the new block, and
@@ -340,6 +379,8 @@ export class GoalRuntime {
    */
   private recentTorchPlacementAt = Number.NEGATIVE_INFINITY;
   private restoredInFlight: string | null = null;
+  private bridgeConnected = false;
+  private bridgeGeneration: number | null = null;
   private failures: TaskFailure[] = [];
   private failureWindow: { readonly fingerprint: string; readonly at: number }[] = [];
   private circuit: {
@@ -373,6 +414,10 @@ export class GoalRuntime {
       options.hardTaskTimeoutMs ?? DEFAULT_HARD_TASK_TIMEOUT_MS;
     this.failureBaseMs = options.failureBaseMs ?? DEFAULT_FAILURE_BASE_MS;
     this.failureMaxMs = options.failureMaxMs ?? DEFAULT_FAILURE_MAX_MS;
+    this.blockedRetryBaseMs =
+      options.blockedRetryBaseMs ?? DEFAULT_BLOCKED_RETRY_BASE_MS;
+    this.blockedRetryMaxMs =
+      options.blockedRetryMaxMs ?? DEFAULT_BLOCKED_RETRY_MAX_MS;
     this.maxConsecutiveFailures = options.maxConsecutiveFailures ?? DEFAULT_MAX_FAILURES;
     this.circuitFailureThreshold =
       options.circuitFailureThreshold ?? DEFAULT_CIRCUIT_THRESHOLD;
@@ -383,12 +428,20 @@ export class GoalRuntime {
     this.onSettlement = options.onSettlement;
   }
 
+  /** The tree engine owns node state; the legacy path keeps projecting it. */
+  private get treeOwned(): boolean {
+    return this.planner.engine === "tree";
+  }
+
   /** Restores the durable goal and stage. An old in-flight task is not replayed. */
   restore(): void {
     const record = this.store.load();
     if (!record) return;
     const goal = record.goal === null ? null : seasonGoalSchema.safeParse(record.goal);
-    this.goal = goal?.success ? goal.data : null;
+    this.goal = goal?.success ? normalizeSeasonGoal(goal.data) : null;
+    const migrated =
+      this.goal !== null &&
+      JSON.stringify(record.goal) !== JSON.stringify(this.goal);
     const progress =
       record.progress === null ? null : goalProgressSchema.safeParse(record.progress);
     this.progress = progress?.success ? progress.data : null;
@@ -434,6 +487,8 @@ export class GoalRuntime {
         };
       }
       this.persist();
+    } else if (migrated) {
+      this.persist();
     }
   }
 
@@ -469,6 +524,7 @@ export class GoalRuntime {
   setGoal(input: {
     readonly title: string;
     readonly description: string;
+    readonly goalKind?: GoalKind;
     readonly at?: number;
   }): { readonly goal: SeasonGoal; readonly interruption: GoalInterruption | null } {
     const interruption = this.interrupt("目标已更换，旧任务作废");
@@ -477,6 +533,7 @@ export class GoalRuntime {
       id: this.clock.newId(),
       title: input.title,
       description: input.description,
+      goalKind: input.goalKind ?? goalKindForTitle(input.title),
       status: "unverified",
       version: (this.goal?.version ?? 0) + 1,
       setBy: "operator",
@@ -504,6 +561,8 @@ export class GoalRuntime {
     this.consecutiveFailures = 0;
     this.failures = [];
     this.retryAt = 0;
+    this.blockedRetryAt = 0;
+    this.blockedRetryCount = 0;
     this.taskTree = null;
     this.taskRootId = null;
     this.taskMilestoneId = null;
@@ -574,6 +633,8 @@ export class GoalRuntime {
       };
     }
     this.retryAt = 0;
+    this.blockedRetryAt = 0;
+    this.blockedRetryCount = 0;
     const current = this.taskTree?.current ?? null;
     if (current !== null && current.state === "paused") {
       this.taskTree?.activate(current.id);
@@ -687,6 +748,7 @@ export class GoalRuntime {
   private prepareStep(context: GoalRuntimeContext): PreparedGoalStep | null {
     if (!this.enabled || this.goal === null || this.progress === null) return null;
     if (this.goal.status === "paused" || this.goal.status === "completed") return null;
+    this.observeBridge(context);
     if (this.inFlight !== null) {
       const now = this.clock.now();
       const silentFor = now - this.inFlight.startedAt;
@@ -702,12 +764,21 @@ export class GoalRuntime {
           commandId: stale.commandId,
           decision: stale.decision,
         };
+        const detail =
+          runningFor > this.hardTaskTimeoutMs
+            ? `任务超过 ${Math.round(this.hardTaskTimeoutMs / 1000)} 秒仍未完成，已硬熔断`
+            : `任务超过 ${Math.round(this.taskTimeoutMs / 1000)} 秒没有终态`;
+        this.noteTreeOutcome(stale.taskId, stale.strategyKey, {
+          status: "timeout",
+          errorCode: "E_TIMEOUT",
+          detail,
+          at: now,
+          changes: [],
+        });
         this.recordFailure(
           stale.taskId,
           stale.strategyKey,
-          runningFor > this.hardTaskTimeoutMs
-            ? `任务超过 ${Math.round(this.hardTaskTimeoutMs / 1000)} 秒仍未完成，已硬熔断`
-            : `任务超过 ${Math.round(this.taskTimeoutMs / 1000)} 秒没有终态`,
+          detail,
           "timeout",
           now,
           stale.decision.text,
@@ -719,6 +790,7 @@ export class GoalRuntime {
       }
       return null;
     }
+    this.maybeRetryBlockedTree();
     if (this.clock.now() < this.retryAt) return null;
     if (this.clock.now() < this.nextPlanAt) return null;
 
@@ -762,8 +834,116 @@ export class GoalRuntime {
         consecutiveFailures: this.consecutiveFailures,
         failures: this.failures,
         lastFailureStrategy: this.lastFailureStrategy,
+        ...(this.treeOwned
+          ? { treeSnapshot: this.taskTree?.snapshot() ?? null }
+          : {}),
       },
     };
+  }
+
+  /**
+   * A reconnect invalidates the command that was in flight and may also
+   * explain the previous two failures (the client was replaced, the body
+   * respawned, a tool reappeared). Retry blocked tree branches once per
+   * generation; a genuinely impossible branch simply fails again.
+   */
+  private observeBridge(context: GoalRuntimeContext): void {
+    const bridge = context.bridge;
+    const connected = bridge !== null && bridge.connected;
+    const generation = connected ? bridge.generation : null;
+    const reconnected =
+      connected &&
+      (!this.bridgeConnected ||
+        (generation !== null && generation !== this.bridgeGeneration));
+    this.bridgeConnected = connected;
+    this.bridgeGeneration = generation;
+    if (!reconnected) return;
+    this.retryBlockedTree("身体重新连接，重新验证受阻任务");
+  }
+
+  /**
+   * A twice-failed branch is parked, but the world keeps moving: a dropped
+   * item can become reachable and a reissued command can find a different
+   * cave mouth. Reopen the tree after a bounded cooldown instead of waiting
+   * for a bridge reconnect that may never happen.
+   */
+  private maybeRetryBlockedTree(): void {
+    if (this.blockedRetryAt <= 0) return;
+    if (this.clock.now() < this.blockedRetryAt) return;
+    this.blockedRetryAt = 0;
+    this.retryAt = 0;
+    this.nextPlanAt = 0;
+    if (!this.treeOwned || this.progress?.status !== "blocked") {
+      this.blockedRetryCount = 0;
+      return;
+    }
+    this.retryBlockedTree("受阻任务退避结束，重新验证");
+  }
+
+  private scheduleBlockedRetry(): void {
+    if (
+      !this.treeOwned ||
+      this.goal === null ||
+      this.goal.status === "paused" ||
+      this.goal.status === "completed"
+    ) {
+      return;
+    }
+    const hasParkedBranch =
+      this.taskTree
+        ?.snapshot()
+        .nodes.some(
+          (node) => node.state === "blocked" || node.state === "failed",
+        ) ?? false;
+    if (!hasParkedBranch) return;
+    const delay = Math.min(
+      this.blockedRetryBaseMs * 2 ** this.blockedRetryCount,
+      this.blockedRetryMaxMs,
+    );
+    this.blockedRetryCount += 1;
+    this.blockedRetryAt = this.clock.now() + delay;
+    this.retryAt = Math.max(this.retryAt, this.blockedRetryAt);
+    if (this.progress !== null) {
+      this.progress = {
+        ...this.progress,
+        retryAt: this.blockedRetryAt,
+      };
+    }
+  }
+
+  private retryBlockedTree(reason: string): void {
+    if (!this.treeOwned) return;
+    const local = this.taskTree?.reviveFailures(reason) ?? 0;
+    const planned = this.planner.retryFailed?.(reason) ?? 0;
+    if (local === 0 && planned === 0) return;
+    const snapshot = this.planner.treeSnapshot?.() ?? null;
+    if (planned > 0 && snapshot !== null) {
+      this.adoptTreeSnapshot(snapshot);
+    } else if (this.taskTree !== null) {
+      this.adoptTreeSnapshot(this.taskTree.snapshot());
+    }
+    this.inFlight = null;
+    this.consecutiveFailures = 0;
+    this.retryAt = 0;
+    this.nextPlanAt = 0;
+    this.blockedRetryAt = 0;
+    this.blockedRetryCount = 0;
+    this.circuit = null;
+    this.lastFailureStrategy = null;
+    this.taskFailureRecord = null;
+    this.lastFailure = `${reason}，已重置 ${Math.max(local, planned)} 个受阻任务节点`;
+    if (this.progress !== null) {
+      this.progress = {
+        ...this.progress,
+        status: this.resumedStatus(),
+        nextTask: "",
+        lastFailure: this.lastFailure,
+        consecutiveFailures: 0,
+        retryAt: null,
+        updatedAt: this.clock.now(),
+      };
+    }
+    this.persist();
   }
 
   private commitStep(
@@ -797,10 +977,20 @@ export class GoalRuntime {
     }
 
     this.applyPlan(plan);
+    if (this.treeOwned) {
+      this.adoptTreeSnapshot(plan.treeSnapshot ?? null);
+      const taskNodeId = plan.nextTask?.taskId ?? null;
+      if (taskNodeId !== null) {
+        this.taskNodeId = taskNodeId;
+        this.taskMilestoneId =
+          this.taskTree?.get(taskNodeId)?.parentId ?? null;
+      }
+      this.taskTargetFamily = plan.stage.id;
+    }
     if (
       plan.complete === true &&
       plan.nextTask === null &&
-      goalReachesTarget(this.goal, plan.stage.id)
+      (this.treeOwned || goalReachesTarget(this.goal, plan.stage.id))
     ) {
       this.goal = { ...this.goal, status: "completed" };
       this.progress = {
@@ -820,6 +1010,7 @@ export class GoalRuntime {
         lastFailure: plan.blockedReason,
         updatedAt: this.clock.now(),
       };
+      this.scheduleBlockedRetry();
       this.persist();
       return null;
     }
@@ -834,6 +1025,7 @@ export class GoalRuntime {
         lastFailure: "目标引擎返回了没有下一步任务的计划",
         updatedAt: this.clock.now(),
       };
+      this.scheduleBlockedRetry();
       this.persist();
       return null;
     }
@@ -884,6 +1076,13 @@ export class GoalRuntime {
     }
     const skill = skillCallSchema.safeParse(plan.nextTask.skill);
     if (!skill.success) {
+      this.noteUnstartedFailure(
+        taskId,
+        strategyKey,
+        `目标引擎产出非法技能：${skill.error.message}`,
+        "E_PRECONDITION",
+        now,
+      );
       this.recordFailure(
         taskId,
         strategyKey,
@@ -919,6 +1118,13 @@ export class GoalRuntime {
       return null;
     }
     if (!context.bridge?.skills.includes(skill.data.name)) {
+      this.noteUnstartedFailure(
+        taskId,
+        strategyKey,
+        `执行闸门：身体未声明 ${skill.data.name}，任务未下达`,
+        "E_PRECONDITION",
+        this.clock.now(),
+      );
       this.recordFailure(
         taskId,
         strategyKey,
@@ -930,7 +1136,9 @@ export class GoalRuntime {
       );
       return null;
     }
-    this.noteTaskStarted(plan, taskId, this.clock.now());
+    if (!this.treeOwned) {
+      this.noteTaskStarted(plan, taskId, this.clock.now());
+    }
 
     const id = this.clock.newId();
     // A decision is a fresh execution attempt, not a transport retry. Reusing
@@ -989,6 +1197,8 @@ export class GoalRuntime {
       dispatchedAt: now,
       lastProgress: null,
     };
+    this.blockedRetryAt = 0;
+    this.blockedRetryCount = 0;
     this.progress = {
       ...this.progress,
       nextTask: plan.nextTask.text,
@@ -1023,7 +1233,7 @@ export class GoalRuntime {
     if (outcome.status === "completed") {
       const missingEvidence = completionEvidenceProblem(current.decision, outcome.changes ?? []);
       if (missingEvidence !== null) {
-        this.noteTaskSettled(current.taskId, "failed", {
+        this.applyTaskSettlement(current, "failed", {
           ...outcome,
           detail: missingEvidence,
         });
@@ -1047,7 +1257,7 @@ export class GoalRuntime {
         });
         return true;
       }
-      this.noteTaskSettled(current.taskId, "completed", outcome);
+      this.applyTaskSettlement(current, "completed", outcome);
       if (
         current.decision.skill?.name === "place_block" &&
         STATION_PLACEMENT.test(
@@ -1069,6 +1279,8 @@ export class GoalRuntime {
       this.lastFailure = null;
       this.lastFailureStrategy = null;
       this.retryAt = 0;
+      this.blockedRetryAt = 0;
+      this.blockedRetryCount = 0;
       this.circuit = null;
       this.failureWindow = [];
       // A success breaks the "same stage failed twice in a row" sequence.
@@ -1099,7 +1311,7 @@ export class GoalRuntime {
       return true;
     }
     if (outcome.status === "preempted") {
-      this.noteTaskSettled(current.taskId, "preempted", outcome);
+      this.applyTaskSettlement(current, "preempted", outcome);
       /*
        * Death and a deliberate safety handoff are not strategy failures. The
        * body preempts its in-flight skill, the planner waits for a live body,
@@ -1132,9 +1344,9 @@ export class GoalRuntime {
       return true;
     }
     if (outcome.status === "cancelled") {
-      this.noteTaskSettled(current.taskId, "cancelled", outcome);
+      this.applyTaskSettlement(current, "cancelled", outcome);
     } else {
-      this.noteTaskSettled(current.taskId, outcome.status, outcome);
+      this.applyTaskSettlement(current, outcome.status, outcome);
     }
     this.recordFailure(
       current.taskId,
@@ -1163,7 +1375,7 @@ export class GoalRuntime {
     if (this.inFlight === null) return;
     const current = this.inFlight;
     this.inFlight = null;
-    this.noteTaskSettled(taskId, "failed", {
+    this.applyTaskSettlement(current, "failed", {
       status: "failed",
       errorCode: "E_DISPATCH",
       detail,
@@ -1180,6 +1392,117 @@ export class GoalRuntime {
       changes: [],
       at: this.clock.now(),
     });
+  }
+
+  /**
+   * The tree engine returns its complete state with every plan. Keep a local
+   * copy for persistence and the console, but never derive the next task from
+   * it; only the planner may move the cursor.
+   */
+  private adoptTreeSnapshot(snapshot: TaskTreeSnapshot | null): void {
+    if (!this.treeOwned) return;
+    if (snapshot === null) {
+      this.taskTree = null;
+      this.taskRootId = null;
+      this.taskNodeId = null;
+      this.taskMilestoneId = null;
+      this.taskEvidenceRefs = [];
+      this.taskFailureRecord = null;
+      return;
+    }
+    try {
+      this.taskTree = TaskTree.restore(snapshot, () => this.clock.now());
+      this.taskRootId = snapshot.rootId;
+      const cursor = this.taskTree.current;
+      this.taskNodeId = cursor?.id ?? null;
+      this.taskMilestoneId = cursor?.parentId ?? null;
+      this.taskEvidenceRefs = cursor === null ? [] : [...cursor.successEvidence].slice(-16);
+      this.taskFailureRecord =
+        cursor === null || cursor.failureCategory === null
+          ? null
+          : {
+              category: cursor.failureCategory,
+              detail: cursor.failureDetail ?? "任务树记录了一次失败",
+              at: cursor.updatedAt,
+            };
+    } catch (error) {
+      this.onIncident?.({
+        code: "GOAL_TREE_SNAPSHOT_INVALID",
+        severity: "warn",
+        detail: {
+          message: error instanceof Error ? error.message : String(error),
+        },
+      });
+      this.taskTree = null;
+      this.taskRootId = null;
+      this.taskNodeId = null;
+      this.taskMilestoneId = null;
+    }
+  }
+
+  private applyTaskSettlement(
+    current: {
+      readonly taskId: string;
+      readonly strategyKey: string;
+      readonly decision: { readonly id: string };
+    },
+    status: GoalSettlement["status"],
+    outcome: GoalSettlement,
+  ): void {
+    if (this.treeOwned) {
+      this.noteTreeOutcome(
+        current.taskId,
+        current.strategyKey,
+        outcome,
+        current.decision.id,
+      );
+      return;
+    }
+    this.noteTaskSettled(current.taskId, status, outcome);
+  }
+
+  private noteUnstartedFailure(
+    taskId: string,
+    strategyKey: string,
+    detail: string,
+    errorCode: string,
+    at: number,
+  ): void {
+    if (!this.treeOwned) return;
+    this.noteTreeOutcome(taskId, strategyKey, {
+      status: "failed",
+      errorCode,
+      detail,
+      at,
+      changes: [],
+    });
+  }
+
+  private noteTreeOutcome(
+    taskId: string,
+    strategyKey: string,
+    outcome: GoalSettlement,
+    decisionId = "",
+  ): void {
+    if (!this.treeOwned) return;
+    try {
+      this.planner.noteSettlement?.({
+        decisionId,
+        taskId,
+        strategyKey,
+        outcome,
+      });
+      this.adoptTreeSnapshot(this.planner.treeSnapshot?.() ?? null);
+    } catch (error) {
+      this.onIncident?.({
+        code: "GOAL_TREE_SETTLEMENT_FAILED",
+        severity: "warn",
+        detail: {
+          taskId,
+          message: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
   }
 
   snapshot(): GoalRuntimeRecord {
@@ -1212,26 +1535,22 @@ export class GoalRuntime {
    */
   private projectTaskTree(): GoalTaskTree | null {
     if (this.taskTree === null) return null;
-    const current = this.taskTree.current;
-    const path = this.taskTree.activePath.map((node) => ({
-      id: node.id,
-      intent: node.intent.slice(0, 240),
-      state: node.state,
-      priority: node.priority,
-    }));
+    const projected = projectGoalTree(
+      this.taskTree.snapshot(),
+      this.clock.now(),
+    );
+    if (projected === null) return null;
     return {
-      activePath: path.slice(-16),
-      currentNodeId: current?.id ?? null,
-      currentNodeIntent: current?.intent.slice(0, 240) ?? null,
-      checkpointAgeMs:
-        current === null ? 0 : Math.max(0, this.clock.now() - current.updatedAt),
+      ...projected,
       blockedReason:
-        current !== null && (current.state === "blocked" || current.state === "failed")
-          ? current.failureDetail
-          : this.taskFailureRecord?.detail ?? null,
-      targetFamily: this.taskTargetFamily,
-      evidenceRefs: this.taskEvidenceRefs.slice(-16),
-      branches: [...this.taskTree.snapshot().nodes]
+        projected.blockedReason ?? this.taskFailureRecord?.detail ?? null,
+      targetFamily: this.taskTargetFamily ?? projected.targetFamily,
+      // The legacy tree records its acquisition branch as pending nodes. The
+      // tree engine already returns the whole tree in `nodes`, so it needs no
+      // separate bounded branch list.
+      branches: this.treeOwned
+        ? []
+        : [...this.taskTree.snapshot().nodes]
         .filter((node) => node.parentId !== null)
         .sort((left, right) => left.createdAt - right.createdAt)
         .slice(-32)
@@ -1682,6 +2001,31 @@ export function completionEvidenceProblem(
   }
 }
 
+/**
+ * Normalises old durable goals. A session created before `goalKind` existed
+ * still carries shelter/free-survival display copy; it must not become a new
+ * goal type or keep showing a goal the current UI no longer offers.
+ */
+export function normalizeSeasonGoal(goal: SeasonGoal): SeasonGoal {
+  const exact = SEASON_GOAL_PRESETS.find((preset) => preset.title === goal.title);
+  if (exact !== undefined) {
+    return { ...goal, goalKind: goal.goalKind ?? exact.kind };
+  }
+  const preset = goalPresetForTitle(goal.title);
+  if (preset !== null) {
+    return {
+      ...goal,
+      title: preset.title,
+      description: preset.description,
+      goalKind: preset.kind,
+    };
+  }
+  return {
+    ...goal,
+    goalKind: goal.goalKind ?? goalKindForTitle(goal.title),
+  };
+}
+
 const GOAL_STAGE_ORDER = [
   "wood-and-table",
   "stone-tools",
@@ -1845,6 +2189,31 @@ export function applyFailureRecovery(
           plan,
           facts,
           withStableTaskId(escape),
+          null,
+          plan.blocked,
+          true,
+        ),
+      };
+    }
+    /*
+     * On the surface the dead-end escape is deliberately unavailable: there
+     * is no overhead rock worth mining and pillaring up only leaves the camp.
+     * The live body deposited, stepped down onto the terrace, and then retried
+     * the same `mine_tunnel` node every minute. Walk back to the first stair
+     * cell so the next plan can descend from a real mine entrance.
+     */
+    const approach = mineMouthApproachTask(
+      plan.stage,
+      facts,
+      () => crypto.randomUUID(),
+    );
+    if (approach !== null) {
+      return {
+        plan,
+        resolved: projectPlan(
+          plan,
+          facts,
+          withStableTaskId(approach),
           null,
           plan.blocked,
           true,

@@ -50,6 +50,20 @@ final class ShaftEscape {
 		return blocksMotion && !leaves && !logs;
 	}
 
+	/**
+	 * A station the body built can be mined, recovered and placed again.
+	 * Containers and beds hold state, so an escape must route around them.
+	 * Planning and mining must use the same answer here: the live loop was a
+	 * workbench that passed `ceilingMineable` and then hit an unconditional
+	 * facility abort in `mineCeilingBlock`.
+	 */
+	static boolean mayClearEscapeFacility(
+		boolean playerFacility,
+		boolean recoverableFacility
+	) {
+		return !playerFacility || recoverableFacility;
+	}
+
 	/** A recovery pillar is a bounded escape, not an unlimited tower. */
 	static final int MAX_RECOVERY_PILLAR_STEPS = 12;
 
@@ -214,6 +228,22 @@ final class ShaftEscape {
 	}
 
 	/**
+	 * A pillar can drift into the neighbouring column when the body lands on
+	 * the edge of its placed block. Continuing to centre on the original
+	 * column then walks into a wall and times out. Once at least one jump has
+	 * landed, follow the column the body actually occupies.
+	 */
+	static boolean shouldRecenterPillarColumn(
+		int climbedSteps,
+		int bodyX,
+		int bodyZ,
+		int centerX,
+		int centerZ
+	) {
+		return climbedSteps > 0 && (bodyX != centerX || bodyZ != centerZ);
+	}
+
+	/**
 	 * A torch, button or rail stands in the cell the body just vacated. It
 	 * does not block movement, so the jump reaches the right height, but the
 	 * cell is not replaceable and every placement packet is rejected
@@ -239,6 +269,57 @@ final class ShaftEscape {
 	/** Stop climbing once the requested floor has been reached. */
 	static boolean pillarReachedTarget(int feetY, int baseY, double targetY) {
 		return feetY > baseY && targetY <= feetY + 0.5;
+	}
+
+	/**
+	 * Suffocation needs a solid block in one of the two cells the body
+	 * occupies. A pillar that lands with either cell occupied must clear it
+	 * before reporting success; otherwise the next walk command retries an
+	 * impossible route while the body loses health inside its own shaft.
+	 */
+	static boolean bodyEmbedded(boolean feetSolid, boolean headSolid) {
+		return feetSolid || headSolid;
+	}
+
+	/**
+	 * Jump-placing uses the block column under the body. When that column is
+	 * also the body's own column, the placement must wait until the jump has
+	 * lifted the bounding box clear; otherwise the body is sealed into the
+	 * block it just placed.
+	 */
+	static boolean bodyOccupiesCell(
+		int cellX,
+		int cellY,
+		int cellZ,
+		double playerX,
+		double playerFeetY,
+		double playerZ
+	) {
+		final double halfWidth = 0.3;
+		final double bodyHeight = 1.8;
+		return playerX + halfWidth > cellX
+			&& playerX - halfWidth < cellX + 1
+			&& playerZ + halfWidth > cellZ
+			&& playerZ - halfWidth < cellZ + 1
+			&& playerFeetY + bodyHeight > cellY
+			&& playerFeetY < cellY + 1;
+	}
+
+	/**
+	 * A complete route can still end in the body's current cell. Recovery
+	 * treated that as progress, reported the requested target as reached,
+	 * and left the body in a one-cell shaft where walk mode can never move.
+	 * A route that does not leave the cell is only useful when the body is
+	 * already inside the requested goal window.
+	 */
+	static boolean completeRouteMovesBody(
+		boolean complete,
+		double destinationDistance,
+		double targetDistance,
+		double goalWindow
+	) {
+		if (!complete) return true;
+		return destinationDistance >= 0.75 || targetDistance <= goalWindow;
 	}
 
 	/**
@@ -349,6 +430,15 @@ final class ShaftEscape {
 		if (complete) return true;
 		if (targetY - playerY <= 1.0) return true;
 		return destinationY >= playerY + 1.0;
+	}
+
+	/**
+	 * A waypoint index is only valid while a route is installed. Escape
+	 * steps can hand control back on an airborne frame, leaving the list
+	 * empty; that is a reason to resume escaping, never an internal error.
+	 */
+	static boolean hasCurrentWaypoint(int index, int size) {
+		return index >= 0 && index < size;
 	}
 
 	/**

@@ -13,6 +13,7 @@ import {
   MODEL_PROVIDER_PRESETS,
   modelProviderPresetFor,
   SEASON_GOAL_PRESETS,
+  type GoalKind,
 } from "@craftmate/contracts";
 import type { WireState } from "../../lib/connection.ts";
 import type { Accent, Preferences, TextScale, ThemeMode } from "../../lib/preferences.ts";
@@ -36,7 +37,7 @@ interface SettingsViewProps {
   ) => void;
   readonly onFetchModels: (baseUrl: string, apiKey: string) => void;
   readonly goal: GoalProgress | null;
-  readonly onSetGoal: (title: string, description: string) => void;
+  readonly onSetGoal: (title: string, description: string, goalKind: GoalKind) => void;
   readonly onPauseGoal: () => void;
   readonly onResumeGoal: () => void;
 }
@@ -316,6 +317,7 @@ export function SettingsView({
               patch({
                 goal: event.target.value,
                 goalDescription: preset?.description ?? "",
+                goalKind: preset?.kind ?? draft.goalKind,
               });
             }}
           >
@@ -402,7 +404,9 @@ export function SettingsView({
               type="button"
               className="action action--ghost"
               disabled={state !== "open" || draft.goal.trim().length === 0}
-              onClick={() => onSetGoal(draft.goal.trim(), draft.goalDescription)}
+              onClick={() =>
+                onSetGoal(draft.goal.trim(), draft.goalDescription, draft.goalKind)
+              }
             >
               立即应用目标
             </button>

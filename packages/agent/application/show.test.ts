@@ -85,7 +85,8 @@ describe("show settings", () => {
     assert.equal(settings.persona.name, dafeiyu.name);
     assert.equal(settings.persona.identity, dafeiyu.identity);
     assert.deepEqual(settings.persona.weights, dafeiyu.weights);
-    assert.equal(settings.goal, "盖一间带床和箱子的海崖小屋");
+    assert.equal(settings.goal, "击败末影龙");
+    assert.equal(settings.goalKind, "dragon");
   });
 
   test("an update replaces the active arbitration weights", () => {

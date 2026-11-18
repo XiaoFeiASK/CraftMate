@@ -19,6 +19,22 @@ export const TASK_PRIORITIES = [
 ] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 
+export const TASK_NODE_KINDS = [
+  "goal",
+  "stage",
+  "milestone",
+  "task",
+  "skill",
+  "interrupt",
+] as const;
+export type TaskNodeKind = (typeof TASK_NODE_KINDS)[number];
+
+export const TASK_NODE_MODES = ["sequence", "selector"] as const;
+export type TaskNodeMode = (typeof TASK_NODE_MODES)[number];
+
+export const TASK_TRIGGERS = ["danger", "tool-lost", "operator"] as const;
+export type TaskTrigger = (typeof TASK_TRIGGERS)[number];
+
 export type FailureCategory =
   | "precondition"
   | "unreachable"
@@ -33,6 +49,11 @@ export type FailureCategory =
 export interface TaskNode {
   readonly id: string;
   readonly parentId: string | null;
+  readonly kind: TaskNodeKind;
+  readonly mode: TaskNodeMode | null;
+  readonly handler: string;
+  readonly args: Readonly<Record<string, unknown>>;
+  readonly trigger: TaskTrigger | null;
   readonly intent: string;
   readonly targetFamily: string;
   readonly quantity: number;
@@ -45,12 +66,13 @@ export interface TaskNode {
   readonly failureCategory: FailureCategory | null;
   readonly failureDetail: string | null;
   readonly failureCount: number;
+  readonly reason: string | null;
   readonly createdAt: number;
   readonly updatedAt: number;
 }
 
 export interface TaskTreeSnapshot {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly rootId: string;
   readonly cursorId: string;
   readonly pausedCursorId: string | null;
@@ -66,6 +88,12 @@ export interface TaskTreeSnapshot {
 }
 
 export interface AddTaskInput {
+  readonly id?: string;
+  readonly kind?: TaskNodeKind;
+  readonly mode?: TaskNodeMode | null;
+  readonly handler?: string;
+  readonly args?: Readonly<Record<string, unknown>>;
+  readonly trigger?: TaskTrigger | null;
   readonly intent: string;
   readonly targetFamily: string;
   readonly quantity?: number;
@@ -75,6 +103,7 @@ export interface AddTaskInput {
   readonly sourceKey?: string;
   readonly fallbackNodeId?: string | null;
   readonly parentId?: string | null;
+  readonly reason?: string | null;
 }
 
 /**
@@ -106,6 +135,9 @@ export class TaskTree {
   }
 
   static restore(snapshot: TaskTreeSnapshot, now: () => number = Date.now): TaskTree {
+    if (snapshot.schemaVersion !== 2) {
+      throw new Error(`unsupported task tree schema ${String(snapshot.schemaVersion)}`);
+    }
     const tree = new TaskTree(now);
     for (const node of snapshot.nodes) tree.nodes.set(node.id, node);
     for (const failure of snapshot.failures) {
@@ -317,6 +349,18 @@ export class TaskTree {
     return this.cursorId === "" ? null : this.nodes.get(this.cursorId) ?? null;
   }
 
+  get root(): TaskNode | null {
+    return this.rootId === "" ? null : this.nodes.get(this.rootId) ?? null;
+  }
+
+  get cursor(): string {
+    return this.cursorId;
+  }
+
+  get pausedCursor(): string | null {
+    return this.pausedCursorId;
+  }
+
   get activePath(): readonly TaskNode[] {
     const path: TaskNode[] = [];
     let node = this.current;
@@ -332,9 +376,106 @@ export class TaskTree {
     return failure !== undefined && failure.blockedUntil > this.now();
   }
 
+  children(id: string): readonly TaskNode[] {
+    return this.childrenOf(id);
+  }
+
+  /**
+   * Marks a node without advancing the cursor. The tree runner owns cursor
+   * movement; legacy callers keep using complete/fail for their linear flow.
+   */
+  mark(
+    id: string,
+    state: TaskState,
+    options: {
+      readonly evidence?: readonly string[];
+      readonly reason?: string | null;
+      readonly failureCategory?: FailureCategory | null;
+      readonly failureDetail?: string | null;
+      readonly trigger?: TaskTrigger | null;
+    } = {},
+  ): TaskNode {
+    const node = this.require(id);
+    const now = this.touch();
+    this.nodes.set(id, {
+      ...node,
+      state,
+      successEvidence:
+        options.evidence === undefined
+          ? node.successEvidence
+          : [...new Set([...node.successEvidence, ...options.evidence])],
+      reason: options.reason === undefined ? node.reason : options.reason,
+      failureCategory:
+        options.failureCategory === undefined
+          ? node.failureCategory
+          : options.failureCategory,
+      failureDetail:
+        options.failureDetail === undefined
+          ? node.failureDetail
+          : options.failureDetail,
+      trigger: options.trigger === undefined ? node.trigger : options.trigger,
+      updatedAt: now,
+    });
+    return this.nodes.get(id)!;
+  }
+
+  /** Resets a failed/blocked node for one retry without losing its evidence. */
+  reset(id: string, reason: string | null = null): TaskNode {
+    return this.mark(id, "pending", { reason });
+  }
+
+  /**
+   * A body reconnect is a real world change: it may have respawned, moved, or
+   * returned after a mod reload. Failed and blocked branches become retryable
+   * again, otherwise one transient bridge fault would strand the whole goal
+   * tree for the rest of its version. Succeeded evidence is never touched.
+   */
+  reviveFailures(reason: string): number {
+    const now = this.touch();
+    let revived = 0;
+    for (const [id, node] of this.nodes) {
+      if (node.state !== "failed" && node.state !== "blocked") continue;
+      this.nodes.set(id, {
+        ...node,
+        state: "pending",
+        reason,
+        failureCategory: null,
+        failureDetail: null,
+        failureCount: 0,
+        updatedAt: now,
+      });
+      revived += 1;
+    }
+    if (revived > 0) this.failures.clear();
+    return revived;
+  }
+
+  /** Records an execution attempt without changing the node's state. */
+  bumpFailure(
+    id: string,
+    category: FailureCategory,
+    detail: string,
+  ): TaskNode {
+    const node = this.require(id);
+    const now = this.touch();
+    this.nodes.set(id, {
+      ...node,
+      failureCategory: category,
+      failureDetail: detail,
+      failureCount: node.failureCount + 1,
+      updatedAt: now,
+    });
+    return this.nodes.get(id)!;
+  }
+
+  setPausedCursor(id: string | null): void {
+    this.pausedCursorId = id;
+    this.updatedAt = this.touch();
+  }
+
   snapshot(): TaskTreeSnapshot {
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       rootId: this.rootId,
       cursorId: this.cursorId,
       pausedCursorId: this.pausedCursorId,
@@ -348,10 +489,22 @@ export class TaskTree {
 
   private create(input: AddTaskInput, parentId: string | null): TaskNode {
     const now = this.touch();
-    const id = `task:${++this.serial}:${slug(input.intent)}`;
+    const id = input.id ?? `task:${++this.serial}:${slug(input.intent)}`;
+    if (this.nodes.has(id)) {
+      const existing = this.nodes.get(id)!;
+      throw new Error(
+        `duplicate task node ${id} (existing ${existing.kind}/${existing.state} source=${existing.sourceKey}; new parent=${parentId} source=${input.sourceKey ?? ""})`,
+      );
+    }
+    this.serial = Math.max(this.serial, this.nodes.size + 1);
     const node: TaskNode = {
       id,
       parentId,
+      kind: input.kind ?? "task",
+      mode: input.mode ?? null,
+      handler: input.handler ?? "task",
+      args: input.args ?? {},
+      trigger: input.trigger ?? null,
       intent: input.intent,
       targetFamily: input.targetFamily,
       quantity: Math.max(1, input.quantity ?? 1),
@@ -364,6 +517,7 @@ export class TaskTree {
       failureCategory: null,
       failureDetail: null,
       failureCount: 0,
+      reason: input.reason ?? null,
       createdAt: now,
       updatedAt: now,
     };

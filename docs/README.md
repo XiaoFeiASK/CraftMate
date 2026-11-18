@@ -9,6 +9,7 @@ CraftMate 文档按使用场景组织。每个主题只有一个权威文档；�
 | 首次运行 | [运行手册](operations/runbook.md) | 依赖、启动、服务、数据、排错 |
 | 接外部系统 | [外部集成](guides/integrations.md) | 模型、语音、抖音、Minecraft 的配置与联调 |
 | 观察自主闭环 | [自主生存闭环](operations/autonomy.md) | 目标模式、连续决策、Agent/Mod 分工与现场排查 |
+| 理解目标调度 | [目标树调度](reference/goal-tree.md) | 六类节点、懒展开、失败重试、安全中断与持久化 |
 | 理解系统 | [架构总览](reference/architecture.md) | 模块边界、运行链路、硬约束 |
 | 查 Agent/身体映射 | [Agent 编排与游戏身体映射](reference/agent-body-mapping.md) | 技能、生存阶段、`run_plan` 和 Java 任务如何对应 |
 | 查实现细节 | [技术设计](reference/technical-design.md) | 协议、决策内核、存储、人格与记忆 |
@@ -23,6 +24,8 @@ CraftMate 文档按使用场景组织。每个主题只有一个权威文档；�
 - 一个主题只放一篇权威文档；新内容优先进入现有章节。
 - 技能与 Java 任务的对应关系以[映射文档](reference/agent-body-mapping.md)为准；
   其他文档只保留摘要并链接，不重复维护技能表。
+- 目标树的节点语义、调度和持久化以[目标树调度](reference/goal-tree.md)为准；
+  自主闭环和架构文档只描述入口与边界。
 - 一次性实施报告不进仓库。结论并入状态或验证清单，原始过程保留在 Issue。
 - 文档中的命令、路径和配置必须能用仓库验证。
 - 修改运行行为时，同步运行手册或外部集成；修改数据时，同步数据模型。

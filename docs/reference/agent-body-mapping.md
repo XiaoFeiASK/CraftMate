@@ -27,7 +27,7 @@ Agent 决定做什么和为什么
 Ingress / 操作员
   -> Orchestrator
      -> Show（观众路径）或 GoalRuntime（目标路径）
-        -> MissionGoalPlanner / SurvivalGoalPlanner / Planner
+        -> GoalTreePlanner（默认）/ MissionGoalPlanner（legacy 回退）/ Planner
            -> SkillCall（契约校验）
               -> Bridge BodySession（能力、队列、控制权）
                  -> BridgeClient（WebSocket、tick 投递）
@@ -49,9 +49,10 @@ Ingress / 操作员
 | 观众决策 | `packages/agent/application/show.ts` | `AudienceEvent`、世界快照 | `Decision`、承诺、节目节拍 | 直接执行技能 |
 | Stage A/B | `packages/agent/domain/arbitration/*` | 文本、人格权重、冷却 | 意图与分数 | 模型调用、世界访问 |
 | Stage C | `packages/agent/application/planner.ts` | 胜出意图、人格、能力清单 | `speech` + 可选 `SkillCall` | 绕过技能契约 |
-| 目标方向 | `packages/agent/application/mission-goal-planner.ts` | 世界事实、当前阶段、失败历史 | 阶段、里程碑、下一个 `GoalTask` | 修改世界、逐步调用模型 |
+| 目标方向 | `packages/agent/application/goal-tree-planner.ts` | 世界事实、树快照、失败历史 | 一棵目标树和一个 `GoalTask` | 修改世界、逐步调用模型 |
+| 旧目标方向 | `packages/agent/application/mission-goal-planner.ts` | 世界事实、当前阶段 | mission 阶段与下一个 `GoalTask` | 修改世界；仅在 `CRAFTMATE_GOAL_ENGINE=legacy` 使用 |
 | 生存规划 | `packages/agent/domain/survival/*` | `WorldFacts`、目标、可用技能 | 十阶段 DAG 与合法原子任务 | 选择具体方块坐标 |
-| 连续计划 | `packages/agent/application/plan-compiler.ts` | 任务、事实、步骤 | 一个 `run_plan` `SkillCall` | 在身体内分支重规划 |
+| 连续计划（legacy） | `packages/agent/application/plan-compiler.ts` | 任务、事实、步骤 | 一个 `run_plan` `SkillCall` | 在身体内分支重规划 |
 | 目标运行时 | `packages/agent/application/goal-runtime.ts` | 规划器、桥健康、世界快照 | 单任务下发、终态、退避、恢复 | 生成 Minecraft 操作 |
 | 编排装配 | `services/orchestrator/src/main.ts` | 配置、服务、数据库 | 运行时循环、控制面、telemetry | 领域规则 |
 | 编排持久化 | `services/orchestrator/src/persistence.ts` | SQLite、Show、GoalRuntime | 恢复后的运行对象 | 游戏输入 |
@@ -71,10 +72,14 @@ Ingress / 操作员
 ### 3.2 目标路径
 
 1. `dispatchGoalStep` 调用 `GoalRuntime.beginStepAsync`。
-2. `MissionGoalPlanner.plan` 先决定任务链方向，再由 `planSurvival` 选择阶段与原子任务。
-3. 可证明的短序列由 `PlanCompiler` 编译为单个 `run_plan`。
+2. `GoalTreePlanner.plan` 维护完整目标树：阶段骨架先建立，当前阶段按里程碑展开任务和技能。
+3. 树是唯一调度源；mission 只能提议阶段，树检查前置阶段和可执行任务后才切换。
 4. `GoalRuntime` 写入 decision、绑定 `commandId/taskId`，调用同一个 `issue`。
-5. 身体终态回填 `goal_runtime`；成功后等待一次新观察再规划下一步。
+5. 身体终态通过 `noteSettlement` 回写树；成功后等待一次新观察再验证里程碑。
+
+目标树的节点语义、失败重试、抢占和持久化见 [目标树调度](goal-tree.md)。
+设置 `CRAFTMATE_GOAL_ENGINE=legacy` 时回到 `MissionGoalPlanner`，此时
+`TaskTree` 仍只是只读投影。
 
 目标模式默认不调用模型。`Planner` 只服务观众 Stage C；两者不会互相重排任务。
 
@@ -83,8 +88,9 @@ Ingress / 操作员
 | 编排出口 | 可产生的技能 | 说明 |
 | --- | --- | --- |
 | 观众 Stage C `Planner` | 身体声明过的任意契约技能 | 模型输出仍要经过 `parseSkillArgs` 与能力白名单 |
+| 默认 `GoalTreePlanner` | 由 `nextTaskForStage` 生成的契约技能 | 树决定 task/skill 叶子；当前按原子任务下发，不生成 `run_plan` |
 | 生存任务 `tasks.ts` | `attack`、`chop_tree`、`collect_items`、`craft`、`deposit`、`eat`、`goto`、`mine_block`、`mine_tunnel`、`pillar_up`、`place_block`、`sleep`、`smelt`、`use_block`、`wait`、`withdraw` | 由世界事实和阶段前置决定，不按模型愿望生成 |
-| `PlanCompiler` | `run_plan` | 把可证明的短序列打包成一个身体内顺序任务 |
+| `PlanCompiler`（legacy） | `run_plan` | 把可证明的短序列打包成一个身体内顺序任务 |
 | 空场/反射节拍 | 无 | 只生成台词和事件，不授予技能 |
 | `state-monitor` | 无 | 只建议中断当前任务，替代任务仍由规划器产生 |
 
@@ -101,7 +107,7 @@ Ingress / 操作员
 | 技能 | 编排用途 | 身体任务类 | 主要协作模块 | 完成证据 |
 | --- | --- | --- | --- | --- |
 | `goto` | 精确移动、探索、逃生、接近交互点 | `GotoTask` | `BoundedPathfinder`、`NavGoal`、`NavigationMode`、`ApproachRoute`、`StairEscape`、`ShaftEscape`、`CanopyEscape` | 实际位移到目标；探索可明确返回部分路径 |
-| `look_at` | 观察实体或坐标 | `LookTask` | `CameraController`、`ViewSlew`、`CameraSpring` | 镜头稳定 3 tick |
+| `look_at` | 观察实体或坐标 | `LookTask` | `CameraController`、`ThirdPersonCamera`、`OrbitalRig`、`ViewSlew` | 环绕镜头稳定 3 tick |
 | `mine_block` | 精确方块或最近同类方块 | `MineTask` | `BlockInteraction`、`OrePerception`、`MiningApproach`、`MiningDrops`、`ToolSelection`、`PickaxeBudget`、`UnreachableTargets` | 目标格变空气；资源挖掘还需确认预期掉落 |
 | `mine_tunnel` | 连续阶梯下挖或水平支线 | `DescendTask` | `MineStair`、`ShaftEscape`、`OreOpportunity`、`MiningDepth`、`PickaxeBudget` | 每个台阶/支线段的方块变化与进度 |
 | `chop_tree` | 按原木数量砍树 | `MineTask`（log 模式） | `TrunkSelection`、`CanopyCleanup`、`CanopyEscape`、`MiningDrops` | 原木掉落或背包增量 |

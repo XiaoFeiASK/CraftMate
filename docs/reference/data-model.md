@@ -44,7 +44,7 @@
 | `0013_memory_outcomes` | 记忆的成功/失败次数、失败条件与适用版本 |
 | `0014_world_memory` | 世界地标、站点和可复用观察记忆 |
 | `0015_route_blacklist` | 会话内持久路线拒绝与证据 |
-| `0016_task_tree` | 任务树游标、活动节点、目标族、证据引用和失败记录 |
+| `0016_task_tree` | 目标树快照、游标、暂停游标、活动节点、目标族、证据与失败记录 |
 
 当前校验器报告 35 个对象、34 个索引；新增迁移后以 `npm run db:check` 输出为准。
 
@@ -57,11 +57,12 @@ duration_ms, summary, error_code, source, created_at_ms
 
 - 只追加，不修改既有行；同一 `id` 重复写入为 no-op。
 
-### 2.2 `goal_runtime` 任务树字段
+### 2.2 `goal_runtime` 目标树字段
 
 `0016_task_tree` 增加：
 
-- `task_tree_json`：`TaskTreeSnapshot`，包含根、游标、节点和来源失败记录；
+- `task_tree_json`：`TaskTreeSnapshot`（当前 `schemaVersion: 2`），包含根、游标、
+  暂停游标、`goal/stage/milestone/task/skill/interrupt` 六类节点和来源失败记录；
 - `task_node_json`：当前活动节点快照；
 - `target_family`：当前目标族；
 - `evidence_refs_json`：有界证据引用，完整记录仍由 `world_memory` /
@@ -69,7 +70,8 @@ duration_ms, summary, error_code, source, created_at_ms
 - `failure_record_json`：最近一次结构化失败分类、详情和时间。
 
 重启时先恢复目标与树游标，但不会直接重放旧任务；下一次观察后由 Agent 重新
-规划。`goalProgress.taskTree` 只暴露活动路径、当前节点、检查点年龄和阻塞原因。
+规划。`goalProgress.taskTree` 暴露完整只读节点树、活动路径、当前节点、检查点
+年龄、interrupt 标记、尝试次数和阻塞原因。v1 树快照会被拒绝并由树引擎重建。
 - `stage`、`status` 和 `source` 都是封闭枚举，非法值在 SQLite 与 zod 两层拒绝。
 - `duration_ms` 只能为空或非负；UID 之外没有明文观众标识。
 - 索引支持最近窗口、按 trace 回放、按 task 聚合和按 decision 关联：

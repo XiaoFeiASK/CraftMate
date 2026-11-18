@@ -1,6 +1,8 @@
 package com.craftmate.body.bridge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
@@ -67,5 +69,37 @@ class PickaxeBudgetTest {
 
 		assertEquals(false, PickaxeBudget.hasRescueReserve(worn, 12));
 		assertEquals(true, PickaxeBudget.hasRescueReserve(usable, 12));
+	}
+
+	@Test
+	void theLastSwingIsSpentBeforeAskingForAReplacement() {
+		PickaxeBudget.Candidate last = new PickaxeBudget.Candidate(
+			0,
+			"minecraft:iron_pickaxe",
+			1,
+			6.0f,
+			3
+		);
+		PickaxeBudget.Candidate[] carried = new PickaxeBudget.Candidate[40];
+		for (int slot = 0; slot < 8; slot++) {
+			carried[slot] = new PickaxeBudget.Candidate(
+				slot,
+				"minecraft:iron_pickaxe",
+				1,
+				6.0f,
+				3
+			);
+		}
+
+		PickaxeBudget.Candidate chosen = PickaxeBudget.choose(
+			carried,
+			true,
+			PickaxeBudget.requiredUses(40, 8)
+		);
+
+		assertEquals(0, chosen.slot());
+		assertEquals(1, chosen.uses());
+		assertTrue(PickaxeBudget.hasRescueReserve(chosen, 1));
+		assertFalse(PickaxeBudget.hasRescueReserve(last, 2));
 	}
 }

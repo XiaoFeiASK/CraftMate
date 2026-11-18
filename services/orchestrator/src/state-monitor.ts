@@ -1,5 +1,7 @@
 import {
+  hasInventoryCapacity,
   hasUsablePickaxe,
+  nextIronGearDeficit,
   worldFactsFromSnapshot,
   type WorldFacts,
 } from "@craftmate/agent/domain";
@@ -138,6 +140,13 @@ function visibleIronOpportunity(
   isResourceWork: boolean,
 ): StateOpportunity | null {
   if ((!isNavigation && !isResourceWork) || !hasUsablePickaxe(facts, 2)) return null;
+  // Mining another ore is not progress once the pack already covers the next
+  // iron upgrade. Without this gate a body with a stack of raw iron kept
+  // cancelling its furnace trip to chase every visible ore.
+  if (nextIronGearDeficit(facts) <= 0) return null;
+  // A full pack cannot hold the drop. Preempting a return trip only to stand
+  // over ore the body cannot collect recreates the same task forever.
+  if (!hasInventoryCapacity(facts, 1)) return null;
   const ore = (facts.nearbyBlocks ?? [])
     .filter(
       (block) =>

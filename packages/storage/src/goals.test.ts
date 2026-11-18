@@ -70,7 +70,7 @@ describe("goal runtime storage", () => {
       retryAt: 0,
       updatedAt: 1_000,
       taskTree: {
-        schemaVersion: 1,
+        schemaVersion: 2,
         rootId: "task:1:goal",
         cursorId: "task:2:mine",
         pausedCursorId: null,
@@ -78,6 +78,11 @@ describe("goal runtime storage", () => {
           {
             id: "task:1:goal",
             parentId: null,
+            kind: "goal",
+            mode: "selector",
+            handler: "goal",
+            args: {},
+            trigger: null,
             intent: "击败末影龙",
             targetFamily: "wood",
             quantity: 1,
@@ -90,6 +95,7 @@ describe("goal runtime storage", () => {
             failureCategory: null,
             failureDetail: null,
             failureCount: 0,
+            reason: null,
             createdAt: 1_000,
             updatedAt: 1_000,
           },

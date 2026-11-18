@@ -2,6 +2,8 @@ export type { Clock } from "./ports/clock.ts";
 export { systemClock } from "./ports/clock.ts";
 export * from "./autonomous-goal-planner.ts";
 export * from "./goal-runtime.ts";
+export * from "./goal-tree-planner.ts";
+export * from "./goal-tree-view.ts";
 export * from "./mission-goal-planner.ts";
 export * from "./proposals.ts";
 export * from "./ports/audience-store.ts";

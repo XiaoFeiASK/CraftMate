@@ -17,6 +17,7 @@ import {
   expandItem,
   explore,
   gotoHomeTask,
+  mineMouthApproachTask,
   miningLayerTask,
   missingForRecipe,
   nextTaskForStage,
@@ -1031,6 +1032,53 @@ describe("survival planning", () => {
     assert.doesNotMatch(plan.task?.title ?? "", /走回工作台/u);
   });
 
+  test("a table whose approach was just refused is rebuilt from carried logs", () => {
+    const now = 10_000;
+    const plan = planSurvival(
+      facts({
+        now,
+        position: { x: 159.7, y: 12, z: -112.22 },
+        canSeeSky: false,
+        surfaceY: 80,
+        inventory: [
+          { item: "minecraft:oak_log", count: 30 },
+          { item: "minecraft:oak_planks", count: 2 },
+          { item: "minecraft:stick", count: 2 },
+          { item: "minecraft:cobblestone", count: 64 },
+        ],
+        craftingTablePlaced: true,
+        craftingTableNearby: true,
+        craftingTableReachable: false,
+        craftingTable: { x: 165, y: 16, z: -113 },
+        nearbyBlocks: [{ id: "minecraft:crafting_table" }],
+        routeBlacklist: [
+          {
+            id: "refused-table-approach",
+            sessionId: null,
+            dimension: "overworld",
+            kind: "point",
+            x: 166,
+            y: 17,
+            z: -113,
+            radius: 0.75,
+            targetRef: null,
+            reasonCode: "E_ENCLOSED",
+            reasonDetail: "no safe route and no legal recovery step",
+            source: "agent",
+            expiresAt: now + 60_000,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ],
+      }),
+      goal("stone-tools"),
+      MAX_ID,
+    );
+    assert.equal(plan.stage, "stone-tools");
+    assert.equal(plan.task?.skill.name, "craft");
+    assert.doesNotMatch(plan.task?.title ?? "", /走回工作台/u);
+  });
+
   test("a broken pickaxe underground climbs toward a surface table", () => {
     const plan = planSurvival(
       facts({
@@ -1794,6 +1842,38 @@ describe("survival planning", () => {
     assert.ok(task !== null);
     assert.notEqual("skill" in task ? task.skill.name : null, "deposit");
     assert.doesNotMatch(task.title, /回家打开箱子|存进家里箱子/u);
+  });
+
+  test("a deep full pack does not walk to the camp when the chest position is unknown", () => {
+    const inventory = [
+      { item: "minecraft:iron_pickaxe", count: 1, durability: 200 },
+      { item: "minecraft:diamond_sword", count: 1, durability: 1_500 },
+      ...Array.from({ length: 34 }, () => ({
+        item: "minecraft:cobblestone",
+        count: 64,
+      })),
+    ];
+    const task = nextTaskForStage({
+      stage: "diamond-gear",
+      facts: facts({
+        position: { x: 166.5, y: -58, z: -155.5 },
+        surfaceY: 73,
+        canSeeSky: false,
+        inventory,
+        chestPlaced: true,
+        chest: null,
+        chestEmptySlots: 10,
+        bedPlaced: true,
+        bed: { x: 130, y: 73, z: -61 },
+        shelter: { x: 130, y: 73, z: -61 },
+      }),
+      newId: () => "deep-store",
+    });
+    assert.ok(task !== null);
+    const skill = "skill" in task ? task.skill : null;
+    const target = skill?.name === "goto" ? skill.args["target"] : null;
+    assert.notDeepEqual(target, { x: 130, y: 73, z: -61 });
+    assert.doesNotMatch(task.title, /回家打开箱子|营地箱子|走到床边/u);
   });
 
   test("a nearly full pack at the chest clears bulky junk in one visit", () => {
@@ -3941,7 +4021,7 @@ describe("survival planning", () => {
     }
   });
 
-  test("a worn pickaxe at a known table is replaced before walking back to the entrance", () => {
+  test("a worn pickaxe walks back to the entrance instead of crafting a replacement", () => {
     const task = nextTaskForStage({
       stage: "iron",
       facts: facts({
@@ -3975,11 +4055,11 @@ describe("survival planning", () => {
       newId: MAX_ID.clock.newId,
     });
     assert.ok(task !== null && "skill" in task);
-    // The entrance leg used to win here, so the body walked to the mine and
-    // immediately back to the table without ever making the replacement.
-    assert.doesNotMatch(task.title, /固定矿道入口/u);
-    assert.equal(task.skill.name, "craft");
-    assert.equal(task.skill.args["item"], "minecraft:stone_pickaxe");
+    // Ten uses are ten swings. The body spends them down the shaft and only
+    // visits a bench after the last carried pickaxe is gone.
+    assert.equal(task.skill.name, "goto");
+    assert.match(task.title, /固定矿道入口/u);
+    assert.doesNotMatch(task.title, /合成|修复|备用/u);
   });
 
   test("night in a working mine keeps the food stage underground", () => {
@@ -4970,7 +5050,7 @@ describe("survival planning", () => {
     assert.equal(task.skill.args["mode"], "recover");
   });
 
-  test("a descent past its field table first crafts a spare stone pickaxe", () => {
+  test("a descent past its field table keeps the carried pickaxe instead of crafting a spare", () => {
     const table = { x: 142, y: 40, z: -91 };
     const task = nextTaskForStage({
       stage: "iron",
@@ -4978,6 +5058,7 @@ describe("survival planning", () => {
         position: { x: 146.5, y: 39, z: -86.7 },
         canSeeSky: false,
         surfaceY: 75,
+        mine: mineAt({ x: 146, y: 39, z: -87 }),
         craftingTable: table,
         craftingTableNearby: true,
         craftingTablePlaced: true,
@@ -4994,9 +5075,8 @@ describe("survival planning", () => {
       newId: MAX_ID.clock.newId,
     });
     assert.ok(task !== null && "skill" in task);
-    assert.equal(task.skill.name, "craft");
-    assert.equal(task.skill.args["item"], "minecraft:stone_pickaxe");
-    assert.match(task.title, /备用/u);
+    assert.equal(task.skill.name, "mine_tunnel");
+    assert.doesNotMatch(task.title, /备用|合成|修复/u);
   });
 
   test("at the mining layer a reachable stone face opens the tunnel directly", () => {
@@ -5119,6 +5199,51 @@ describe("survival planning", () => {
     // The ore drop is the reason for the trip, so it stays required.
     assert.equal(task.skill.args["requireDrop"], undefined);
     assert.match(task.title, /铁矿石/u);
+  });
+
+  test("stocked raw iron walks to the furnace instead of mining another ore", () => {
+    const task = nextTaskForStage({
+      stage: "iron",
+      facts: facts({
+        position: { x: 21.5, y: 43, z: 252.7 },
+        canSeeSky: false,
+        surfaceY: 80,
+        timeOfDay: 9_510,
+        inventory: [
+          { item: "minecraft:stone_pickaxe", count: 1, durability: 48 },
+          { item: "minecraft:cobblestone", count: 49 },
+          { item: "minecraft:oak_log", count: 8 },
+          { item: "minecraft:stick", count: 6 },
+          { item: "minecraft:torch", count: 4 },
+          { item: "minecraft:raw_iron", count: 52 },
+          { item: "minecraft:iron_ingot", count: 2 },
+        ],
+        nearbyBlocks: [
+          { id: "minecraft:iron_ore", count: 10 },
+          {
+            id: "minecraft:iron_ore",
+            count: 1,
+            x: 18,
+            y: 42,
+            z: 253,
+            distance: 3.76,
+            bearing: 75.24,
+            visible: true,
+          },
+        ],
+        furnacePlaced: true,
+        furnace: { x: 38, y: 82, z: 253 },
+      }),
+      newId: MAX_ID.clock.newId,
+    });
+    assert.ok(task !== null && "skill" in task);
+    assert.ok(
+      !(
+        task.skill.name === "mine_block" &&
+        /iron_ore$/u.test(String(task.skill.args["block"] ?? ""))
+      ),
+      `should smelt carried iron, got ${task.skill.name} ${String(task.skill.args["block"] ?? "")}`,
+    );
   });
 
   test("a worn pickaxe still mines iron at arm's length before leaving the mine", () => {
@@ -5787,15 +5912,36 @@ describe("survival planning", () => {
     );
   });
 
-  test("a worn pickaxe is replaced at the nearby table before a long descent", () => {
+  test("eight one-use iron pickaxes keep mining instead of queuing another craft", () => {
+    const wornPickaxes = Array.from({ length: 8 }, (_, slot) => ({
+      item: "minecraft:iron_pickaxe",
+      count: 1,
+      durability: 1,
+      maxDurability: 250,
+      section: "hotbar" as const,
+      slot,
+    }));
     const task = nextTaskForStage({
       stage: "iron",
       facts: facts({
-        position: { x: 26.5, y: 54, z: 256 },
-        canSeeSky: false,
-        surfaceY: 80,
+        position: { x: 153, y: 75, z: -69 },
+        canSeeSky: true,
+        surfaceY: 75,
+        mine: {
+          entrance: { x: 153, y: 75, z: -69 },
+          direction: "north",
+          stair: {
+            stand: { x: 153, y: 44, z: -99 },
+            depth: 31,
+            pending: { id: "minecraft:stone", x: 153, y: 44, z: -100 },
+          },
+        },
+        craftingTable: { x: 154, y: 75, z: -69 },
+        craftingTablePlaced: true,
+        craftingTableReachable: true,
         inventory: [
-          { item: "minecraft:stone_pickaxe", count: 1, durability: 20 },
+          ...wornPickaxes,
+          { item: "minecraft:oak_log", count: 2 },
           { item: "minecraft:cobblestone", count: 20 },
           { item: "minecraft:stick", count: 6 },
           { item: "minecraft:torch", count: 4 },
@@ -5809,18 +5955,21 @@ describe("survival planning", () => {
       newId: MAX_ID.clock.newId,
     });
     assert.ok(task !== null && "skill" in task);
-    assert.equal(task.skill.name, "craft");
-    assert.equal(task.skill.args["item"], "minecraft:stone_pickaxe");
-    assert.match(task.title, /pickaxe|镐/u);
+    // Eight one-use pickaxes plus plenty of cobblestone used to turn the last
+    // few swings into a replacement craft that could never fit. Spend the
+    // pack first: one short segment per pickaxe is the human behaviour.
+    assert.equal(task.skill.name, "mine_tunnel");
+    assert.doesNotMatch(task.title, /合成|修复|备用/u);
   });
 
-  test("a pickaxe with only five uses is replaced before the next swing", () => {
+  test("a five-use pickaxe still opens the next tunnel cell before any replacement", () => {
     const task = nextTaskForStage({
       stage: "iron",
       facts: facts({
-        position: { x: 0.5, y: 64, z: 0.5 },
-        canSeeSky: true,
+        position: { x: 0.5, y: 40, z: 0.5 },
+        canSeeSky: false,
         surfaceY: 64,
+        mine: mineAt({ x: 0, y: 40, z: 0 }),
         inventory: [
           {
             item: "minecraft:stone_pickaxe",
@@ -5830,6 +5979,8 @@ describe("survival planning", () => {
           },
           { item: "minecraft:cobblestone", count: 3 },
           { item: "minecraft:stick", count: 2 },
+          { item: "minecraft:oak_log", count: 2 },
+          { item: "minecraft:torch", count: 4 },
           { item: "minecraft:crafting_table", count: 1 },
         ],
         nearbyBlocks: [{ id: "minecraft:crafting_table" }],
@@ -5838,11 +5989,11 @@ describe("survival planning", () => {
       newId: MAX_ID.clock.newId,
     });
     assert.ok(task !== null && "skill" in task);
-    assert.equal(task.skill.name, "craft");
-    assert.equal(task.skill.args["item"], "minecraft:stone_pickaxe");
+    assert.equal(task.skill.name, "mine_tunnel");
+    assert.doesNotMatch(task.title, /合成|修复|备用/u);
   });
 
-  test("a last log becomes sticks instead of a second table for a worn pickaxe", () => {
+  test("a worn pickaxe keeps its last log while it still has swings", () => {
     const task = nextTaskForStage({
       stage: "iron",
       facts: facts({
@@ -5851,6 +6002,7 @@ describe("survival planning", () => {
         surfaceY: 64,
         health: 20,
         food: 20,
+        mine: mineAt({ x: 0, y: 53, z: 0 }),
         inventory: [
           {
             item: "minecraft:stone_pickaxe",
@@ -5876,12 +6028,8 @@ describe("survival planning", () => {
       newId: MAX_ID.clock.newId,
     });
     assert.ok(task !== null && "skill" in task);
-    assert.equal(task.skill.name, "craft", task.title);
-    assert.notEqual(
-      task.skill.args["item"],
-      "minecraft:crafting_table",
-      "the only log must not be spent on a second bench",
-    );
+    assert.equal(task.skill.name, "mine_tunnel", task.title);
+    assert.doesNotMatch(task.title, /合成|修复|工作台|备用/u);
   });
 
   test("furnace cobblestone is taken from surface stone instead of a deep staircase", () => {
@@ -5907,15 +6055,17 @@ describe("survival planning", () => {
     assert.match(task.title, /地表/u);
   });
 
-  test("a nearly broken pickaxe returns to the surface before mining", () => {
+  test("a nearly broken pickaxe keeps mining instead of climbing out", () => {
     const task = nextTaskForStage({
       stage: "iron",
       facts: facts({
         position: { x: 0, y: 16, z: 0 },
         canSeeSky: false,
         surfaceY: 64,
+        mine: mineAt({ x: 0, y: 16, z: 0 }),
         inventory: [
           { item: "minecraft:stone_pickaxe", count: 1, durability: 10 },
+          { item: "minecraft:torch", count: 4 },
         ],
         nearbyBlocks: [
           { id: "minecraft:crafting_table" },
@@ -5925,8 +6075,8 @@ describe("survival planning", () => {
       newId: MAX_ID.clock.newId,
     });
     assert.ok(task !== null && "skill" in task);
-    assert.equal(task.skill.name, "goto");
-    assert.match(task.title, /返回地表/u);
+    assert.equal(task.skill.name, "mine_tunnel");
+    assert.doesNotMatch(task.title, /返回地表/u);
   });
 
   test("five hearts and thirteen hunger keep mining instead of climbing out", () => {
@@ -6519,15 +6669,17 @@ describe("survival planning", () => {
     assert.equal(task.skill.args["count"], 3);
   });
 
-  test("a worn pickaxe is replaced from planks instead of blocking the mine", () => {
+  test("a worn pickaxe keeps mining from its carried planks instead of crafting a replacement", () => {
     const task = nextTaskForStage({
       stage: "iron",
       facts: facts({
         position: { x: 0.5, y: 42, z: 0.5 },
         canSeeSky: false,
         surfaceY: 73,
+        mine: mineAt({ x: 0, y: 42, z: 0 }),
         inventory: [
           { item: "minecraft:stone_pickaxe", count: 1, durability: 10 },
+          { item: "minecraft:furnace", count: 1 },
           { item: "minecraft:cobblestone", count: 16 },
           { item: "minecraft:coal", count: 8 },
           { item: "minecraft:torch", count: 4 },
@@ -6545,10 +6697,10 @@ describe("survival planning", () => {
       newId: MAX_ID.clock.newId,
     });
     assert.ok(task !== null && "skill" in task);
-    // Two planks make eight sticks, so the stone pickaxe is one prerequisite
-    // craft away. The durability gate must not park the goal instead.
-    assert.equal(task.skill.name, "craft");
-    assert.ok(!/只剩/u.test(task.title));
+    // Two planks are still a future stick source, but ten remaining swings
+    // come first. A bench trip here is what filled the pack with spare tools.
+    assert.equal(task.skill.name, "mine_tunnel");
+    assert.doesNotMatch(task.title, /合成|修复|备用|只剩/u);
   });
 
   test("a bench sharing the furnace column is recycled before the field furnace is placed", () => {
@@ -8583,6 +8735,29 @@ describe("failure recovery", () => {
     assert.equal(result.task?.skill.name, "mine_block");
     assert.deepEqual(result.task?.skill.args["at"], { x: 139, y: 51, z: -58 });
     assert.match(result.reason, /脱困/u);
+  });
+
+  test("a surface body walks to the first stair cell before retrying the mine", () => {
+    const surface = facts({
+      position: { x: 155.5, y: 73, z: -68.5 },
+      canSeeSky: true,
+      surfaceY: 73,
+      mine: {
+        entrance: { x: 153, y: 75, z: -69 },
+        direction: "north",
+        stair: { stand: { x: 153, y: 63, z: -80 }, depth: 12 },
+      },
+    });
+    const approach = mineMouthApproachTask(
+      "diamond-gear",
+      surface,
+      () => "mouth",
+    );
+    assert.ok(approach !== null);
+    assert.ok("skill" in approach);
+    assert.equal(approach.skill.name, "goto");
+    assert.deepEqual(approach.skill.args["target"], { x: 153, y: 74, z: -70 });
+    assert.match(approach.title, /矿道第一阶/u);
   });
 
   test("a blocked branch reports the avoid list", () => {

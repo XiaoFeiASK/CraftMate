@@ -61,20 +61,23 @@ Admin Console 崩溃不中断直播；外部系统故障只降级对应能力，
 操作员开启目标模式后，运行链路不再等待评论：
 
 ```text
-身体快照 → worldFactsFromSnapshot → planMission（安全门与验收链）
-         → planSurvival（阶段任务）→ MissionGoalPlanner（可编译 run_plan）
-         → PlanCompiler（必要时）→ GoalRuntime → Bridge → Fabric Mod
-         → result/changes → settle → 重新观察
+身体快照 → worldFactsFromSnapshot → GoalTreePlanner（阶段/里程碑/task/skill）
+         ├→ planMission（只提议阶段方向）
+         └→ nextTaskForStage（阶段内合法原子任务）
+         → GoalRuntime → Bridge → Fabric Mod → result/changes → settle → 重新观察
 ```
 
-- `MissionGoalPlanner` 决定任务链方向，`SurvivalGoalPlanner` 编译阶段、前置条件
-  和合法原子任务；目标模式不逐步调用模型。
+- `GoalTreePlanner` 决定阶段、里程碑和任务方向，`nextTaskForStage` 生成阶段内的
+  合法原子任务；目标模式不逐步调用模型。legacy 开关可回退到
+  `MissionGoalPlanner`，回退路径仍可使用 `SurvivalGoalPlanner` 和 `run_plan` 编译。
 - 规划器只读取身体已上报的事实；缺失字段保持 `unverified`，不会补造进度。
 - 一次只下发一个任务，终态后才继续；完成必须有已确认世界变化。
-- 同一移动策略连续失败会换区域重新观察；失败上限只选择最长退避，不永久停掉目标。
+- 同一移动策略连续失败会换区域重新观察；legacy 路径以最长退避继续，树引擎在
+  重试后标记受阻并报告原因，避免无限重试。
 - 操作员接管、急停或换目标会取消当前命令，控制权仍按 Bridge sticky owner 规则处理。
 
-详细说明见[自主生存闭环](../operations/autonomy.md)。
+目标树节点与失败规则见[目标树调度](goal-tree.md)；现场闭环见
+[自主生存闭环](../operations/autonomy.md)。
 
 ### 4.3 三层节奏
 

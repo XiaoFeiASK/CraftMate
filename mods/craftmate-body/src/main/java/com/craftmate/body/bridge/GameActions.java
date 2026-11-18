@@ -246,6 +246,20 @@ public final class GameActions {
 	private static int staleMenuSince = -1;
 	private static Reflexes reflexes;
 	private static volatile boolean miningInputHeld;
+	/**
+	 * A descent task that is deliberately swimming down keeps the global
+	 * "surface immediately" reflex from cancelling the dive. The lease is
+	 * refreshed every tick and expires on its own if the task stops.
+	 */
+	private static volatile long waterDescentUntilNanos;
+	/**
+	 * The hit the active task actually wants to mine. Vanilla recomputes
+	 * `Minecraft.hitResult` from the camera ray at the top of every tick, so a
+	 * hit assigned here during END_CLIENT_TICK is gone before the next attack
+	 * is processed. The mixin reads this instead, which keeps the mining
+	 * target stable even when the nearest exposed ore face is behind a wall.
+	 */
+	private static volatile BlockHitResult taskMiningHit;
 	/** The canopy cell currently being peeled by the shared escape helper. */
 	private static BlockPos canopyMining;
 	private static volatile boolean agentInputAllowed;
@@ -378,6 +392,7 @@ public final class GameActions {
 	private static BlockPos oreScanOrigin;
 	private static String oreObservationStatus = OrePerception.NOT_OBSERVED;
 	private static String oreObservationReason = "no ore survey has run";
+	private static long lastOreSurveyLogAtNanos;
 	/**
 	 * The ore family currently worth surveying. Guard evaluation and mining
 	 * both own requests; the owner keeps a short-lived guard probe from
@@ -876,20 +891,42 @@ public final class GameActions {
 			pos.getX(),
 			pos.getZ()
 		);
-		if (motion > level.getMinBuildHeight()) return motion;
+		/*
+		 * A loaded chunk can keep a stale heightmap that claims the body's own
+		 * feet are the surface. This is different from the world-floor case
+		 * below: the live body stood at y=3, 72 blocks down its stair, while
+		 * `canSeeSky` was false. The planner then believed it was home and
+		 * repeatedly asked a full backpack to walk to the mine instead of
+		 * climbing out. Trust a low height only when the body can actually see
+		 * the sky; otherwise recompute the top of the column from block state.
+		 */
+		if (
+			motion > level.getMinBuildHeight() &&
+			(level.canSeeSky(pos) || motion > pos.getY() + 1)
+		) {
+			return motion;
+		}
 		int world = level.getHeight(
 			Heightmap.Types.WORLD_SURFACE,
 			pos.getX(),
 			pos.getZ()
 		);
-		if (world <= level.getMinBuildHeight()) {
-			return Math.max(pos.getY(), level.getMinBuildHeight());
+		if (
+			world > level.getMinBuildHeight() &&
+			(level.canSeeSky(pos) || world > pos.getY() + 1)
+		) {
+			for (int y = world - 1; y > level.getMinBuildHeight() && y >= world - 24; y--) {
+				BlockState state = level.getBlockState(new BlockPos(pos.getX(), y, pos.getZ()));
+				if (!state.isAir() && !state.is(BlockTags.LEAVES)) return y + 1;
+			}
+			return world;
 		}
-		for (int y = world - 1; y > level.getMinBuildHeight() && y >= world - 24; y--) {
-			BlockState state = level.getBlockState(new BlockPos(pos.getX(), y, pos.getZ()));
+		BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+		for (int y = level.getMaxBuildHeight() - 1; y >= level.getMinBuildHeight(); y--) {
+			BlockState state = level.getBlockState(cursor.set(pos.getX(), y, pos.getZ()));
 			if (!state.isAir() && !state.is(BlockTags.LEAVES)) return y + 1;
 		}
-		return world;
+		return Math.max(pos.getY(), level.getMinBuildHeight());
 	}
 
 	static JsonObject snapshot(Minecraft client) {
@@ -3204,6 +3241,29 @@ public final class GameActions {
 		) return;
 		boolean bodyInWater = player.isInWater();
 		boolean eyesInWater = player.isEyeInFluid(FluidTags.WATER);
+		/*
+		 * The dive reflex must not undo a descent that entered an aquifer.
+		 * Keep surfacing while the eyes are submerged, so the body can still
+		 * breathe; once the head is clear there is air above and the descent
+		 * may hold the jump key up so the water column carries it down.
+		 */
+		if (
+			WaterSurface.mayDive(
+				bodyInWater,
+				player.onGround(),
+				player.getAirSupply(),
+				waterDescentActive()
+			)
+		) {
+			client.options.keyJump.setDown(false);
+			if (player.input != null) {
+				player.input.jumping = false;
+				if (player.input instanceof KeyboardInput keyboard) {
+					keyboard.tick(false, 1.0f);
+				}
+			}
+			return;
+		}
 		if (!WaterSurface.needsJump(bodyInWater, eyesInWater, player.onGround())) {
 			return;
 		}
@@ -3310,7 +3370,6 @@ public final class GameActions {
 			}
 		}
 		if (TASKS.isEmpty()) {
-			if (!CameraController.retained()) CameraController.release();
 			IdleWander.tick(client, agentControlled);
 		}
 	}
@@ -3689,7 +3748,6 @@ public final class GameActions {
 		void start(Minecraft client) {
 			startedTick = clientTick;
 			startWorldIdentity = worldIdentity(client);
-			CameraController.holdForPlan();
 			send.accept(progress(id, "plan", completed, steps.size()));
 			startNext(client);
 		}
@@ -4280,7 +4338,6 @@ public final class GameActions {
 			} else if (index >= steps.size()) {
 				PLAN_CHECKPOINTS.remove(planId);
 			}
-			CameraController.releasePlanHold();
 			CraftMateBodyClient.LOGGER.info(
 				"CraftMate plan stop id={} plan={} step={}/{} detail={}",
 				id,
@@ -4358,7 +4415,6 @@ public final class GameActions {
 			 */
 			releaseWalkInput(client);
 			releaseMiningInput(client);
-			CameraController.release();
 			send.accept(progress(id, "waiting", 0, total));
 		}
 
@@ -4468,7 +4524,6 @@ public final class GameActions {
 			CameraController.steerTo(client.player, look);
 			settledTicks = CameraController.settled(client.player, 2.0f) ? settledTicks + 1 : 0;
 			if (settledTicks >= 3) {
-				CameraController.retain();
 				JsonObject evidence = new JsonObject();
 				evidence.addProperty("summary", "camera settled on the target");
 				JsonArray changes = new JsonArray();
@@ -4481,6 +4536,13 @@ public final class GameActions {
 			} else if (age > 20 * 4) {
 				finish(id, "failed", "E_TIMEOUT", "camera did not settle on the target");
 			}
+		}
+
+		@Override
+		void stop(Minecraft client) {
+			// Hold the last observation bearing after look_at instead of
+			// snapping back to the body's current facing.
+			CameraController.clearLookTarget();
 		}
 
 		private Vec3 resolveLookTarget(Minecraft client) {
@@ -4696,6 +4758,12 @@ public final class GameActions {
 		private int ceilingStepAt;
 		private Vec3 ceilingCenter;
 		private int ceilingCenterSince = -1;
+		/**
+		 * A pillar can place its final block with the body already inside a
+		 * solid cell. Waiting one tick avoids fighting ordinary landing
+		 * jitter, but a persistent overlap must be mined immediately.
+		 */
+		private int ceilingEmbeddedSince = -1;
 		private BlockPos pillarPlacedAt;
 		private BlockPos pillarClearMining;
 		private boolean pillarRetreat;
@@ -4945,7 +5013,6 @@ public final class GameActions {
 			Vec3 centre = Vec3.atCenterOf(wall);
 			BlockHitResult hit = escapeHit(client, player, wall);
 			aimBodyAt(player, hit.getLocation());
-			CameraController.steerTo(player, centre);
 			if (!ShaftEscape.canBreakWall(state.blocksMotion(), hit.getBlockPos().equals(wall))) {
 				return false;
 			}
@@ -5062,7 +5129,10 @@ public final class GameActions {
 
 		/** Non-facility terrain plus recoverable stations may be cleared. */
 		private static boolean escapeMayClear(BlockState state) {
-			return !playerFacility(state) || recoverableEscapeFacility(state);
+			return ShaftEscape.mayClearEscapeFacility(
+				playerFacility(state),
+				recoverableEscapeFacility(state)
+			);
 		}
 
 		private static boolean softWall(BlockState state) {
@@ -5329,11 +5399,6 @@ public final class GameActions {
 			double dz = target.z - player.getZ();
 			float heading = (float) Math.toDegrees(Math.atan2(-dx, dz));
 			boolean aligned = turnTowards(player, heading);
-			CameraController.steerHeading(
-				player,
-				player.getYRot(),
-				CameraController.displayPitch(player)
-			);
 			// Once airborne, keep the forward key held even if the body has not
 			// finished turning; otherwise a jump straight up drops back onto
 			// the same pillar.
@@ -5353,6 +5418,18 @@ public final class GameActions {
 			// death tick. Reset it only when the body is actually on ground;
 			// an airborne body must keep the real fall for the safety reflex.
 			if (client.player.onGround()) client.player.resetFallDistance();
+			if (embeddedInSolid(client, client.player)) {
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate goto embedded rescue mode={} feet={} feetState={} headState={} pos={}",
+					mode.wireName(),
+					client.player.blockPosition(),
+					client.level.getBlockState(client.player.blockPosition()),
+					client.level.getBlockState(client.player.blockPosition().above()),
+					client.player.position()
+				);
+				startEscape(client, client.player);
+				return;
+			}
 			// Walking is the most common navigation mode, and leaves are not
 			// part of A*'s standable grid. Skipping the canopy descent for
 			// walk left the body retrying every destination from the same
@@ -5465,7 +5542,7 @@ public final class GameActions {
 		}
 
 		private void startEscape(Minecraft client, LocalPlayer player) {
-			if (mode.isWalk()) {
+			if (mode.isWalk() && !embeddedInSolid(client, player)) {
 				failUnreachable(client, player, "walk mode cannot enter a destructive escape");
 				return;
 			}
@@ -5481,6 +5558,23 @@ public final class GameActions {
 			);
 			send.accept(progress(id, "unstick", 0, 1));
 			tickEscape(client, player);
+		}
+
+		/**
+		 * A walk command normally refuses destructive recovery. Suffocation
+		 * is the exception: if the body's own cells are solid, waiting for
+		 * the planner to escalate costs health, and every walk retry fails on
+		 * the same sealed cell.
+		 */
+		private static boolean embeddedInSolid(
+			Minecraft client,
+			LocalPlayer player
+		) {
+			BlockPos feet = player.blockPosition();
+			return ShaftEscape.bodyEmbedded(
+				client.level.getBlockState(feet).blocksMotion(),
+				client.level.getBlockState(feet.above()).blocksMotion()
+			);
 		}
 
 		private void failUnreachable(
@@ -5575,9 +5669,30 @@ public final class GameActions {
 			) {
 				return false;
 			}
-			if (route.complete()) return true;
 			Vec3 end = route.destination();
 			double moved = Math.hypot(end.x - player.getX(), end.z - player.getZ());
+			double toTarget = Math.hypot(
+				target.x - player.getX(),
+				target.z - player.getZ()
+			);
+			if (
+				!ShaftEscape.completeRouteMovesBody(
+					route.complete(),
+					moved,
+					toTarget,
+					Math.max(1.5, goalRadius + 0.5)
+				)
+			) {
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate goto route stalls in place destination={} moved={} targetDistance={} mode={}",
+					route.destination(),
+					moved,
+					toTarget,
+					mode.wireName()
+				);
+				return false;
+			}
+			if (route.complete()) return true;
 			// Explore legs are allowed to stop at a safe observation point,
 			// but a two-block partial leg is not an exploration. Following it
 			// burned the command, failed the eight-block progress check, and
@@ -5821,6 +5936,25 @@ public final class GameActions {
 				send.accept(progress(id, "unstick", 0, 1));
 				return;
 			}
+			/*
+			 * A target above the body needs height, not a longer tunnel at the
+			 * same level. Tunnelling and bridging were tried first, so a body
+			 * under a low ceiling extended the cave floor forever while the
+			 * requested cell stayed forty blocks up. A proven stair step is
+			 * always vertical progress; gapped floors still fall through to
+			 * the bridge below.
+			 */
+			if (
+				ShaftEscape.shouldStairUp(
+					player.onGround(),
+					mode.mayDig(),
+					target.y - player.getY()
+				) &&
+				beginClimbStep(client, player)
+			) {
+				send.accept(progress(id, "climbing", climbSteps, 16));
+				return;
+			}
 			if (
 				mode.mayDig() &&
 				(!wantsUp || !directlyAbove) &&
@@ -5863,17 +5997,6 @@ public final class GameActions {
 			 * Descending targets must fall through to the retract/ledge
 			 * paths instead.
 			 */
-			if (
-				ShaftEscape.shouldStairUp(
-					player.onGround(),
-					mode.mayDig(),
-					target.y - player.getY()
-				) &&
-				beginClimbStep(client, player)
-			) {
-				send.accept(progress(id, "climbing", climbSteps, 16));
-				return;
-			}
 			if (!wantsUp && mode.mayBuild() && beginCeilingPillar(client, player, false)) {
 				send.accept(progress(id, "climbing", climbSteps, 16));
 				return;
@@ -6089,11 +6212,6 @@ public final class GameActions {
 			double dz = center.z - player.getZ();
 			float heading = (float) Math.toDegrees(Math.atan2(-dx, dz));
 			boolean aligned = turnTowards(player, heading);
-			CameraController.steerHeading(
-				player,
-				player.getYRot(),
-				CameraController.displayPitch(player)
-			);
 			setWalkInput(client, aligned);
 			if (age % 20 == 0) {
 				send.accept(progress(id, "tunneling", tunnelSteps, 6));
@@ -6283,11 +6401,6 @@ public final class GameActions {
 				double dz = center.z - player.getZ();
 				float heading = (float) Math.toDegrees(Math.atan2(-dx, dz));
 				boolean aligned = turnTowards(player, heading);
-				CameraController.steerHeading(
-					player,
-					player.getYRot(),
-					CameraController.displayPitch(player)
-				);
 				setWalkInput(client, aligned);
 				if (aligned && Math.hypot(dx, dz) < 0.45 && player.onGround()) {
 					bridgeBlocks++;
@@ -6309,7 +6422,14 @@ public final class GameActions {
 					if (bridgeTarget != null && player.blockPosition().equals(bridgeTarget)) {
 						bridging = false;
 						bridgeClear();
-						escapingNoRoute = false;
+						/*
+						 * Stay in escape mode here. The body has just stepped
+						 * onto the new block and may still be settling in the
+						 * air; tickEscape returns on that frame, and the next
+						 * tick would otherwise see an installed-but-empty
+						 * waypoint list and fail as E_INTERNAL.
+						 */
+						escapingNoRoute = true;
 						tickEscape(client, player);
 						return;
 					}
@@ -6337,7 +6457,6 @@ public final class GameActions {
 				bridgeSupport.getY() + 0.35,
 				bridgeSupport.getZ() + 0.5 + bridgeDirection.getStepZ() * 0.5
 			);
-			CameraController.steerTo(player, faceCenter);
 			// The support block is directly underfoot, so a look ray from the
 			// eye enters through its top face and never reaches the side face.
 			// The body still looks at the edge, but the interaction names the
@@ -6365,6 +6484,18 @@ public final class GameActions {
 
 		private void bridgeAbort(Minecraft client, String reason) {
 			releaseWalkInput(client);
+			CraftMateBodyClient.LOGGER.info(
+				"CraftMate bridge abort reason={} pos={} place={} placeState={} support={} blocks={} submitted={}",
+				reason,
+				client.player == null ? null : client.player.position(),
+				bridgePlace,
+				bridgePlace == null || client.level == null
+					? null
+					: client.level.getBlockState(bridgePlace),
+				bridgeSupport,
+				bridgeBlocks,
+				bridgeSubmittedAt
+			);
 			bridgeClear();
 			bridging = false;
 			finish(id, "failed", "E_STUCK", reason);
@@ -6531,7 +6662,6 @@ public final class GameActions {
 			}
 			float heading = (float) Math.toDegrees(Math.atan2(-dx, dz));
 			boolean aligned = turnTowards(player, heading);
-			CameraController.steerHeading(player, player.getYRot(), 0.0f);
 			setSwimInput(client, aligned);
 			if (player.onGround() && !player.isInWater()) {
 				swimming = false;
@@ -6569,7 +6699,6 @@ public final class GameActions {
 			if (player.getY() < target.getY() + 1.06) return false;
 			player.getInventory().selected = slot;
 			Vec3 centre = Vec3.atCenterOf(support);
-			CameraController.steerTo(player, centre);
 			BlockHitResult hit = BlockInteraction.hit(support, Direction.UP);
 			client.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
 			swimPillarAt = age;
@@ -6954,11 +7083,6 @@ public final class GameActions {
 			double dz = center.z - player.getZ();
 			float heading = (float) Math.toDegrees(Math.atan2(-dx, dz));
 			boolean aligned = turnTowards(player, heading);
-			CameraController.steerHeading(
-				player,
-				player.getYRot(),
-				CameraController.displayPitch(player)
-			);
 			setWalkInput(client, aligned);
 			if (player.onGround()) player.jumpFromGround();
 			if (age % 20 == 0) {
@@ -7016,7 +7140,6 @@ public final class GameActions {
 				player.getEyePosition(),
 				pos
 			);
-			CameraController.steerTo(player, Vec3.atCenterOf(pos));
 			if (!hit.getBlockPos().equals(pos)) {
 				if (retargetClimbObstruction(client, player, pos, hit)) return;
 				abortClimb(
@@ -7139,7 +7262,6 @@ public final class GameActions {
 			} else {
 				client.gameMode.continueDestroyBlock(pos, hit.getDirection());
 			}
-			CameraController.steerTo(player, Vec3.atCenterOf(pos));
 			client.hitResult = hit;
 			holdMiningInput(client);
 		}
@@ -7230,6 +7352,19 @@ public final class GameActions {
 			if (slot < 0) return false;
 			BlockPos feet = player.blockPosition();
 			BlockPos support = supportBlock(client, player).pos();
+			if (
+				ShaftEscape.bodyEmbedded(
+					client.level.getBlockState(feet).blocksMotion(),
+					client.level.getBlockState(feet.above()).blocksMotion()
+				)
+			) {
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate ceiling pillar refused embedded body feet={} head={}",
+					client.level.getBlockState(feet),
+					client.level.getBlockState(feet.above())
+				);
+				return false;
+			}
 			boolean feetSupported =
 				client.level.getBlockState(feet.below()).blocksMotion();
 			if (
@@ -7304,11 +7439,18 @@ public final class GameActions {
 			climbMining = null;
 			pillarClearMining = null;
 			if (!pillarHasEscapeHeadroom(client, player, feet)) {
+				BlockPos fourthPos = feet.above(3);
+				BlockState fourth = client.level.getBlockState(fourthPos);
 				CraftMateBodyClient.LOGGER.info(
-					"CraftMate ceiling no headroom feet={} third={} fourth={}",
+					"CraftMate ceiling no headroom feet={} third={} fourth={} fluid={} lavaAbove={} clearable={} hardness={} tool={}",
 					feet,
 					client.level.getBlockState(feet.above(2)),
-					client.level.getBlockState(feet.above(3))
+					fourth,
+					fourth.getFluidState(),
+					lavaWithin(client, fourthPos, 3),
+					escapeMayClear(fourth),
+					fourth.getDestroySpeed(client.level, fourthPos),
+					hasCorrectTool(player, fourth)
 				);
 				ceilingActive = false;
 				ceilingPlacing = false;
@@ -7422,7 +7564,7 @@ public final class GameActions {
 			 * same "no headroom" escape forever. Chests and beds still hold
 			 * state and must never be cleared this way.
 			 */
-			if (playerFacility(state) && !recoverableEscapeFacility(state)) return false;
+			if (!escapeMayClear(state)) return false;
 			float hardness = state.getDestroySpeed(client.level, pos);
 			if (hardness < 0.0f) return false;
 			if (
@@ -7431,7 +7573,28 @@ public final class GameActions {
 			) {
 				return false;
 			}
-			return !fluidWithin(client, pos, 3);
+			/*
+			 * Water above a ceiling pocket is survivable: the body can swim
+			 * through the hole it just opened and keep building. Lava is the
+			 * only fluid that makes the cut fatal, and refusing water here
+			 * stranded a live pillar top under a shallow pool with no other
+			 * legal upward move.
+			 */
+			return !lavaWithin(client, pos, 3);
+		}
+
+		private static boolean lavaWithin(Minecraft client, BlockPos pos, int depth) {
+			for (int offset = 1; offset <= depth; offset++) {
+				if (
+					client.level
+						.getBlockState(pos.above(offset))
+						.getFluidState()
+						.is(FluidTags.LAVA)
+				) {
+					return true;
+				}
+			}
+			return false;
 		}
 
 		private static boolean hasCorrectTool(LocalPlayer player, BlockState state) {
@@ -7476,6 +7639,43 @@ public final class GameActions {
 		}
 
 		private void tickCeilingPillar(Minecraft client, LocalPlayer player) {
+			BlockPos bodyFeet = player.blockPosition();
+			boolean feetSolid =
+				client.level.getBlockState(bodyFeet).blocksMotion();
+			boolean headSolid =
+				client.level.getBlockState(bodyFeet.above()).blocksMotion();
+			if (ShaftEscape.bodyEmbedded(feetSolid, headSolid)) {
+				if (ceilingEmbeddedSince < 0) {
+					ceilingEmbeddedSince = age;
+					CraftMateBodyClient.LOGGER.info(
+						"CraftMate ceiling body embedded feet={} feetState={} head={} headState={} pos={} placing={}",
+						bodyFeet,
+						client.level.getBlockState(bodyFeet),
+						bodyFeet.above(),
+						client.level.getBlockState(bodyFeet.above()),
+						player.position(),
+						ceilingPlacing
+					);
+				}
+				if (age - ceilingEmbeddedSince >= 6) {
+					BlockPos embedded = feetSolid ? bodyFeet : bodyFeet.above();
+					releaseWalkInput(client);
+					CraftMateBodyClient.LOGGER.info(
+						"CraftMate ceiling clearing embedded body cell={} state={}",
+						embedded,
+						client.level.getBlockState(embedded)
+					);
+					if (!mineCeilingBlock(client, player, embedded)) {
+						abortCeiling(
+							client,
+							"body is embedded in a block that cannot be cleared"
+						);
+					}
+					return;
+				}
+			} else {
+				ceilingEmbeddedSince = -1;
+			}
 			if (age - ceilingStepAt > 20 * 12) {
 				CraftMateBodyClient.LOGGER.info(
 					"CraftMate ceiling timeout pos={} baseY={} mine={} placing={} onGround={} delta={}",
@@ -7658,9 +7858,26 @@ public final class GameActions {
 				abortCeiling(client, "ran out of building blocks while pillaring");
 				return;
 			}
+			if (
+				ShaftEscape.bodyOccupiesCell(
+					target.getX(),
+					target.getY(),
+					target.getZ(),
+					player.getX(),
+					player.getY(),
+					player.getZ()
+				)
+			) {
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate ceiling placement skipped cell={} pos={} baseY={}",
+					target,
+					player.position(),
+					ceilingBase
+				);
+				return;
+			}
 			player.getInventory().selected = slot;
 			Vec3 center = Vec3.atCenterOf(support);
-			CameraController.steerTo(player, center);
 			BlockHitResult hit = BlockInteraction.hit(support, Direction.UP);
 			client.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
 			pillarPlacedAt = target;
@@ -7695,7 +7912,6 @@ public final class GameActions {
 				pos
 			);
 			aimBodyAt(player, hit.getLocation());
-			CameraController.steerTo(player, Vec3.atCenterOf(pos));
 			if (pillarClearMining == null || !pillarClearMining.equals(pos)) {
 				if (client.gameMode.isDestroying()) client.gameMode.stopDestroyBlock();
 				client.gameMode.startDestroyBlock(pos, hit.getDirection());
@@ -7926,7 +8142,6 @@ public final class GameActions {
 				return;
 			}
 			player.getInventory().selected = slot;
-			CameraController.steerTo(player, Vec3.atCenterOf(support));
 			client.gameMode.useItemOn(player, InteractionHand.MAIN_HAND, hit);
 			towerTargetCell = targetCell;
 			towerAwaiting = true;
@@ -8000,7 +8215,6 @@ public final class GameActions {
 				pillarPlacedAt
 			);
 			aimBodyAt(player, hit.getLocation());
-			CameraController.steerTo(player, Vec3.atCenterOf(pillarPlacedAt));
 			// The body placed this pillar while holding a building block, so
 			// the selected slot is almost never a pickaxe. Equip the correct
 			// tool before touching the support; otherwise the retreat grinds
@@ -8045,8 +8259,25 @@ public final class GameActions {
 			Vec3 center = ceilingCenter == null
 				? Vec3.atCenterOf(player.blockPosition())
 				: ceilingCenter;
+			BlockPos current = player.blockPosition();
+			BlockPos centerCell = BlockPos.containing(center);
+			if (
+				ShaftEscape.shouldRecenterPillarColumn(
+					climbSteps,
+					current.getX(),
+					current.getZ(),
+					centerCell.getX(),
+					centerCell.getZ()
+				)
+			) {
+				ceilingCenter = Vec3.atCenterOf(current);
+				ceilingCenterSince = age;
+				center = ceilingCenter;
+			}
 			double offset = Math.hypot(center.x - player.getX(), center.z - player.getZ());
-			if (offset <= 0.08) {
+			// 0.08 rejected a body oscillating at 0.083 on a one-block stair
+			// edge. Its bounding box still overlaps the centre block.
+			if (offset <= 0.12) {
 				ceilingCenterSince = -1;
 				releaseWalkInput(client);
 				return false;
@@ -8068,11 +8299,6 @@ public final class GameActions {
 				Math.atan2(-(center.x - player.getX()), center.z - player.getZ())
 			);
 			boolean aligned = turnTowards(player, heading);
-			CameraController.steerHeading(
-				player,
-				player.getYRot(),
-				CameraController.displayPitch(player)
-			);
 			setWalkInput(client, aligned);
 			return true;
 		}
@@ -8087,9 +8313,16 @@ public final class GameActions {
 				abortCeiling(client, "ceiling exposed fluid");
 				return false;
 			}
-			if (playerFacility(state)) {
+			if (!escapeMayClear(state)) {
 				abortCeiling(client, "ceiling target is a player facility");
 				return false;
+			}
+			if (playerFacility(state)) {
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate ceiling clear recoverable facility target={} state={}",
+					pos,
+					state
+				);
 			}
 			if (state.requiresCorrectToolForDrops()) {
 				int tool = bestToolSlot(player, state);
@@ -8118,7 +8351,6 @@ public final class GameActions {
 				pos
 			);
 			aimBodyAt(player, hit.getLocation());
-			CameraController.steerTo(player, Vec3.atCenterOf(pos));
 			if (climbMining == null || !climbMining.equals(pos)) {
 				if (client.gameMode.isDestroying()) client.gameMode.stopDestroyBlock();
 				client.gameMode.startDestroyBlock(pos, hit.getDirection());
@@ -8147,6 +8379,7 @@ public final class GameActions {
 			ceilingPlacing = false;
 			ceilingCenter = null;
 			ceilingCenterSince = -1;
+			ceilingEmbeddedSince = -1;
 			pillarPlacedAt = null;
 			pillarRetreat = false;
 			pillarRetreatMining = false;
@@ -8423,7 +8656,6 @@ public final class GameActions {
 				Vec3 centre = Vec3.atCenterOf(escapeWall);
 				BlockHitResult hit = escapeHit(client, player, escapeWall);
 				aimBodyAt(player, hit.getLocation());
-				CameraController.steerTo(player, centre);
 				client.hitResult = hit;
 				client.gameMode.continueDestroyBlock(escapeWall, hit.getDirection());
 				holdMiningInput(client);
@@ -8446,9 +8678,26 @@ public final class GameActions {
 				tickEscape(client, player);
 				return;
 			}
-			if (waypointIndex >= waypoints.size()) {
-				stop(client);
-				finish(id, "failed", "E_INTERNAL", "route has no current waypoint");
+			if (!ShaftEscape.hasCurrentWaypoint(waypointIndex, waypoints.size())) {
+				/*
+				 * An empty route is a navigation state, not a crash. A bridge
+				 * or ceiling step can hand control back while the body is
+				 * airborne, and escape mode is the only useful move until a
+				 * fresh route exists.
+				 */
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate goto route missing index={} points={} destination={} pos={} escaping={} bridging={} ceiling={} wall={}",
+					waypointIndex,
+					waypoints.size(),
+					destination,
+					player.position(),
+					escapingNoRoute,
+					bridging,
+					ceilingActive,
+					escapeWall
+				);
+				escapingNoRoute = true;
+				tickEscape(client, player);
 				return;
 			}
 			Vec3 waypoint = waypoints.get(waypointIndex);
@@ -8495,6 +8744,31 @@ public final class GameActions {
 				&& movedFromStart(player) >= 1.0
 				&& Math.hypot(target.x - player.getX(), target.z - player.getZ()) <= 2.5;
 			boolean finalWaypoint = waypointIndex >= waypoints.size() - 1;
+			if (
+				finalWaypoint
+					&& routeComplete
+					&& mode == NavigationMode.RECOVER
+					&& arrived
+					&& !atRequestedGoal(player.position())
+			) {
+				/*
+				 * Recovery's nearest standable cell is often the top of the
+				 * pillar it just built. Reporting arrival there told the
+				 * planner the requested surface cell was reached, and the
+				 * following walk command failed E_ENCLOSED until the body
+				 * suffocated in the unchanged shaft.
+				 */
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate goto recovery endpoint short destination={} target={} pos={}",
+					destination,
+					target,
+					player.position()
+				);
+				escapingNoRoute = true;
+				releaseWalkInput(client);
+				tickEscape(client, player);
+				return;
+			}
 			if (finalWaypoint && (arrived || reachedExploreColumn)) {
 				stop(client);
 				if (
@@ -8667,11 +8941,6 @@ public final class GameActions {
 					step == null ? offset.z : step.z - player.getZ())
 			);
 			boolean aligned = turnTowards(player, heading);
-			CameraController.steerHeading(
-				player,
-				player.getYRot(),
-				CameraController.displayPitch(player)
-			);
 			if (handlePassage(client, player, step, aligned)) return;
 			// A single collision tick is normal on a slope. Jumping on every
 			// one of them, however, is what wedged the body against a wall for
@@ -8806,11 +9075,6 @@ public final class GameActions {
 				send.accept(progress(id, "replanning", replans, MAX_REPLANS));
 				return;
 			}
-			CameraController.steerHeading(
-				player,
-				player.getYRot(),
-				CameraController.displayPitch(player)
-			);
 			boolean sprint = safeToSprint(client, player, step, aligned, stepUp);
 			if (age % 20 == 0) {
 				CraftMateBodyClient.LOGGER.info(
@@ -8964,7 +9228,6 @@ public final class GameActions {
 				releaseWalkInput(client);
 				if (age >= nextPassageUseAt && withinInteractionRange(player, passage)) {
 					nextPassageUseAt = age + 10;
-					CameraController.steerTo(player, Vec3.atCenterOf(passage));
 					BlockHitResult hit = BlockInteraction.hit(
 						player.getEyePosition(),
 						passage
@@ -9121,6 +9384,25 @@ public final class GameActions {
 		private boolean atTargetColumn(Vec3 reached) {
 			return Math.hypot(target.x - reached.x, target.z - reached.z)
 				<= 1.5;
+		}
+
+		/**
+		 * Recovery must reach the requested cell or one of its explicit
+		 * candidates. Its escape route can end on any nearby standable cell;
+		 * treating that endpoint as the requested target left the body inside
+		 * its own one-cell shaft, where walk mode immediately failed.
+		 */
+		private boolean atRequestedGoal(Vec3 reached) {
+			double window = Math.max(1.5, goalRadius + 0.5);
+			for (Vec3 request : requests) {
+				if (
+					Math.hypot(request.x - reached.x, request.z - reached.z)
+						<= window
+				) {
+					return true;
+				}
+			}
+			return false;
 		}
 
 		/**
@@ -9538,7 +9820,6 @@ public final class GameActions {
 		void stop(Minecraft client) {
 			releaseMiningInput(client);
 			releaseWalkInput(client);
-			CameraController.release();
 			escapeWall = null;
 			escapeWallSince = -1;
 			ledgeTarget = null;
@@ -9558,6 +9839,7 @@ public final class GameActions {
 			ceilingPlacing = false;
 			ceilingCenter = null;
 			ceilingCenterSince = -1;
+			ceilingEmbeddedSince = -1;
 			pillarPlacedAt = null;
 			pillarRetreat = false;
 			pillarRetreatMining = false;
@@ -10233,7 +10515,6 @@ public final class GameActions {
 				// The action is already selected by coordinates and reach. Keep
 				// the viewer camera pointed at it, but never use the rendered
 				// crosshair as a precondition for mining.
-				CameraController.steerTo(player, center);
 			}
 			if (walking) {
 				if (canReach(client, player, target)) {
@@ -10364,11 +10645,6 @@ public final class GameActions {
 				}
 				double heading = Math.atan2(-(step.x - player.getX()), step.z - player.getZ());
 				boolean aligned = turnTowards(player, (float) Math.toDegrees(heading));
-				CameraController.steerHeading(
-					player,
-					player.getYRot(),
-					CameraController.displayPitch(player)
-				);
 				Vec3 ahead = player.position().add(
 					-Math.sin(heading) * 0.6,
 					0,
@@ -10481,7 +10757,6 @@ public final class GameActions {
 				target
 			);
 			aimBodyAt(player, hit.getLocation());
-			CameraController.steerTo(player, center);
 			if (!breaking) {
 				inventoryBeforeBreak = inventoryCounts(client.player);
 				blockBeforeDestroy = client.level.getBlockState(target);
@@ -10674,11 +10949,6 @@ public final class GameActions {
 				aligned = turnTowards(
 					client.player,
 					(float) Math.toDegrees(Math.atan2(-direction.x, direction.z))
-				);
-				CameraController.steerHeading(
-					client.player,
-					client.player.getYRot(),
-					CameraController.displayPitch(client.player)
 				);
 			}
 			boolean dropBelow = PickupApproach.shouldJumpDown(
@@ -11536,7 +11806,6 @@ public final class GameActions {
 		void stop(Minecraft client) {
 			stopMining(client);
 			releaseWalkInput(client);
-			CameraController.release();
 			collectingPickup = false;
 			pickupTarget = null;
 			releaseOreSurvey(id);
@@ -11692,11 +11961,6 @@ public final class GameActions {
 			boolean aligned = turnTowards(
 				client.player,
 				(float) Math.toDegrees(Math.atan2(-direction.x, direction.z))
-			);
-			CameraController.steerHeading(
-				client.player,
-				client.player.getYRot(),
-				CameraController.displayPitch(client.player)
 			);
 			if (
 				horizontal > 0.01
@@ -12003,11 +12267,6 @@ public final class GameActions {
 			}
 			double heading = Math.atan2(-(step.x - player.getX()), step.z - player.getZ());
 			boolean aligned = turnTowards(player, (float) Math.toDegrees(heading));
-			CameraController.steerHeading(
-				player,
-				player.getYRot(),
-				CameraController.displayPitch(player)
-			);
 			Vec3 ahead = player.position().add(
 				-Math.sin(heading) * 0.6,
 				0,
@@ -12105,7 +12364,6 @@ public final class GameActions {
 				return;
 			}
 			if (table) {
-				CameraController.steerTo(client.player, Vec3.atCenterOf(tablePos));
 				BlockHitResult hit = stationHit(client.player, tablePos);
 				if (hit.getType() != HitResult.Type.BLOCK || !hit.getBlockPos().equals(tablePos)) {
 					// A blocked face does not make the 2x2 inventory grid
@@ -13346,11 +13604,6 @@ public final class GameActions {
 			}
 			double heading = Math.atan2(-(step.x - player.getX()), step.z - player.getZ());
 			boolean aligned = turnTowards(player, (float) Math.toDegrees(heading));
-			CameraController.steerHeading(
-				player,
-				player.getYRot(),
-				CameraController.displayPitch(player)
-			);
 			/*
 			 * The planned A* cells already prove every step. The old probe
 			 * sampled a 0.6-block point along the current heading and treated
@@ -13530,7 +13783,6 @@ public final class GameActions {
 				}
 				return;
 			}
-			CameraController.steerTo(client.player, Vec3.atCenterOf(current));
 			// Prefer an actually exposed face. The eye-based hit could name a
 			// face buried inside the stair wall, which never opens a menu.
 			BlockHitResult hit = BlockInteraction.visibleExposedHit(
@@ -14245,7 +14497,14 @@ public final class GameActions {
 		private static final int STEP_TIMEOUT_TICKS = 20 * 5;
 		private static final int PICKUP_SETTLE_TICKS = 12;
 		private static final int EQUIP_WAIT_TICKS = 20;
-		private static final int PICKAXE_RESCUE_USES = 12;
+		/**
+		 * Spend a pickaxe down to its last use before asking the planner for
+		 * a replacement. Vanilla removes a tool when that last swing breaks
+		 * it, which also frees the inventory slot. Stopping at twelve uses
+		 * left a long run carrying eight one-use iron pickaxes and queued yet
+		 * another craft that could not fit in the full backpack.
+		 */
+		private static final int PICKAXE_RESCUE_USES = 1;
 		/**
 		 * A stair can end on a dry ledge surrounded by water. Cutting a short
 		 * side branch changes the landing geometry and often exposes a new
@@ -14319,6 +14578,15 @@ public final class GameActions {
 		void start(Minecraft client) {
 			if (targetY == Integer.MIN_VALUE) {
 				targetY = client.player.blockPosition().getY();
+			} else if (targetY >= client.player.blockPosition().getY()) {
+				/*
+				 * A retried tree node keeps the target it was created with.
+				 * If the body already mined past that layer, replaying the
+				 * node as-is reads as a horizontal branch and idles in the
+				 * water until the bridge deadline. The intent was a descent,
+				 * so continue the same segment length from the live cell.
+				 */
+				targetY = Math.max(-58, client.player.blockPosition().getY() - 18);
 			}
 			prepareDescent(client, true);
 		}
@@ -14366,14 +14634,13 @@ public final class GameActions {
 				return false;
 			}
 			player.getInventory().selected = chosen.slot();
-			if (chosen.uses() < required) {
+			if (chosen.uses() < 1) {
 				finish(
 					id,
 					"failed",
 					"E_PRECONDITION",
-					"the pickaxe has " + chosen.uses() + " uses but the descent needs about "
-						+ required + "; restore the tool before digging",
-					evidence("a broken pickaxe mid-descent would strand the body")
+					"no pickaxe has a remaining use; craft a replacement before digging",
+					evidence("the body has no pickaxe left for this descent")
 				);
 				return false;
 			}
@@ -14467,6 +14734,17 @@ public final class GameActions {
 
 		@Override
 		void tick(Minecraft client) {
+			/*
+			 * The bridge gives a command without an explicit deadline thirty
+			 * seconds. A long descent that is between blocks (sinking through
+			 * an aquifer, walking to the stair face) used to be cancelled as
+			 * "deadline passed" unless it happened to break something. A
+			 * steady progress frame keeps the rolling deadline honest.
+			 */
+			if (age - lastProgressAt >= 20) {
+				lastProgressAt = age;
+				send.accept(progress(id, "mining", descended + branchOpened, progressTotal));
+			}
 			if (equipSubmittedAt >= 0) {
 				if (prepareDescent(client, false)) {
 					equipSubmittedAt = -1;
@@ -14518,6 +14796,20 @@ public final class GameActions {
 			if (breakOpportunisticOre(client)) return;
 			LocalPlayer player = client.player;
 			if (!player.onGround()) {
+				/*
+				 * A stair that reaches an aquifer has no dry landing, so this
+				 * guard used to leave the task floating in place until the
+				 * four-minute limit. In water the body can still go down:
+				 * clear the first breakable block under the column, release
+				 * jump and let the water carry it into the freed cell.
+				 */
+				if (player.isInWater() && player.blockPosition().getY() > targetY) {
+					requestWaterDescent();
+					BlockPos floor = breakableFloorBelow(client, player);
+					if (floor != null && beginBreak(client, floor)) return;
+					setSinkInput(client);
+					return;
+				}
 				releaseWalkInput(client);
 				return;
 			}
@@ -14590,6 +14882,19 @@ public final class GameActions {
 					continue;
 				}
 				return;
+			}
+			/*
+			 * A flooded stair can leave a solid floor at the feet with water
+			 * on every side. The dry staircase rules reject all four headings,
+			 * so continue the descent straight down through the water instead
+			 * of failing the task and asking for the same cell again.
+			 */
+			if (player.isInWater() && player.blockPosition().getY() > targetY) {
+				BlockPos floor = breakableFloorBelow(client, player);
+				if (floor != null && beginBreak(client, floor)) {
+					requestWaterDescent();
+					return;
+				}
 			}
 			// The current heading is obstructed by a ravine, fluid or an
 			// unbreakable block. Turn and let the next tick try another safe
@@ -14705,6 +15010,22 @@ public final class GameActions {
 				return;
 			}
 			if (age - breakingStartedAt > BREAK_TIMEOUT_TICKS) {
+				LocalPlayer timedOut = client.player;
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate mining break timeout target={} state={} tool={} distance={} stage={} destroying={} pos={} yaw={} pitch={} hit={}",
+					breakingBlock,
+					breakingState,
+					timedOut.getMainHandItem(),
+					timedOut.getEyePosition().distanceToSqr(Vec3.atCenterOf(breakingBlock)),
+					client.gameMode.getDestroyStage(),
+					client.gameMode.isDestroying(),
+					timedOut.blockPosition(),
+					timedOut.getYRot(),
+					timedOut.getXRot(),
+					client.hitResult instanceof BlockHitResult hit
+						? hit.getBlockPos().toString()
+						: String.valueOf(client.hitResult == null ? null : client.hitResult.getType())
+				);
 				releaseMiningInput(client);
 				breakingBlock = null;
 				breakingState = null;
@@ -14716,13 +15037,13 @@ public final class GameActions {
 			}
 			LocalPlayer player = client.player;
 			Vec3 center = Vec3.atCenterOf(breakingBlock);
-			CameraController.steerTo(player, center);
 			BlockHitResult hit = BlockInteraction.nearestExposedHit(
 				client.level,
 				player.getEyePosition(),
 				breakingBlock
 			);
 			holdMiningInput(client);
+			taskMiningHit = hit;
 			client.hitResult = hit;
 			client.missTime = 0;
 		}
@@ -14732,7 +15053,6 @@ public final class GameActions {
 			if (state.isAir()) return true;
 			if (!canBreak(client, target, state)) return false;
 			LocalPlayer player = client.player;
-			CameraController.steerTo(player, Vec3.atCenterOf(target));
 			BlockHitResult hit = BlockInteraction.nearestExposedHit(
 				client.level,
 				player.getEyePosition(),
@@ -14751,6 +15071,7 @@ public final class GameActions {
 			breakingState = state;
 			breakingStartedAt = age;
 			holdMiningInput(client);
+			taskMiningHit = hit;
 			client.hitResult = hit;
 			client.missTime = 0;
 			send.accept(progress(id, "cutting", descended + branchOpened, progressTotal));
@@ -14817,7 +15138,6 @@ public final class GameActions {
 			}
 			float yaw = pendingDirection.toYRot();
 			boolean aligned = turnTowards(player, yaw);
-			CameraController.steerHeading(player, player.getYRot(), CameraController.displayPitch(player));
 			if (player.horizontalCollision && player.onGround()) player.jumpFromGround();
 			if (player.input != null) setWalkInput(client, aligned);
 		}
@@ -14857,6 +15177,39 @@ public final class GameActions {
 			if (!safeCell(client, front.above())) return null;
 			targets.add(front.above());
 			return new Step(targets, feet.getY());
+		}
+
+		/**
+		 * The first solid cell under a flooded column that the body can
+		 * actually break from where it floats. Water is skipped because it
+		 * needs no mining; lava or an unbreakable floor stops the dive.
+		 */
+		private BlockPos breakableFloorBelow(Minecraft client, LocalPlayer player) {
+			BlockPos feet = player.blockPosition();
+			Vec3 eye = player.getEyePosition();
+			for (int depth = 1; depth <= 5; depth++) {
+				BlockPos position = feet.below(depth);
+				BlockState state = client.level.getBlockState(position);
+				if (!state.getFluidState().isEmpty()) {
+					if (state.getFluidState().is(FluidTags.LAVA)) return null;
+					continue;
+				}
+				if (state.isAir()) continue;
+				if (!canBreak(client, position, state)) return null;
+				if (
+					client.level
+						.getBlockState(position.below())
+						.getFluidState()
+						.is(FluidTags.LAVA)
+				) {
+					return null;
+				}
+				if (eye.distanceToSqr(Vec3.atCenterOf(position)) > 4.5 * 4.5) {
+					return null;
+				}
+				return position.immutable();
+			}
+			return null;
 		}
 
 		private boolean opensFreshFace(Minecraft client, Step step) {
@@ -14983,13 +15336,17 @@ public final class GameActions {
 			int required = PickaxeBudget.requiredUses(depth, branchLength);
 			boolean needsStone = MiningDepth.requiresStonePickaxe(depth);
 			PickaxeBudget.Candidate best = bestPickaxe(player, needsStone, required);
-			if (best == null) return false;
+			if (best == null) {
+				// The last pickaxe just broke. Report partial progress so the
+				// planner can craft the next one instead of swinging bare-handed.
+				finishPartial(client, "pickaxe reserve exhausted");
+				return true;
+			}
 			/*
-			 * The live run kept cutting stone until every pickaxe hit zero,
-			 * then stood under a two-block ceiling with no tool and no wood.
-			 * Stop while a climb is still possible and let the planner craft
-			 * or fetch a replacement. Twelve uses is the same reserve the
-			 * surface planner already asks for.
+			 * Use every remaining swing before stopping. The previous twelve-
+			 * use reserve left eight nearly spent iron pickaxes in the pack,
+			 * so the planner kept trying to craft a replacement into a full
+			 * inventory instead of spending the tools it already had.
 			 */
 			if (!PickaxeBudget.hasRescueReserve(best, PICKAXE_RESCUE_USES)) {
 				finishPartial(client, "pickaxe reserve exhausted");
@@ -15027,7 +15384,6 @@ public final class GameActions {
 		private void finishPartial(Minecraft client, String reason) {
 			releaseMiningInput(client);
 			releaseWalkInput(client);
-			CameraController.release();
 			if (brokenBlocks.size() == 0) {
 				finish(id, "failed", "E_PRECONDITION", reason, evidence(reason));
 			} else {
@@ -15091,9 +15447,9 @@ public final class GameActions {
 		void stop(Minecraft client) {
 			releaseMiningInput(client);
 			releaseWalkInput(client);
-			CameraController.release();
 			breakingBlock = null;
 			stepStartedAt = -1;
+			waterDescentUntilNanos = 0;
 		}
 
 		private record Step(List<BlockPos> blocks, int destinationY) {
@@ -15399,11 +15755,6 @@ public final class GameActions {
 			}
 			double heading = Math.atan2(-(step.x - player.getX()), step.z - player.getZ());
 			boolean aligned = turnTowards(player, (float) Math.toDegrees(heading));
-			CameraController.steerHeading(
-				player,
-				player.getYRot(),
-				CameraController.displayPitch(player)
-			);
 			Vec3 ahead = player.position().add(
 				-Math.sin(heading) * 0.6,
 				0,
@@ -15471,7 +15822,6 @@ public final class GameActions {
 				}
 				return;
 			}
-			CameraController.steerTo(client.player, Vec3.atCenterOf(furnacePos));
 			BlockHitResult hit = stationHit(client.player, furnacePos);
 			if (hit.getType() != HitResult.Type.BLOCK || !hit.getBlockPos().equals(furnacePos)) {
 				finish(
@@ -16120,7 +16470,6 @@ public final class GameActions {
 					send.accept(progress(id, "charging", hits, requested));
 					return;
 				}
-				CameraController.steerTo(client.player, target.getBoundingBox().getCenter());
 				before = snapshot(client, target);
 				submittedAt = age;
 				submitted = true;
@@ -16282,14 +16631,6 @@ public final class GameActions {
 			}
 			double heading = Math.atan2(-(step.x - client.player.getX()), step.z - client.player.getZ());
 			boolean aligned = turnTowards(client.player, (float) Math.toDegrees(heading));
-			CameraController.steerHeading(
-				client.player,
-				client.player.getYRot(),
-				CameraController.displayPitch(client.player)
-			);
-			if (distance <= 3.0) {
-				CameraController.steerTo(client.player, target.getBoundingBox().getCenter());
-			}
 			// The route already proved this waypoint is standable. Checking
 			// only the half-block directly ahead made a normal one-block rise
 			// look like a cliff and aborted every hunt in hilly terrain.
@@ -16383,11 +16724,6 @@ public final class GameActions {
 				aligned = turnTowards(
 					client.player,
 					(float) Math.toDegrees(Math.atan2(-direction.x, direction.z))
-				);
-				CameraController.steerHeading(
-					client.player,
-					client.player.getYRot(),
-					CameraController.displayPitch(client.player)
 				);
 			}
 			if (client.player.horizontalCollision && client.player.onGround()) {
@@ -16749,7 +17085,6 @@ public final class GameActions {
 			}
 			walking = false;
 			releaseWalkInput(client);
-			CameraController.steerTo(player, Vec3.atCenterOf(part));
 			BlockHitResult hit = BlockInteraction.nearestExposedHit(client.level, player.getEyePosition(), part);
 			if (hit.getType() != HitResult.Type.BLOCK || !isThisBed(client, hit.getBlockPos())) {
 				finish(
@@ -16825,11 +17160,6 @@ public final class GameActions {
 			}
 			double heading = Math.atan2(-(step.x - player.getX()), step.z - player.getZ());
 			boolean aligned = turnTowards(player, (float) Math.toDegrees(heading));
-			CameraController.steerHeading(
-				player,
-				player.getYRot(),
-				CameraController.displayPitch(player)
-			);
 			Vec3 ahead = player.position().add(-Math.sin(heading) * 0.6, 0, Math.cos(heading) * 0.6);
 			BlockPos foot = BlockPos.containing(ahead.x, player.getY() - 0.5, ahead.z);
 			boolean ledge = client.level.getBlockState(foot).isAir()
@@ -16967,7 +17297,6 @@ public final class GameActions {
 		@Override
 		void stop(Minecraft client) {
 			releaseWalkInput(client);
-			CameraController.release();
 			LocalPlayer player = client.player;
 			if (!finishedNormally && player != null && player.isSleeping()) {
 				// Do not leave the body in bed after a cancel, takeover or
@@ -17280,7 +17609,6 @@ public final class GameActions {
 			BlockPos target = support.above();
 			if (!client.level.getBlockState(target).canBeReplaced()) return;
 			if (player.getBoundingBox().minY < target.getY() + 1.0) return;
-			CameraController.steerTo(player, Vec3.atCenterOf(support));
 			BlockHitResult hit = BlockInteraction.hit(support, Direction.UP);
 			if (!PlacementTarget.withinReach(
 				player.getEyePosition().distanceToSqr(hit.getLocation())
@@ -17345,7 +17673,6 @@ public final class GameActions {
 		@Override
 		void stop(Minecraft client) {
 			releaseWalkInput(client);
-			CameraController.release();
 			awaitingConfirm = false;
 			targetCell = null;
 		}
@@ -17387,7 +17714,6 @@ public final class GameActions {
 				rememberHand(client);
 				screenBefore = client.screen != null;
 				submittedAt = age;
-				CameraController.steerTo(client.player, Vec3.atCenterOf(targetPos));
 				client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, hit);
 				send.accept(progress(id, "confirming", 0, 1));
 			} else if (blockId == null || BuiltInRegistries.BLOCK.get(ResourceLocation.tryParse(blockId)) == Blocks.AIR) {
@@ -17780,7 +18106,6 @@ public final class GameActions {
 				}
 			}
 			submittedAt = age;
-			CameraController.steerTo(client.player, Vec3.atCenterOf(hit.getBlockPos()));
 			client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, hit);
 			send.accept(progress(id, "confirming", placed, count));
 		}
@@ -17960,7 +18285,6 @@ public final class GameActions {
 			beforeBlock = blockSnapshot(client, targetPos);
 			beforeCount = client.player.getInventory().getSelected().getCount();
 			submittedAt = age;
-			CameraController.steerTo(client.player, Vec3.atCenterOf(support.getBlockPos()));
 			client.gameMode.useItemOn(client.player, InteractionHand.MAIN_HAND, support);
 			send.accept(progress(id, "confirming", placed, count));
 		}
@@ -18304,11 +18628,6 @@ public final class GameActions {
 			}
 			double heading = Math.atan2(-(step.x - player.getX()), step.z - player.getZ());
 			boolean aligned = turnTowards(player, (float) Math.toDegrees(heading));
-			CameraController.steerHeading(
-				player,
-				player.getYRot(),
-				CameraController.displayPitch(player)
-			);
 			if (player.horizontalCollision && player.onGround()) player.jumpFromGround();
 			setWalkInput(client, aligned);
 			if (age % 20 == 0) {
@@ -19065,6 +19384,31 @@ public final class GameActions {
 		}
 	}
 
+	/**
+	 * Sinking in water is the vanilla shift key. Jump has to stay released or
+	 * the body rises instead of following the shaft down.
+	 */
+	static void setSinkInput(Minecraft client) {
+		client.options.keyUp.setDown(false);
+		client.options.keyDown.setDown(false);
+		client.options.keyLeft.setDown(false);
+		client.options.keyRight.setDown(false);
+		client.options.keyJump.setDown(false);
+		client.options.keyShift.setDown(true);
+		client.options.keySprint.setDown(false);
+		if (client.player != null && client.player.input instanceof KeyboardInput keyboard) {
+			keyboard.tick(false, 1.0f);
+		}
+	}
+
+	private static void requestWaterDescent() {
+		waterDescentUntilNanos = System.nanoTime() + 2_000_000_000L;
+	}
+
+	private static boolean waterDescentActive() {
+		return System.nanoTime() < waterDescentUntilNanos;
+	}
+
 	static void releaseWalkInput(Minecraft client) {
 		setWalkInput(client, false);
 	}
@@ -19286,6 +19630,16 @@ public final class GameActions {
 	private static void holdMiningInput(Minecraft client) {
 		miningInputHeld = true;
 		client.missTime = 0;
+	}
+
+	/**
+	 * The hit vanilla should use for the current mining task, or null when no
+	 * task is driving mining input. Recomputing the camera pick would target
+	 * whatever the crosshair happens to see, which is not always the block the
+	 * task planned to break.
+	 */
+	public static BlockHitResult taskMiningHit() {
+		return miningInputHeld ? taskMiningHit : null;
 	}
 
 	/**
@@ -19529,7 +19883,6 @@ public final class GameActions {
 		if (!leafSupport && !logSupport && !raisedPlatform) {
 			releaseMiningInput(client);
 			releaseWalkInput(client);
-			CameraController.release();
 			return false;
 		}
 		BlockState next = client.level.getBlockState(support.below());
@@ -19668,17 +20021,11 @@ public final class GameActions {
 		double dx = column.getX() + 0.5 - player.getX();
 		double dz = column.getZ() + 0.5 - player.getZ();
 		player.setYRot((float) Math.toDegrees(Math.atan2(-dx, dz)));
-		CameraController.steerHeading(
-			player,
-			player.getYRot(),
-			CameraController.displayPitch(player)
-		);
 		setWalkInput(client, true);
 	}
 
 	private static boolean breakCanopyBlock(Minecraft client, BlockPos block) {
 		LocalPlayer player = client.player;
-		CameraController.steerTo(player, Vec3.atCenterOf(block));
 		BlockHitResult hit = BlockInteraction.nearestExposedHit(
 			client.level,
 			player.getEyePosition(),
@@ -19715,6 +20062,7 @@ public final class GameActions {
 		boolean shouldStop = miningInputHeld || agentInputAllowed;
 		miningInputHeld = false;
 		canopyMining = null;
+		taskMiningHit = null;
 		if (shouldStop && client.gameMode != null && client.gameMode.isDestroying()) {
 			client.gameMode.stopDestroyBlock();
 		}
@@ -20351,13 +20699,22 @@ public final class GameActions {
 		if (covered > 0) {
 			// A one-layer vein used to be invisible to planning. Keep a
 			// compact live trace so a run can prove the shield cut fired.
-			CraftMateBodyClient.LOGGER.info(
-				"CraftMate ore survey covered={} exposed={} visible={} origin={}",
-				covered,
-				sorted.stream().filter(OreTarget::exposed).count(),
-				visibleOres.size(),
-				client.player.blockPosition()
-			);
+			long exposed = sorted.stream().filter(OreTarget::exposed).count();
+			long now = System.nanoTime();
+			// The small-cube survey publishes every tick. A position or count
+			// changes with normal bobbing, so keying on the result would still
+			// log several times a second; a plain five-second budget keeps the
+			// trace without burying the rest of the client log.
+			if (now - lastOreSurveyLogAtNanos > 5_000_000_000L) {
+				CraftMateBodyClient.LOGGER.info(
+					"CraftMate ore survey covered={} exposed={} visible={} origin={}",
+					covered,
+					exposed,
+					visibleOres.size(),
+					client.player.blockPosition()
+				);
+				lastOreSurveyLogAtNanos = now;
+			}
 		}
 		List<OreTarget> scope =
 			request == null

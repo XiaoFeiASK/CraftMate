@@ -132,6 +132,11 @@ test("the scheduler never lets optional work preempt survival", () => {
   const scheduler = new TaskScheduler();
   const base = {
     parentId: null,
+    kind: "task",
+    mode: null,
+    handler: "task",
+    args: {},
+    trigger: null,
     targetFamily: "x",
     quantity: 1,
     preconditions: [],
@@ -141,6 +146,7 @@ test("the scheduler never lets optional work preempt survival", () => {
     failureCategory: null,
     failureDetail: null,
     failureCount: 0,
+    reason: null,
     createdAt: 1,
     updatedAt: 1,
   } as const;
@@ -155,6 +161,11 @@ test("the scheduler never executes a blocked or waiting node", () => {
   const scheduler = new TaskScheduler();
   const base = {
     parentId: null,
+    kind: "task",
+    mode: null,
+    handler: "task",
+    args: {},
+    trigger: null,
     targetFamily: "x",
     quantity: 1,
     preconditions: [],
@@ -164,6 +175,7 @@ test("the scheduler never executes a blocked or waiting node", () => {
     failureCategory: null,
     failureDetail: null,
     failureCount: 0,
+    reason: null,
     createdAt: 1,
     updatedAt: 1,
     priority: "goal",
@@ -188,4 +200,29 @@ test("the scheduler never executes a blocked or waiting node", () => {
   } as const;
   assert.equal(scheduler.choose([blocked, waiting]) ?? null, null);
   assert.equal(scheduler.choose([blocked, active, waiting])?.id, "task:active");
+});
+
+test("a reconnect revives failed branches without erasing completed work", () => {
+  const time = clock();
+  const tree = new TaskTree(time.now);
+  const root = tree.createRoot({ intent: "get iron", targetFamily: "iron" });
+  const [mine, smelt] = tree.expand(root.id, [
+    {
+      intent: "mine ore",
+      targetFamily: "iron-ore",
+      sourceKey: "ore:10,20,30",
+    },
+    { intent: "smelt ingots", targetFamily: "iron-ingot" },
+  ]);
+  tree.activate(mine!.id);
+  tree.fail(mine!.id, "unreachable", "no route");
+  tree.activate(mine!.id);
+  tree.fail(mine!.id, "unreachable", "no route again");
+  assert.equal(tree.sourceBlocked("ore:10,20,30"), true);
+  tree.complete(smelt!.id, ["iron ingot +1"]);
+
+  assert.equal(tree.reviveFailures("body reconnected"), 1);
+  assert.equal(tree.get(mine!.id)?.state, "pending");
+  assert.equal(tree.get(smelt!.id)?.state, "succeeded");
+  assert.equal(tree.sourceBlocked("ore:10,20,30"), false);
 });

@@ -40,7 +40,7 @@ npm run dev:desktop         # 只启动桌面宿主
 
 空场默认只生成环境台词，身体侧的空闲游走负责移动。设置
 `CRAFTMATE_IDLE_GOAL=1` 后，评论空窗 90 秒且身体在线时会自动建立一个
-「空场自由生存」目标，交给 `GoalRuntime` 推进；开启期间观众指令会进入
+「击败末影龙」目标，交给 `GoalRuntime` 推进；开启期间观众指令会进入
 「观众提议」收件箱，而不是直接执行。设回 `0` 或重启即可恢复默认。
 
 节拍间隔可用 `CRAFTMATE_IDLE_BEAT_MS`（默认 45000）和
@@ -102,6 +102,7 @@ Bridge 在主路径都不会请求它；没有 Minecraft 客户端时工作台�
 | `CRAFTMATE_TOKEN` / `_FILE` | `~/.craftmate/ingress-token` | ingress/voice token |
 | `CRAFTMATE_DB` / `CRAFTMATE_DB_DIR` | `~/.craftmate/craftmate.db` | SQLite 路径 |
 | `CRAFTMATE_MODEL_*` | 见 `.env.example` | OpenAI 兼容模型与预算 |
+| `CRAFTMATE_GOAL_ENGINE` | 空 / `legacy` | 默认目标树；设为 `legacy` 回退 `MissionGoalPlanner` |
 | `CRAFTMATE_CONTROL_ORIGINS` | 空 | 额外允许的控制面浏览器 Origin，逗号分隔 |
 | `TTS_PRIMARY_*` | 见 `.env.example` | Seeduplex 实时语音 |
 | `DOUYIN_ROOM_ID` | 空 | 抖音 `web_rid` |
@@ -181,8 +182,9 @@ SQLite，用于本机审计。若需要外部录制，使用身体侧 `4324` 并
 ### 5.4 自主目标模式
 
 「设置 → 目标模式」开启后，Agent 按身体事实持续推进阶段，不需要每条评论或每次
-手工指令。当前实现是确定性 `MissionGoalPlanner` + `SurvivalGoalPlanner`，不会
-调用模型；目标模式不产生模型费用，额度不变是预期行为。
+手工指令。当前实现是确定性 `GoalTreePlanner` + `nextTaskForStage`，不会调用
+模型；目标模式不产生模型费用，额度不变是预期行为。设置
+`CRAFTMATE_GOAL_ENGINE=legacy` 可回退到旧 `MissionGoalPlanner`。
 
 排查时先看：
 
@@ -190,15 +192,21 @@ SQLite，用于本机审计。若需要外部录制，使用身体侧 `4324` 并
 sqlite3 -header -column "$HOME/.craftmate/craftmate.db" \
   "select goal_json, enabled, progress_json from goal_runtime;"
 
+sqlite3 -header -column "$HOME/.craftmate/craftmate.db" \
+  "select json_extract(task_tree_json,'$.cursorId') as cursor,
+          json_array_length(json_extract(task_tree_json,'$.nodes')) as nodes
+     from goal_runtime;"
+
 tail -f "$HOME/MC/craftmate-1.20.1/logs/latest.log"
 ```
 
 - `[CraftMate] goto start ...`、`[CraftMate] goto · ...`：Agent 已下达技能。
 - `[CraftMate] idle action=...`：没有技能在跑，Mod 正在空闲观察/走路/捡东西。
+- `progress_json.taskTree`：控制台同款只读树，含当前路径、节点状态、尝试次数和阻塞原因。
 - `progress_json.nextTask` 为空且 `retryAt` 在未来：运行时在退避或等终态。
 - `consecutiveFailures` 持续增长：看 `decision_log` 的最后结果和地形日志。
 
-当前实现由 `MissionGoalPlanner` 生成任务链，`SurvivalGoalPlanner` 编译阶段任务，
+当前实现由 `GoalTreePlanner` 维护目标树，`nextTaskForStage` 生成阶段内原子任务，
 `GoalRuntime` 负责单任务在途和终态恢复。完整闭环见[自主生存闭环](autonomy.md)。
 
 ## 6. 验证

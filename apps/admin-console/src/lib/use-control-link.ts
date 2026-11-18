@@ -4,6 +4,7 @@ import {
   type ClientMessage,
   type IntegrationSettingsUpdate,
   type IntegrationSettingsView,
+  type GoalKind,
   type ModelCatalog,
   type OpsRequest,
   type OpsSnapshot,
@@ -100,7 +101,7 @@ export interface ControlLink {
   draftPersona(persona: ShowSettings["persona"]): void;
   activatePersona(versionId: string): void;
   lookupTrace(traceId: string): void;
-  setGoal(title: string, description: string): void;
+  setGoal(title: string, description: string, goalKind: GoalKind): void;
   pauseGoal(): void;
   resumeGoal(): void;
   decideProposal(
@@ -417,8 +418,8 @@ export function useControlLink(): ControlLink {
     [send],
   );
   const setGoal = useCallback(
-    (title: string, description: string) =>
-      send({ type: "goalSet", payload: { title, description } }),
+    (title: string, description: string, goalKind: GoalKind) =>
+      send({ type: "goalSet", payload: { title, description, goalKind } }),
     [send],
   );
   const pauseGoal = useCallback(() => send({ type: "goalPause" }), [send]);

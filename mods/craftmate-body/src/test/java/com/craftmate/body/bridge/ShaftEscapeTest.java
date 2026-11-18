@@ -84,6 +84,15 @@ class ShaftEscapeTest {
 	}
 
 	@Test
+	void anEmptyRouteHasNoCurrentWaypoint() {
+		assertFalse(ShaftEscape.hasCurrentWaypoint(0, 0));
+		assertFalse(ShaftEscape.hasCurrentWaypoint(2, 2));
+		assertFalse(ShaftEscape.hasCurrentWaypoint(-1, 3));
+		assertTrue(ShaftEscape.hasCurrentWaypoint(0, 1));
+		assertTrue(ShaftEscape.hasCurrentWaypoint(1, 3));
+	}
+
+	@Test
 	void theStartCellIsNotTheGoalWhenTheTargetIsOneLevelUp() {
 		assertFalse(ShaftEscape.startCellReachesGoal(49, 50));
 		assertTrue(ShaftEscape.startCellReachesGoal(50, 50));
@@ -142,6 +151,13 @@ class ShaftEscapeTest {
 	}
 
 	@Test
+	void aDriftedPillarRecentersOnItsOwnColumnAfterTheFirstJump() {
+		assertFalse(ShaftEscape.shouldRecenterPillarColumn(0, 158, -134, 159, -133));
+		assertTrue(ShaftEscape.shouldRecenterPillarColumn(2, 158, -134, 159, -133));
+		assertFalse(ShaftEscape.shouldRecenterPillarColumn(2, 159, -133, 159, -133));
+	}
+
+	@Test
 	void explicitTargetClimbAllowsAnOpenPitButOpportunisticPillarDoesNot() {
 		assertTrue(ShaftEscape.shouldStartTargetClimb(true, false, 0));
 		assertTrue(ShaftEscape.shouldStartTargetClimb(false, true, 0));
@@ -155,6 +171,16 @@ class ShaftEscapeTest {
 		assertFalse(ShaftEscape.isStructuralBarrier(true, true, false));
 		assertFalse(ShaftEscape.isStructuralBarrier(true, false, true));
 		assertFalse(ShaftEscape.isStructuralBarrier(false, false, false));
+	}
+
+	@Test
+	void escapeClearsStationsButNeverContainersOrBeds() {
+		assertTrue(ShaftEscape.mayClearEscapeFacility(false, false));
+		assertTrue(ShaftEscape.mayClearEscapeFacility(true, true));
+		assertFalse(
+			ShaftEscape.mayClearEscapeFacility(true, false),
+			"a chest or bed holds state and must not be destroyed by an escape"
+		);
 	}
 
 	@Test
@@ -226,6 +252,38 @@ class ShaftEscapeTest {
 		assertTrue(ShaftEscape.pillarReachedTarget(101, 100, 100.0));
 		assertFalse(ShaftEscape.pillarReachedTarget(100, 99, 104.0));
 		assertFalse(ShaftEscape.pillarReachedTarget(100, 100, 100.0));
+	}
+
+	@Test
+	void aBodyInsideItsOwnPlacedBlockIsEmbedded() {
+		assertTrue(ShaftEscape.bodyEmbedded(true, false));
+		assertTrue(ShaftEscape.bodyEmbedded(false, true));
+		assertFalse(ShaftEscape.bodyEmbedded(false, false));
+	}
+
+	@Test
+	void aPillarPlacementWaitsUntilItCannotOverlapTheBody() {
+		// Standing on the floor block at y=-20, a placement at y=-19 is
+		// underfoot, but a placement at the feet cell overlaps the body.
+		assertTrue(
+			ShaftEscape.bodyOccupiesCell(161, -19, -164, 161.5, -20.0, -163.5)
+		);
+		assertFalse(
+			ShaftEscape.bodyOccupiesCell(161, -21, -164, 161.5, -20.0, -163.5)
+		);
+		// At the top of a jump, the feet/head column is clear even though
+		// the placement column is directly beneath the body.
+		assertFalse(
+			ShaftEscape.bodyOccupiesCell(161, -19, -164, 161.5, -17.75, -163.5)
+		);
+	}
+
+	@Test
+	void aCompleteRouteThatStaysInTheBodyCellIsNotProgress() {
+		assertFalse(ShaftEscape.completeRouteMovesBody(true, 0.0, 8.0, 1.5));
+		assertTrue(ShaftEscape.completeRouteMovesBody(true, 1.0, 8.0, 1.5));
+		assertTrue(ShaftEscape.completeRouteMovesBody(true, 0.0, 1.2, 1.5));
+		assertTrue(ShaftEscape.completeRouteMovesBody(false, 0.0, 8.0, 1.5));
 	}
 
 	@Test

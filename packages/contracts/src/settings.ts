@@ -8,6 +8,9 @@ const endpoint = (schemes: readonly string[]) =>
     `URL must use ${schemes.join(" or ")}`,
   );
 
+export const goalKindSchema = z.enum(["dragon", "diamond-set"]);
+export type GoalKind = z.infer<typeof goalKindSchema>;
+
 export const personaWeightsSchema = z.object({
   obedience: z.number().min(0).max(1),
   risk: z.number().min(0).max(1),
@@ -72,23 +75,37 @@ export const DEFAULT_GOAL_STRATEGY: GoalStrategy = Object.freeze({
  */
 export const SEASON_GOAL_PRESETS = [
   {
+    kind: "dragon",
     title: "击败末影龙",
     description: "从空手开始，完成木头、石具、铁具、下界与末地的一条完整生存链。",
   },
   {
-    title: "盖一间海崖小屋",
-    description: "收集材料并在海边建成一间带床、箱子和工作台的小屋。",
-  },
-  {
+    kind: "diamond-set",
     title: "集齐全套钻石装备",
     description: "找到钻石、制作全套装备，并在可验证的世界事实里确认穿戴完成。",
   },
-  {
-    title: "自由生存并建设家园",
-    description: "从砍树和工作台起步，优先保证食物与庇护，再持续向铁器、下界和终局发育。",
-  },
 ] as const;
 export type SeasonGoalPreset = (typeof SEASON_GOAL_PRESETS)[number];
+
+/**
+ * Resolves the durable goal profile from operator-facing copy. Old sessions
+ * persisted shelter/free-survival titles before `goalKind` existed; those
+ * titles keep opening the dragon chain instead of becoming a new goal type.
+ */
+export function goalPresetForTitle(title: string): SeasonGoalPreset | null {
+  const exact = SEASON_GOAL_PRESETS.find((preset) => preset.title === title);
+  if (exact !== undefined) return exact;
+  if (/海崖小屋|自由生存|持续发育|建设家园|长期自主生存|长期生存|自主经营/u.test(title)) {
+    return SEASON_GOAL_PRESETS[0];
+  }
+  if (/钻石|diamond/iu.test(title)) return SEASON_GOAL_PRESETS[1];
+  if (/末影龙|末地|dragon/iu.test(title)) return SEASON_GOAL_PRESETS[0];
+  return null;
+}
+
+export function goalKindForTitle(title: string): GoalKind {
+  return goalPresetForTitle(title)?.kind ?? "dragon";
+}
 
 /**
  * Everything the operator can change about the show. Display-only fields are
@@ -96,6 +113,7 @@ export type SeasonGoalPreset = (typeof SEASON_GOAL_PRESETS)[number];
  */
 export const showSettingsSchema = z.object({
   goal: label(120),
+  goalKind: goalKindSchema.default("dragon"),
   /** Read-only explanation of the selected end goal. */
   goalDescription: z.string().trim().max(400).default(""),
   /**

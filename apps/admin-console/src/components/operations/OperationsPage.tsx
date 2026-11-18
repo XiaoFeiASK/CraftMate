@@ -1,6 +1,7 @@
 import type {
   IntegrationSettingsUpdate,
   IntegrationSettingsView,
+  GoalKind,
   ModelCatalog,
   OpsSnapshot,
   ShowMode,
@@ -62,7 +63,7 @@ interface OperationsPageProps {
   readonly onForgetRouteBlacklist: (blacklistId: string) => void;
   readonly onActivatePersona: (versionId: string) => void;
   readonly onLookupTrace: (traceId: string) => void;
-  readonly onSetGoal: (title: string, description: string) => void;
+  readonly onSetGoal: (title: string, description: string, goalKind: GoalKind) => void;
   readonly onPauseGoal: () => void;
   readonly onResumeGoal: () => void;
 }

@@ -18,4 +18,23 @@ final class WaterSurface {
 	) {
 		return eyesInWater || (bodyInWater && !onGround);
 	}
+
+	/**
+	 * A descent that reached an aquifer must be allowed to sink. The head may
+	 * go under because a flooded stair can be deeper than the surface; the air
+	 * reserve is the limit. Surfacing resumes while there is still enough air
+	 * to swim back up, and only a task that explicitly asked for the descent
+	 * may suppress the normal surface reflex.
+	 */
+	static boolean mayDive(
+		boolean bodyInWater,
+		boolean onGround,
+		int airSupply,
+		boolean descentRequested
+	) {
+		return descentRequested
+			&& bodyInWater
+			&& !onGround
+			&& airSupply > 100;
+	}
 }

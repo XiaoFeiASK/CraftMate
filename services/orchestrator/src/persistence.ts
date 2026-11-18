@@ -9,6 +9,7 @@ import {
 } from "@craftmate/agent";
 import {
   GoalRuntime,
+  GoalTreePlanner,
   MissionGoalPlanner,
   OpenAICompatibleProvider,
   Planner,
@@ -16,8 +17,12 @@ import {
   type GoalPlanner,
 } from "@craftmate/agent/application";
 import {
+  goalKindForTitle,
+  goalPresetForTitle,
+  SEASON_GOAL_PRESETS,
   showSettingsSchema,
   type Decision,
+  type ShowSettings,
   type WorldMemoryKind,
 } from "@craftmate/contracts";
 import {
@@ -87,7 +92,7 @@ export interface PersistentShow {
   close(): void;
 }
 
-const DEFAULT_GOAL = "盖一间带床和箱子的海崖小屋";
+const DEFAULT_GOAL = "击败末影龙";
 
 export function routeBlacklistQueryFor(facts: {
   readonly dimension?: string | null;
@@ -146,13 +151,14 @@ export function createPersistentShow(options: {
     .get(context.sessionId) as { since_ms: number } | undefined)?.since_ms ?? 0;
   const totals = decisions.counts(context.sessionId, activitySince);
   const stored = showSettingsSchema.safeParse(settingsStore.read(context.sessionId));
+  const settings = stored.success ? normalizeStoredSettings(stored.data) : null;
   // Normalise rows written before a setting existed. Validating supplies the
   // defaults, but leaving them only in memory makes the next read disagree
   // with what the console just displayed. Write the complete shape once.
-  if (stored.success) {
+  if (settings !== null) {
     const raw = settingsStore.read(context.sessionId);
-    if (JSON.stringify(raw) !== JSON.stringify(stored.data)) {
-      settingsStore.write(context.sessionId, stored.data);
+    if (JSON.stringify(raw) !== JSON.stringify(settings)) {
+      settingsStore.write(context.sessionId, settings);
     }
   }
   const ledger = new CommitmentLedger({ journal: commitments });
@@ -216,7 +222,7 @@ export function createPersistentShow(options: {
 
   const show = new Show({
     persona,
-    ...(stored.success ? { settings: stored.data } : {}),
+    ...(settings === null ? {} : { settings }),
     goalText: options.goalText ?? DEFAULT_GOAL,
     recorder: new SqliteRecorder(db, context),
     ledger,
@@ -270,10 +276,15 @@ export function createPersistentShow(options: {
      */
     planner:
       options.goalPlanner ??
-      new MissionGoalPlanner({
-        readRouteBlacklist: (facts) =>
-          routeBlacklist.active(routeBlacklistQueryFor(facts)),
-      }),
+      (env.CRAFTMATE_GOAL_ENGINE === "legacy"
+        ? new MissionGoalPlanner({
+            readRouteBlacklist: (facts) =>
+              routeBlacklist.active(routeBlacklistQueryFor(facts)),
+          })
+        : new GoalTreePlanner({
+            readRouteBlacklist: (facts) =>
+              routeBlacklist.active(routeBlacklistQueryFor(facts)),
+          })),
     /*
      * The body heartbeats every 250 ms. A settled placement/mine/craft can
      * change `nearbyBlocks` or the inventory, but the next plan would still
@@ -525,10 +536,23 @@ export function createPersistentShow(options: {
       settingsStore.write(context.sessionId, parsed.data);
       const previous = show.currentSettings();
       const applied = show.updateSettings(parsed.data);
-      if (parsed.data.goal !== previous.goal) {
+      const currentGoal = goals.currentGoal;
+      const currentKind =
+        currentGoal === null
+          ? null
+          : currentGoal.goalKind ?? goalKindForTitle(currentGoal.title);
+      if (
+        (parsed.data.goal !== previous.goal ||
+          parsed.data.goalKind !== previous.goalKind ||
+          (parsed.data.goalMode && currentGoal === null)) &&
+        (currentGoal === null ||
+          currentGoal.title !== parsed.data.goal ||
+          currentKind !== parsed.data.goalKind)
+      ) {
         goals.setGoal({
           title: parsed.data.goal,
           description: parsed.data.goalDescription,
+          goalKind: parsed.data.goalKind,
         });
       }
       goals.syncMode(parsed.data.goalMode);
@@ -587,6 +611,31 @@ function positiveInteger(value: string | undefined, fallback: number): number {
   if (value === undefined || value.trim().length === 0) return fallback;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * Old settings rows persisted shelter/free-survival goal copy. Keep the
+ * operator's custom description when the title is already a current preset;
+ * migrate legacy titles to the dragon preset instead of showing a goal the
+ * selector no longer offers.
+ */
+function normalizeStoredSettings(settings: ShowSettings): ShowSettings {
+  const exact = SEASON_GOAL_PRESETS.find(
+    (preset) => preset.title === settings.goal,
+  );
+  if (exact !== undefined) {
+    return settings.goalKind === exact.kind
+      ? settings
+      : { ...settings, goalKind: exact.kind };
+  }
+  const preset = goalPresetForTitle(settings.goal);
+  if (preset === null) return settings;
+  return {
+    ...settings,
+    goal: preset.title,
+    goalKind: preset.kind,
+    goalDescription: preset.description,
+  };
 }
 
 function normalizeUrl(value: string): string {

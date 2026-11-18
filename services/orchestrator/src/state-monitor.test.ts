@@ -84,6 +84,95 @@ test("ore against the current tunnel wall preempts a return-to-surface task", ()
   assert.equal(opportunity?.key, "visible-iron");
 });
 
+test("a full pack does not chase visible ore during a return trip", () => {
+  const fullInventory = [
+    {
+      item: "minecraft:stone_pickaxe",
+      count: 1,
+      durability: 80,
+      slot: 0,
+      section: "hotbar" as const,
+    },
+    ...Array.from({ length: 35 }, (_, index) => ({
+      item: "minecraft:cobblestone",
+      count: 64,
+      slot: index + 1,
+      section: "main" as const,
+    })),
+  ];
+  const opportunity = detectStateOpportunity({
+    stage: "iron",
+    decision: decision("goto", "沿矿道返回地表（还差 115 格）"),
+    now,
+    lastPreemptAt: 0,
+    world: {
+      inWorld: true,
+      position: { x: 150.44, y: 6, z: -87.52 },
+      inventory: fullInventory,
+      nearbyBlocks: [
+        {
+          id: "minecraft:iron_ore",
+          x: 151,
+          y: 7,
+          z: -88,
+          distance: 2,
+          visible: true,
+          reachable: true,
+          exposed: true,
+        },
+      ],
+    },
+  });
+  assert.equal(opportunity, null);
+});
+
+test("carried raw iron does not preempt the furnace trip with another ore", () => {
+  const opportunity = detectStateOpportunity({
+    stage: "iron",
+    decision: decision("goto", "回营地熔炼铁锭并制作铁镐"),
+    now,
+    lastPreemptAt: 0,
+    world: {
+      inWorld: true,
+      position: { x: 158, y: 23, z: -116 },
+      inventory: [
+        {
+          item: "minecraft:stone_pickaxe",
+          count: 1,
+          durability: 61,
+          slot: 0,
+          section: "hotbar" as const,
+        },
+        {
+          item: "minecraft:iron_ingot",
+          count: 2,
+          slot: 1,
+          section: "hotbar" as const,
+        },
+        {
+          item: "minecraft:raw_iron",
+          count: 52,
+          slot: 2,
+          section: "hotbar" as const,
+        },
+      ],
+      nearbyBlocks: [
+        {
+          id: "minecraft:iron_ore",
+          x: 156,
+          y: 22,
+          z: -115,
+          distance: 4.24,
+          visible: true,
+          reachable: true,
+          exposed: true,
+        },
+      ],
+    },
+  });
+  assert.equal(opportunity, null);
+});
+
 test("a lost pickaxe cancels a storage trip before it mines bare-handed", () => {
   const opportunity = detectStateOpportunity({
     stage: "stone-tools",

@@ -5,6 +5,7 @@ import { decisionSchema, intentSchema } from "./decision.ts";
 import {
   integrationSettingsUpdateSchema,
   integrationSettingsViewSchema,
+  goalKindSchema,
   showSettingsSchema,
 } from "./settings.ts";
 import { voiceStatusSchema, voiceSubtitleSchema } from "./voice.ts";
@@ -85,12 +86,27 @@ export const seasonGoalSchema = z.object({
   id: z.string().min(1),
   title: z.string().trim().min(1).max(120),
   description: z.string().trim().max(400),
+  /** The durable behavior profile; title/description are display-only. */
+  /**
+   * Optional on purpose: records written before this field existed must stay
+   * readable so `GoalRuntime.restore` can infer the kind from the old title.
+   */
+  goalKind: goalKindSchema.optional(),
   status: goalStatusSchema,
   version: z.number().int().positive(),
   setBy: z.literal("operator"),
   setAt: z.number().int().nonnegative(),
 });
-export type SeasonGoal = z.infer<typeof seasonGoalSchema>;
+/**
+ * Persisted goals written before `goalKind` existed remain readable. The
+ * runtime normalises them on load; wire schemas still apply the default.
+ */
+export type SeasonGoal = Omit<
+  z.infer<typeof seasonGoalSchema>,
+  "goalKind"
+> & {
+  readonly goalKind?: import("./settings.ts").GoalKind | undefined;
+};
 
 export const goalMilestoneSchema = z.object({
   id: z.string().min(1),
@@ -116,7 +132,46 @@ export const goalTaskStateSchema = z.enum([
 ]);
 export type GoalTaskState = z.infer<typeof goalTaskStateSchema>;
 
+export const goalTreeNodeKindSchema = z.enum([
+  "goal",
+  "stage",
+  "milestone",
+  "task",
+  "skill",
+  "interrupt",
+]);
+export type GoalTreeNodeKind = z.infer<typeof goalTreeNodeKindSchema>;
+
+export const goalTreeModeSchema = z.enum(["sequence", "selector"]);
+export type GoalTreeMode = z.infer<typeof goalTreeModeSchema>;
+
+export const goalTreeTriggerSchema = z.enum(["danger", "tool-lost", "operator"]);
+export type GoalTreeTrigger = z.infer<typeof goalTreeTriggerSchema>;
+
+export const goalTreeViewNodeSchema = z.object({
+  id: z.string().min(1).max(100),
+  parentId: z.string().min(1).max(100).nullable(),
+  kind: goalTreeNodeKindSchema,
+  mode: goalTreeModeSchema.nullable().default(null),
+  intent: z.string().trim().min(1).max(240),
+  state: goalTaskStateSchema,
+  priority: z.enum(["operator", "reflex", "survival", "goal", "optional"]),
+  reason: z.string().trim().max(600).nullable().default(null),
+  evidenceRefs: z.array(z.string().trim().min(1).max(240)).max(8).default([]),
+  attempts: z.number().int().nonnegative().default(0),
+  trigger: goalTreeTriggerSchema.nullable().default(null),
+  createdAt: z.number().int().nonnegative(),
+  updatedAt: z.number().int().nonnegative(),
+});
+export type GoalTreeViewNode = z.infer<typeof goalTreeViewNodeSchema>;
+
 export const goalTaskTreeSchema = z.object({
+  schemaVersion: z.number().int().positive().default(2),
+  rootId: z.string().min(1).max(100).default("goal"),
+  cursorId: z.string().min(1).max(100).default("goal"),
+  pausedNodeId: z.string().min(1).max(100).nullable().default(null),
+  interruptActive: z.boolean().default(false),
+  nodes: z.array(goalTreeViewNodeSchema).max(256).default([]),
   activePath: z
     .array(
       z.object({
@@ -306,6 +361,7 @@ export const clientMessageSchema = z.discriminatedUnion("type", [
     payload: z.object({
       title: z.string().trim().min(1).max(120),
       description: z.string().trim().max(400),
+      goalKind: goalKindSchema.default("dragon"),
     }),
   }),
   z.object({ type: z.literal("goalPause") }),

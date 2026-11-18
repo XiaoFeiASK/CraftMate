@@ -669,6 +669,42 @@ describe("goal runtime", () => {
     assert.notEqual(resumed.decision.eventId, issued.decision.eventId);
   });
 
+  test("restore infers goalKind for records written before it existed", () => {
+    const { clock } = testClock();
+    const store = new MemoryGoalRuntimeStore();
+    store.save({
+      goal: {
+        id: "legacy-goal",
+        title: "集齐全套钻石装备",
+        description: "旧会话留下的目标",
+        status: "active",
+        version: 1,
+        setBy: "operator",
+        setAt: 1_000,
+      },
+      enabled: true,
+      progress: null,
+      currentDecisionId: null,
+      currentStrategyKey: null,
+      lastFailure: null,
+      lastFailureStrategy: null,
+      consecutiveFailures: 0,
+      retryAt: 0,
+      updatedAt: 1_000,
+      failures: [],
+      taskTree: null,
+      taskNode: null,
+      targetFamily: null,
+      evidenceRefs: [],
+      failureRecord: null,
+    });
+
+    const restored = new GoalRuntime({ store, planner: planner(), clock });
+    restored.restore();
+    assert.equal(restored.currentGoal?.goalKind, "diamond-set");
+    assert.equal(store.load()?.goal?.goalKind, "diamond-set");
+  });
+
   test("survival planner derives the real first task from observed facts", () => {
     const goalPlanner = new SurvivalGoalPlanner();
     const plan = goalPlanner.plan({
@@ -1511,6 +1547,91 @@ describe("goal runtime", () => {
       z: -58,
     });
     assert.match(result.resolved.nextTask?.reason ?? "", /脱困/u);
+  });
+
+  test("a surface mine-mouth tunnel failure walks to the first stair cell", () => {
+    const task = {
+      id: "task:stuck-mouth",
+      stage: "diamond-gear",
+      kind: "mine",
+      title: "沿复用矿道回营地",
+      skill: {
+        name: "mine_tunnel",
+        args: { targetY: 57, length: 0, rememberMine: true },
+        idempotencyKey: "stuck-mouth",
+      },
+      preconditions: [],
+      expectedEvidence: [],
+      verify: () => true,
+    } as unknown as Task;
+    const survivalPlan = {
+      goal: goal(),
+      stage: "diamond-gear",
+      stageTitle: "钻石装备",
+      stages: [],
+      milestone: null,
+      task,
+      blocked: [],
+      missing: [],
+      verifiedProgress: 0,
+      completedMilestones: 0,
+      totalMilestones: 1,
+      recoveredFrom: null,
+      evaluatedAt: 1_000,
+    } as unknown as SurvivalPlan;
+    const facts: WorldFacts = {
+      inWorld: true,
+      position: { x: 155.5, y: 73, z: -68.5 },
+      canSeeSky: true,
+      surfaceY: 73,
+      health: 20,
+      food: 20,
+      inventory: [
+        { item: "minecraft:iron_pickaxe", count: 1, durability: 67 },
+        { item: "minecraft:cobblestone", count: 32 },
+      ],
+      nearbyBlocks: [],
+      mine: {
+        entrance: { x: 153, y: 75, z: -69 },
+        direction: "north",
+        stair: { stand: { x: 153, y: 63, z: -80 }, depth: 12 },
+      },
+      foodAcquired: false,
+      foodConsumed: false,
+      timeOfDay: 1_000,
+      day: 1,
+      sleeping: false,
+    };
+    const failure: TaskFailure = {
+      taskId: task.id,
+      stage: "diamond-gear",
+      code: "E_PRECONDITION",
+      detail: "no safe mining direction from the current cell",
+      attempts: 1,
+    };
+    const result = applyFailureRecovery(
+      survivalPlan,
+      {
+        goal: goal(),
+        progress: progress(),
+        world: null,
+        health: null,
+        proposals: [],
+        lastFailure: failure.detail,
+        consecutiveFailures: 1,
+        failures: [failure],
+        lastFailureStrategy: "stuck-mouth",
+      },
+      facts,
+    );
+    assert.ok(result.resolved !== null);
+    assert.equal(result.resolved.nextTask?.skill.name, "goto");
+    assert.deepEqual(result.resolved.nextTask?.skill.args["target"], {
+      x: 153,
+      y: 74,
+      z: -70,
+    });
+    assert.match(result.resolved.nextTask?.reason ?? "", /矿道第一阶|下潜/u);
   });
 
   test("a craft that cannot reach its table climbs out instead of exploring rock", () => {

@@ -151,12 +151,6 @@ final class IdleWander {
 	}
 
 	private static void choose(Minecraft client, LocalPlayer player) {
-		// A completed look_at task deliberately retains its observation pose,
-		// which used to make every idle LOOK end on its first tick. Idle time
-		// is a new intent, so it owns the camera again. Release rather than
-		// reset: a reset snaps the audience camera from the retained pose back
-		// to the body's instantly-aimed rotation.
-		if (CameraController.retained()) CameraController.release();
 		long dayTime = client.level.getDayTime() % 24_000L;
 		if (dayTime >= 13_000L && dayTime <= 23_000L) {
 			/*
@@ -345,11 +339,6 @@ final class IdleWander {
 			return;
 		}
 		boolean aligned = GameActions.turnTowards(player, heading);
-		CameraController.steerHeading(
-			player,
-			player.getYRot(),
-			CameraController.displayPitch(player)
-		);
 		if (!aligned) {
 			GameActions.setWalkInput(client, false);
 			return;
@@ -378,11 +367,6 @@ final class IdleWander {
 			Math.atan2(-(position.x - player.getX()), position.z - player.getZ())
 		);
 		boolean aligned = GameActions.turnTowards(player, heading);
-		CameraController.steerHeading(
-			player,
-			player.getYRot(),
-			CameraController.displayPitch(player)
-		);
 		boolean safe = safeAhead(client, player);
 		GameActions.setWalkInput(client, aligned && safe);
 		if (aligned && !safe) end(client);
@@ -390,25 +374,12 @@ final class IdleWander {
 	}
 
 	private static void look(Minecraft client, LocalPlayer player) {
-		if (CameraController.retained()) {
-			end(client);
-			return;
-		}
 		if (!nearbyEndermen(client, player).isEmpty()) {
 			end(client);
 			return;
 		}
 		boolean bodySettled = GameActions.lookTowards(player, lookYaw, lookPitch);
-		// The rendered camera follows the body through the same spring used
-		// by walking. Without this call, an idle scan moved the real player
-		// rotation and vanilla camera in lockstep, so the audience saw a
-		// constant-speed head turn with no easing or per-frame cap.
-		CameraController.steerHeading(
-			player,
-			player.getYRot(),
-			player.getXRot()
-		);
-		if (bodySettled && CameraController.settled(player, 2.5f)) {
+		if (bodySettled) {
 			if (holdTicks-- <= 0) end(client);
 			return;
 		}

@@ -630,6 +630,7 @@ const server = createControlServer({
         ...persistent.show.currentSettings(),
         goal: input.title,
         goalDescription: input.description,
+        goalKind: input.goalKind ?? persistent.show.currentSettings().goalKind,
         goalMode: true,
       });
       if (saved === null) {
@@ -840,8 +841,10 @@ const downtimeLoop = setInterval(() => {
     persistent.saveSettings({
       ...current,
       goalMode: true,
-      goal: "空场自由生存",
-      goalDescription: "没有观众指令时按生存阶段自己发展；观众评论仍然优先。",
+      goal: "击败末影龙",
+      goalKind: "dragon",
+      goalDescription:
+        "没有观众指令时按完整生存链自主推进到末地；观众评论仍然优先。",
     });
     publishGoalSnapshot();
   }

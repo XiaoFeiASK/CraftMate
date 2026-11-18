@@ -2951,6 +2951,97 @@ html[data-shell="desktop"] .titlebar { padding-left: 92px; }
   content: "/";
 }
 
+.agent-chat__tree {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid #edf0ea;
+  color: var(--ink-soft);
+  font-size: calc(10.5px * var(--ui-scale));
+}
+
+.agent-chat__tree > summary {
+  color: #687068;
+  cursor: pointer;
+  line-height: 1.5;
+  list-style-position: inside;
+}
+
+.agent-chat__tree[data-interrupt="true"] > summary {
+  color: var(--coral);
+}
+
+.agent-chat__tree > ul {
+  max-height: 220px;
+  margin: 6px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  overscroll-behavior: contain;
+}
+
+.agent-chat__tree-node {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 7px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+  border-left: 2px solid transparent;
+  line-height: 1.4;
+}
+
+.agent-chat__tree-node[data-active="true"] {
+  border-left-color: var(--mint);
+  background: #f4f8f4;
+}
+
+.agent-chat__tree-node[data-state="blocked"],
+.agent-chat__tree-node[data-state="failed"] {
+  border-left-color: var(--coral);
+}
+
+.agent-chat__tree-node[data-state="succeeded"] .agent-chat__tree-intent {
+  color: #7b827a;
+}
+
+.agent-chat__tree-kind {
+  min-width: 34px;
+  color: #8a918a;
+  font-family: var(--font-mono);
+  font-size: calc(9.5px * var(--ui-scale));
+}
+
+.agent-chat__tree-node[data-kind="goal"] .agent-chat__tree-kind,
+.agent-chat__tree-node[data-kind="interrupt"] .agent-chat__tree-kind {
+  color: var(--coral);
+}
+
+.agent-chat__tree-state {
+  color: #7a8179;
+  font-size: calc(9.5px * var(--ui-scale));
+}
+
+.agent-chat__tree-node[data-state="active"] .agent-chat__tree-state {
+  color: var(--mint);
+}
+
+.agent-chat__tree-node[data-state="blocked"] .agent-chat__tree-state,
+.agent-chat__tree-node[data-state="failed"] .agent-chat__tree-state {
+  color: var(--coral);
+}
+
+.agent-chat__tree-intent {
+  min-width: 0;
+  color: var(--ink-soft);
+}
+
+.agent-chat__tree-note {
+  flex-basis: 100%;
+  padding-left: 41px;
+  color: #8a918a;
+  font-size: calc(9.5px * var(--ui-scale));
+}
+
 .agent-chat__conversation {
   flex: 1;
   min-height: 0;

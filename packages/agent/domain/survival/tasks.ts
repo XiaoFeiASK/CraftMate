@@ -185,11 +185,12 @@ const MAX_WALK_TABLE_VERTICAL = 12;
  */
 const WALK_BACK_TABLE_DISTANCE = 64;
 /**
- * A pickaxe that is nearly spent must be replaced while the body still has
- * materials and a bench. Waiting for durability zero made the live run punch
- * the next stone block with an empty hand after the last swing.
+ * Use a pickaxe until it breaks before spending materials on a replacement.
+ * A pickaxe with one use can still open one block and free its slot; the old
+ * twelve-use reserve made a body carrying eight one-use iron pickaxes stop
+ * mining and queue another craft, then deadlock on the full backpack.
  */
-const PICKAXE_RESCUE_USES = 12;
+const PICKAXE_RESCUE_USES = 1;
 /**
  * A descent starts with six plank-units of wood: four for a replacement
  * table, two for sticks. Two loose planks only cover one of those jobs; a
@@ -1515,6 +1516,11 @@ function immediateIronOpportunity(
   const position = facts.position;
   if (
     stageIndex < STAGE_ORDER.indexOf("stone-tools") ||
+    // A visible ore is only an opportunity when the next iron upgrade still
+    // needs metal. Without this gate a body carrying a full stack of raw iron
+    // kept mining every ore it saw and never walked to a furnace to turn it
+    // into the missing pickaxe.
+    nextIronGearDeficit(facts) <= 0 ||
     !hasUsablePickaxe(facts, 2) ||
     facts.inWater === true ||
     !hasInventoryCapacity(facts, 0) ||
@@ -1559,6 +1565,31 @@ function immediateIronOpportunity(
       inventoryCount(next, "minecraft:raw_iron") >
       inventoryCount(facts, "minecraft:raw_iron"),
   };
+}
+
+/**
+ * Ingots still missing for the next iron tool or armour piece, counting raw
+ * ore already in the pack or loaded in a furnace. Ore gathering must stop at
+ * zero: more iron is not progress once the next craft is already covered.
+ */
+export function nextIronGearDeficit(facts: WorldFacts): number {
+  const nextGearItem = IRON_GEAR_ITEMS.find((item) => !hasIronGear(facts, item));
+  if (nextGearItem === undefined) return 0;
+  const needed = ingredientCount(nextGearItem, "minecraft:iron_ingot");
+  const storedIngots =
+    facts.furnaceContents?.output === "minecraft:iron_ingot"
+      ? facts.furnaceContents.outputCount ?? 0
+      : 0;
+  const storedRawIron =
+    facts.furnaceContents?.input === "minecraft:raw_iron"
+      ? facts.furnaceContents.inputCount ?? 0
+      : 0;
+  const available =
+    inventoryCount(facts, "minecraft:iron_ingot") +
+    storedIngots +
+    inventoryCount(facts, "minecraft:raw_iron") +
+    storedRawIron;
+  return Math.max(0, needed - available);
 }
 
 /**
@@ -2007,13 +2038,28 @@ function foodTask(facts: WorldFacts, newId: () => string): Task | BlockedTask | 
     };
   }
   const surfaceAnchor = facts.craftingTable;
+  /*
+   * A workstation only serves as a route back to daylight when it is near the
+   * surface. The live run had a table at y=46 while the body was at y=45 and
+   * the surface at y=71; calling that "返回地面工作台" sent the body climbing
+   * one block to a table that was still deep underground. Hunger is also a
+   * precondition: this branch used to fire with a full food bar.
+   */
+  const anchorNearSurface =
+    surfaceY === undefined ||
+    surfaceY === null ||
+    surfaceAnchor === undefined ||
+    surfaceAnchor === null ||
+    surfaceAnchor.y >= surfaceY - 8;
   if (
     position !== undefined &&
     position !== null &&
+    isHungry(facts) &&
     surfaceAnchor !== undefined &&
     surfaceAnchor !== null &&
     position.y < 60 &&
-    surfaceAnchor.y > position.y + 1
+    surfaceAnchor.y > position.y + 1 &&
+    anchorNearSurface
   ) {
     // Passive animals and oak canopies live on the surface. Sweeping the
     // mining layer at y=16 forever cannot create a meal; use the table the
@@ -2883,13 +2929,6 @@ function miningReturnTask(
     return returnToSurfaceTask(stage, facts, newId);
   }
   const depth = depthBelowSurface(facts) ?? 0;
-  /*
-   * A nearly spent iron pickaxe is not a reason to abandon the mine while a
-   * full stone pickaxe is still in the pack. The live body had an 8-use iron
-   * pickaxe and a 131-use stone pickaxe, but this check only looked at the
-   * highest tier and shuttled it to the surface after every block.
-   */
-  const uses = pickaxeUses(facts, 1);
   const inventoryFull = !hasTripCapacity(stage, facts);
   const lowFood = (facts.food ?? 20) < 8;
   // Leaving the mine cannot heal anything by itself: eating is the remedy,
@@ -2898,9 +2937,6 @@ function miningReturnTask(
   // otherwise a five-heart body with 13 hunger walked up and straight back
   // down the same staircase.
   const lowHealth = isLowHealth(facts) && (facts.food ?? 20) >= 17;
-  // Walking back up the staircase does not consume the pickaxe. Reserve only
-  // enough uses to finish the current cut and handle one blocked step.
-  const exhausted = uses !== null && uses < 16;
   /*
    * A full pack, an empty hunger bar or critical health ends the trip at any
    * depth. The old twelve-block floor assumed a shallow body could still walk
@@ -2908,10 +2944,13 @@ function miningReturnTask(
    * tunnel: mining refused to start because the pack was full, while this
    * helper also refused to climb out because the body was not "deep enough".
    * The goal then parked on "backpack full" forever.
+   *
+   * A worn pickaxe no longer ends the trip: the head keeps swinging until the
+   * slot is empty, then the next carried pickaxe takes over. Walking home with
+   * several one-use iron pickaxes was how the pack filled with spare tools.
    */
   const mustLeave = inventoryFull || lowFood || lowHealth;
-  if (!mustLeave && !exhausted) return null;
-  if (!mustLeave && depth < 12) return null;
+  if (!mustLeave) return null;
   // A body already on the surface does not need another staircase. Storage or
   // the stage task owns the next step from there.
   if (depth <= 2 && facts.canSeeSky === true) return null;
@@ -3055,6 +3094,99 @@ export function deadEndEscapeTask(
       next.position !== undefined &&
       next.position !== null &&
       next.position.y > position.y + 0.5,
+  };
+}
+
+/**
+ * A body that returned to camp to deposit stands on the terrace, often two
+ * blocks below the mine entrance. `mine_tunnel` starts from the live feet, so
+ * retrying it there rejects every heading with "no safe mining direction" and
+ * the tree replays the same node until the next backoff. Walk to the first
+ * open stair cell instead; the descent can resume from the top of the mine.
+ */
+export function mineMouthApproachTask(
+  stage: GoalId,
+  facts: WorldFacts,
+  newId: () => string,
+): Task | null {
+  const mine = facts.mine;
+  const position = facts.position;
+  if (
+    mine === undefined ||
+    mine === null ||
+    position === undefined ||
+    position === null ||
+    isUnderground(facts)
+  ) {
+    return null;
+  }
+  const top = straightStairCell(mine, mine.entrance.y - 1) ?? mine.entrance;
+  /*
+   * Standing on the entrance itself is already a valid descent start; the
+   * bridge can cut the first step from there. Only redirect a body that
+   * stepped below the lip (for example onto the camp terrace after a deposit)
+   * or drifted away from the mouth.
+   */
+  const atEntrance =
+    Math.hypot(
+      position.x - mine.entrance.x,
+      position.z - mine.entrance.z,
+    ) <= 1.5 &&
+    position.y >= mine.entrance.y - 0.5;
+  if (atEntrance) return null;
+  const entranceHorizontal = Math.hypot(
+    position.x - mine.entrance.x,
+    position.z - mine.entrance.z,
+  );
+  const farFromEntrance =
+    entranceHorizontal > 3 || Math.abs(position.y - mine.entrance.y) > 3;
+  const target = farFromEntrance ? mine.entrance : top;
+  /*
+   * A one-block tolerance is deliberate. The surface shortcut used to accept
+   * a body standing two blocks below the stair top, which made the bridge
+   * reject the descent while the planner believed it was already in place.
+   */
+  if (
+    Math.hypot(position.x - target.x, position.z - target.z) <= 0.9 &&
+    Math.abs(position.y - target.y) <= 0.6
+  ) {
+    return null;
+  }
+  return {
+    id: `task:${newId()}`,
+    stage,
+    kind: "navigate",
+    title: farFromEntrance
+      ? "先走到矿道入口再下潜"
+      : "走到矿道第一阶再下潜",
+    skill: skill(
+      "goto",
+      {
+        target,
+        candidates: farFromEntrance ? [target] : [top, mine.entrance],
+        mode: "recover",
+      },
+      newId,
+    ),
+    preconditions: [
+      "the body is back on the surface",
+      farFromEntrance
+        ? "the body remembers its fixed mine entrance"
+        : "the reusable mine has a remembered first stair cell",
+    ],
+    expectedEvidence: [
+      farFromEntrance
+        ? "the body reaches the fixed mine entrance"
+        : "the body reaches the first stair cell",
+    ],
+    verify: (next) => {
+      const nextPosition = next.position;
+      if (nextPosition === undefined || nextPosition === null) return false;
+      return (
+        distanceTo(nextPosition, target) <= (farFromEntrance ? 3 : 1.5) &&
+        Math.abs(nextPosition.y - target.y) <= (farFromEntrance ? 3 : 1)
+      );
+    },
   };
 }
 
@@ -3268,33 +3400,15 @@ function mineStepTask(
     !entranceBlocked &&
     (distanceTo(position, stand) > 2 || Math.abs(position.y - stand.y) > 1);
   if (stairAhead) {
-    if (
-      !isUnderground(facts) &&
-      distanceTo(position, entrance) > 3
-    ) {
-      return {
-        id: `task:${newId()}`,
-        stage,
-        kind: "navigate",
-        title: "先走到矿道入口再下潜",
-        skill: skill(
-          "goto",
-          {
-            target: entrance,
-            mode: entranceBlocked ? "recover" : "walk",
-          },
-          newId,
-        ),
-        preconditions: [
-          "the body remembers its fixed mine entrance",
-          "the remembered stair starts below the surface",
-        ],
-        expectedEvidence: ["the body reaches the fixed mine entrance"],
-        verify: (next) =>
-          next.position !== undefined &&
-          next.position !== null &&
-          distanceTo(next.position, entrance) <= 3,
-      };
+    if (!isUnderground(facts)) {
+      /*
+       * Being within three blocks of the entrance is not the same as standing
+       * on the first stair cell: a camp terrace two blocks lower still fails
+       * every descent heading. Let the approach task place the body exactly on
+       * the top step before the next snapshot issues `mine_tunnel`.
+       */
+      const approach = mineMouthApproachTask(stage, facts, newId);
+      if (approach !== null) return approach;
     }
     const segmentTarget = Math.max(
       targetY,
@@ -3570,145 +3684,6 @@ function canCraftReplacementPickaxe(facts: WorldFacts): boolean {
     planks >= 3 ||
     logCount(facts) >= 2
   );
-}
-
-/**
- * Builds a replacement pickaxe at the nearest reachable station. This is the
- * same "repair before the long trip" decision a player makes, and it keeps a
- * half-worn tool from parking the whole iron stage.
- */
-function replacementPickaxeTask(
-  stage: GoalId,
-  facts: WorldFacts,
-  newId: () => string,
-): Task | BlockedTask | null {
-  const planks = facts.inventory
-    .filter((slot) => PLANK_ITEMS.test(slot.item))
-    .reduce((total, slot) => total + slot.count, 0);
-  const logs = logCount(facts);
-  const stickSupply =
-    inventoryCount(facts, "minecraft:stick") + planks * 4 + logs * 16;
-  /*
-   * One plank yields four sticks. Requiring a literal stick stack blocked a
-   * body with two birch planks and 161 cobblestone behind a "pickaxe only has
-   * 23 uses" wall; the tool was one craft away. Let the prerequisite chain
-   * turn planks (or logs) into sticks before the pickaxe.
-   */
-  const stone =
-    inventoryCount(facts, "minecraft:cobblestone") >= 3 &&
-    stickSupply >= 2;
-  const wooden =
-    stickSupply >= 2 &&
-    (planks >= 3 || logs >= 1);
-  if (!stone && !wooden) return null;
-  /*
-   * One log cannot buy both a new four-plank table and the two sticks the
-   * replacement pickaxe needs. The live y=53 body had 161 cobblestone and one
-   * birch log; ensureTable spent that log on a portable bench, then the next
-   * plan had no binding and reported the mine blocked with 23 pickaxe uses
-   * left. A remembered table within the walk budget is already the station
-   * the craft skill can use, so keep the wood for sticks.
-   */
-  const station = facts.craftingTable;
-  const position = facts.position;
-  const rememberedTableNearby =
-    station !== undefined &&
-    station !== null &&
-    position !== undefined &&
-    position !== null &&
-    distanceTo(position, station) <= WALK_BACK_TABLE_DISTANCE;
-  const woodUnits = planks + logs * 4;
-  const tableWouldStarveBinding =
-    inventoryCount(facts, "minecraft:stick") < 2 && woodUnits < 6;
-  if (!(rememberedTableNearby && tableWouldStarveBinding)) {
-    const table = ensureTable(facts, stage, newId);
-    if (table !== null) return table;
-  }
-  const recipe = queryRecipe(
-    stone ? "minecraft:stone_pickaxe" : "minecraft:wooden_pickaxe",
-  );
-  if (recipe === null) return null;
-  const missing = missingForRecipe(recipe, facts);
-  if (missing.length === 0) return craftTask(recipe, stage, facts, newId);
-  const prerequisite = craftWithPrerequisite(
-    recipe,
-    stage,
-    facts,
-    newId,
-    "补充镐子材料",
-  );
-  return "skill" in prerequisite ? prerequisite : null;
-}
-
-/**
- * A deep trip can outlast one stone pickaxe. Replacing a broken tool on the
- * way up is far more expensive than carrying a spare: the live run spent a
- * whole pickaxe cutting a rescue shaft, then stood at y=48 with no tool and
- * a table it could not reach. Craft the second pickaxe while the body is
- * still beside its field table on the descent, when three cobblestone and
- * two sticks are cheap and the craft skill can actually touch the station.
- */
-function sparePickaxeTask(
-  stage: GoalId,
-  facts: WorldFacts,
-  newId: () => string,
-): Task | null {
-  if (stage !== "iron" && stage !== "diamond-gear") return null;
-  if (pickaxeTier(facts) !== 2) return null;
-  const carried = facts.inventory.filter(
-    (slot) => /_pickaxe$/u.test(slot.item) && slot.durability !== 0,
-  ).length;
-  if (carried >= 2) return null;
-  /*
-   * A spare is prepared beside a usable field table, not after climbing a
-   * deep shaft. The live iron run at y=45 kept ordering a second stone
-   * pickaxe from a table 23 blocks above; the craft could not route up the
-   * stair, recovery reissued it, and the body stopped mining with two raw
-   * iron already in the pack. The spare matters less than the ore trip.
-   */
-  const table = facts.craftingTable;
-  const position = facts.position;
-  if (
-    isUnderground(facts) &&
-    table !== undefined &&
-    table !== null &&
-    position !== undefined &&
-    position !== null &&
-    (table.y - position.y > 8 || table.y - position.y < -1)
-  ) {
-    // A table several blocks above is a climb; one below the feet is a hole
-    // the walker cannot enter. The live y=43 body had its old field table at
-    // y=40 behind the stair wall: distance said "reachable", but every craft
-    // approach made no progress and the stage alternated craft/goto forever.
-    return null;
-  }
-  /*
-   * The bridge's reachability probe is authoritative for an old table the
-   * body cannot touch. A freshly placed bench can miss the crosshair ray for
-   * a few ticks, so keep that one eligible; a walled-off field table must
-   * not keep re-issuing a craft the body can never start. The live y=43 run
-   * alternated craft/goto five times while three iron ores sat beside it.
-   */
-  const freshTable =
-    facts.craftingTableAgeTicks !== undefined &&
-    facts.craftingTableAgeTicks !== null &&
-    facts.craftingTableAgeTicks <= 20 * 10;
-  if (facts.craftingTableReachable === false && !freshTable) return null;
-  if (
-    !hasStation(facts, "crafting_table") &&
-    facts.craftingTableNearby !== true &&
-    !placedTableWithinWalk(facts)
-  ) {
-    return null;
-  }
-  const recipe = queryRecipe("minecraft:stone_pickaxe");
-  if (recipe === null || missingForRecipe(recipe, facts).length > 0) {
-    return null;
-  }
-  return {
-    ...craftTask(recipe, stage, facts, newId),
-    title: "补充备用石镐",
-  };
 }
 
 /**
@@ -4574,6 +4549,14 @@ function homeStorageTask(
     : facts.chest;
   const container = rememberedChest ?? nearbyPoint(chestNearby);
   const position = facts.position;
+  /*
+   * A placed chest whose position is no longer observed must not turn a
+   * deep mining trip into a walk back to the surface camp. The bounded
+   * walker cannot solve that route, so every retry fails E_ENCLOSED while
+   * the body stands at the diamond layer. Let the staged surface return
+   * (or a field cache) own the climb instead.
+   */
+  if (container === undefined && deepUnderground(facts)) return null;
   /*
    * Standing at the chest with a nearly full pack is the cheap moment to
    * clear several junk stacks. Waiting for the next "no free slot" plan made
@@ -5753,8 +5736,6 @@ export function miningLayerTask(
     const wood = woodTripReserveTask(stage, facts, newId);
     if (wood !== null) return wood;
   }
-  const spare = sparePickaxeTask(stage, facts, newId);
-  if (spare !== null) return spare;
   // Every descent must start from the same surface cell. Starting where the
   // body happens to stand is what cut a new staircase beside the camp on
   // every trip; the old one was still open and perfectly reusable.
@@ -5781,9 +5762,6 @@ export function miningLayerTask(
   // Travel can use any pickaxe the body carries; the tier gate above only
   // decides whether the destination's drops are harvestable.
   const uses = pickaxeUses(facts, 1);
-  // The staircase is the return route; only the descent and branch cut
-  // consume durability. Reserving a second full descent stranded perfectly
-  // usable stone pickaxes at the surface.
   // One stair step consumes at least one block that is not already open, and
   // each branch cell consumes up to two. Count only the layers still below
   // the body, not the whole depth from the surface, or a body already at y=20
@@ -5792,45 +5770,20 @@ export function miningLayerTask(
   // not need to pay for a second descent.
   const currentY = facts.position?.y ?? surface;
   const remainingDepth = Math.max(0, Math.round(currentY - targetY));
-  const neededUses = Math.max(12, remainingDepth + branchLength * 2 + 8);
-  if (uses !== null && uses < 24 && uses < neededUses) {
-    // A worn pickaxe is not a reason to stop the run when the body already
-    // carries cobblestone, sticks and a table. Players make a fresh pickaxe
-    // before a long descent instead of declaring the mine blocked.
-    const replacement = replacementPickaxeTask(stage, facts, newId);
-    if (replacement !== null) return replacement;
-    const supply = pickaxeMaterialSupplyTask(stage, facts, newId);
-    if (supply !== null) return supply;
-    return blockedWith(stage, "mine", title, [
-      {
-        kind: "tool",
-        item: "minecraft:stone_pickaxe",
-        detail: `预计需要 ${neededUses} 次挖掘，当前镐子只剩 ${uses} 次`,
-      },
-    ]);
-  }
-  // A stone pickaxe cannot cut all the way from the surface to the diamond
-  // layer in one trip. Plan a safe segment instead of refusing the whole
-  // descent; the next observation can continue, replace the tool, or branch
-  // from the new depth. This is the same short-trip behaviour as a player.
-  const safeDepth = uses === null ? remainingDepth : Math.max(0, uses - 8);
-  if (
-    uses !== null &&
-    remainingDepth > 0 &&
-    safeDepth < Math.min(12, remainingDepth)
-  ) {
-    const replacement = replacementPickaxeTask(stage, facts, newId);
-    if (replacement !== null) return replacement;
-    const supply = pickaxeMaterialSupplyTask(stage, facts, newId);
-    if (supply !== null) return supply;
-    return blockedWith(stage, "mine", title, [
-      {
-        kind: "tool",
-        item: "minecraft:stone_pickaxe",
-        detail: `当前镐子只剩 ${uses} 次，无法安全挖下一段矿道`,
-      },
-    ]);
-  }
+  /*
+   * Spend every carried pickaxe before making another one. The live full-pack
+   * run carried eight iron pickaxes with one swing each, but the old
+   * "worn tool" gate stopped the descent at twenty-four uses and queued a
+   * craft that could not fit in the backpack. A short segment costs nothing:
+   * when this pickaxe breaks the next plan picks up the next one, and only an
+   * empty tool rack reaches the replacement craft in `essentialPickaxeTask`.
+   *
+   * A stone pickaxe cannot cut all the way from the surface to the diamond
+   * layer in one trip either. Plan a segment that spends at most the remaining
+   * swings instead of refusing the whole descent; the next observation can
+   * continue with another carried pickaxe or branch from the new depth.
+   */
+  const safeDepth = uses === null ? remainingDepth : Math.max(0, uses);
   const reachesTarget = uses === null || remainingDepth <= safeDepth;
   const plannedTargetY = reachesTarget
     ? targetY
@@ -5838,16 +5791,14 @@ export function miningLayerTask(
   const remainingUses =
     uses === null
       ? Number.POSITIVE_INFINITY
-      : uses - Math.min(remainingDepth, safeDepth) - 8;
+      : uses - Math.min(remainingDepth, safeDepth);
   const plannedBranchLength = reachesTarget
     ? Math.min(branchLength, Math.max(0, Math.floor(remainingUses / 2)))
     : 0;
   /*
-   * Tool replacement has to beat the walk back to the entrance. The live run
-   * reached its remembered table with a nearly spent pickaxe, but this
-   * entrance leg fired first and sent it straight back to the mine; at the
-   * entrance the same check sent it to the table again. The two locations
-   * ping-ponged for minutes without ever crafting the replacement.
+   * A surface body away from its fixed entrance walks back to the shaft
+   * instead of opening a second one where it happens to stand. This leg only
+   * routes the body; it never turns a worn pickaxe into a workbench detour.
    */
   if (
     entrance !== undefined &&
@@ -6849,7 +6800,15 @@ function ensureTable(
       table !== null
     ) {
       const approach = gotoCraftingTableTask(stage, facts, newId);
-      if (approach !== null) return approach;
+      /*
+       * One refused approach is durable evidence that this station is not
+       * walkable from here. A point refusal covers the table's own vertical
+       * band, so retrying the other cardinal cells only burns the circuit
+       * breaker while the body carries the wood for a local 2x2 table.
+       */
+      const approachFailed =
+        table !== null && craftingTableApproachRefused(facts, table);
+      if (approach !== null && !approachFailed) return approach;
       /*
        * Every approach cell is covered by an active route refusal. Replaying
        * one of them only earns another E_UNREACHABLE and restarts the same
@@ -6859,6 +6818,7 @@ function ensureTable(
        */
       const rescue = rescueTableTask(stage, facts, newId);
       if (rescue !== null) return rescue;
+      if (approach !== null) return approach;
       if (overworldUnderground) {
         return returnToSurfaceTask(stage, facts, newId) ??
           blocked(stage, "navigate", "返回地表重建工作台");
@@ -7117,13 +7077,7 @@ function gotoCraftingTableTask(
 ): Task | null {
   const table = facts.craftingTable;
   if (table === undefined || table === null) return null;
-  const candidates = [table.y + 1, table.y, table.y - 1]
-    .flatMap((level) => [
-      { x: table.x + 1, y: level, z: table.z },
-      { x: table.x - 1, y: level, z: table.z },
-      { x: table.x, y: level, z: table.z + 1 },
-      { x: table.x, y: level, z: table.z - 1 },
-    ])
+  const candidates = craftingTableApproaches(table)
     .filter((candidate) => !routePointBlacklisted(facts, candidate))
     .slice(0, 8);
   if (candidates.length === 0) return null;
@@ -7151,6 +7105,28 @@ function gotoCraftingTableTask(
       next.position !== null &&
       candidates.some((candidate) => distanceTo(next.position!, candidate) <= 2),
   };
+}
+
+function craftingTableApproaches(table: {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}): readonly { readonly x: number; readonly y: number; readonly z: number }[] {
+  return [table.y + 1, table.y, table.y - 1].flatMap((level) => [
+    { x: table.x + 1, y: level, z: table.z },
+    { x: table.x - 1, y: level, z: table.z },
+    { x: table.x, y: level, z: table.z + 1 },
+    { x: table.x, y: level, z: table.z - 1 },
+  ]);
+}
+
+function craftingTableApproachRefused(
+  facts: WorldFacts,
+  table: { readonly x: number; readonly y: number; readonly z: number },
+): boolean {
+  return craftingTableApproaches(table).some((candidate) =>
+    routePointBlacklisted(facts, candidate),
+  );
 }
 
 /**

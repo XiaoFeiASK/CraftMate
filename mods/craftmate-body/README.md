@@ -93,10 +93,23 @@ a long connection so consumed evidence does not make a milestone regress.
 blocks it actually observed; a landmark hint still needs navigation and
 verification.
 
-Camera rendering and player interaction are separate. `CameraController`,
-`CameraSpring` and `CameraMixin` smooth the displayed camera; walking uses
-`ViewSlew`. Block and entity interactions are submitted from coordinates,
-distance and reachable faces, not from where the rendered camera points.
+Camera rendering and player interaction are separate. `ThirdPersonCamera` and
+`CameraMixin` change the normal third-person-back view itself: the eye is the
+orbit centre, the view always aims at the torso, and yaw, pitch, radius and the
+followed eye position use springs. The default radius is 8.5 blocks and can be
+scrolled between 2.5 and 20; left-drag and the arrow keys orbit the camera.
+The body's own rotation does not drag the orbit, so idle glances and mining
+turns no longer make the frame wander. Vanilla camera collision is bypassed
+with a `getMaxZoom` mixin, and blocking blocks are redrawn at 28% alpha while
+the player body remains fully opaque.
+
+This is not a separate camera mode and there is no extra toggle key. First
+person and third-person front remain vanilla. The normal perspective key
+(mouse button 5 in the current instance) can switch to first person at any
+time, including while the agent owns the body. `look_at` only steers the orbit
+angles programmatically; mouse drag immediately takes control back. Block and
+entity interactions are still submitted from coordinates, distance and
+reachable faces, not from where the rendered camera points.
 
 ## Acceptance
 

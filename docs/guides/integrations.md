@@ -38,7 +38,7 @@ CRAFTMATE_MODEL_TIMEOUT_MS=20000
 
 模型调用只有成功后才写 `model_cost`。从 `0012_model_usage.sql` 起，没有配置单价
 的成功请求也会记录 prompt/completion token（`cost = 0`）。目标模式由
-`MissionGoalPlanner` 确定性执行，不产生逐步模型调用；模型主要用于观众 Stage C。
+`GoalTreePlanner` 确定性执行，不产生逐步模型调用；模型主要用于观众 Stage C。
 额度不变并不等于 Agent 停止工作。若供应商返回 `502`，先核对端点和模型名。
 
 ## 2. 豆包 Seeduplex 实时语音
